@@ -30,7 +30,7 @@ export class Match {
     this.entities = [];
     this.tree = null;   // 古樹之庭的狀態（見 tree-boss.js）
     this.snake = null;  // 叢林巨蟒的狀態（見 snake-boss.js）
-    this.items = [];    // 場上的道具（巨蟒掉的解藥）{ id, type, x, y }，y = 落在的地面
+    this.items = [];    // 場上的道具（巨蟒掉的蛇血）{ id, type, x, y }，y = 落在的地面
     this.pickups = [];  // 位置回報途中撿到的道具（fx），裁判拿去廣播（見 takePickups）
     this.fever = 0;     // 狂熱層數：裁判每輪開始時照輪數更新（見 feverStacks）
 
@@ -135,7 +135,7 @@ export class Match {
   // 站得住的位置記成「最後站穩的地方」；回報在水裡 = 自己走 / 跳進水裡 → 落水（扣血、回到岸上，或淹死）。
   // safe = 客戶端記的最後站穩的地方（落水那次回報才帶）：站得住、離得不遠就採用，重生點才會跟他畫面上的一樣。
   // vine = 回報說抓著第幾條藤蔓（-1 = 沒有）：位置真的掛得上去才算，不然當成在半空中（超時就會掉下去）。
-  // 從上一個位置走到這裡的路上碰到解藥（有被中毒鎖住的上限才會撿）就喝掉，記在 this.pickups 給裁判廣播
+  // 從上一個位置走到這裡的路上碰到蛇血（有被中毒鎖住的上限、或血沒滿才會撿）就喝掉，記在 this.pickups 給裁判廣播
   setPlayerPosition(e, x, y, facing, stamina, safe = null, vine = -1) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
     if (x < e.hw || x > this.terrain.maxX - e.hw || y < 0 || y > CONFIG.WORLD_H) return false;
@@ -193,7 +193,7 @@ export class Match {
     e.movedThisTurn = 0;
   }
 
-  // 自己的回合開始時（轟炸之後、開始計時之前）：中毒結算（可能被毒倒）→ 站在解藥上就喝掉 → 恩賜之杖回血。
+  // 自己的回合開始時（轟炸之後、開始計時之前）：中毒結算（可能被毒倒）→ 站在蛇血上就喝掉 → 恩賜之杖回血。
   // 回傳 fx 清單給客戶端飄字
   turnStartEffects(e) {
     const fx = [];
@@ -217,7 +217,7 @@ export class Match {
     const fx = [];
     if (!e.alive) return fx;
     this.burnTick(e, fx);
-    const drops = snakeDrops(this);   // 巨蟒被燒到跨過門檻也會掉解藥
+    const drops = snakeDrops(this);   // 巨蟒被燒到跨過門檻也會掉蛇血
     if (drops.length) fx.push({ type: 'drops', id: e.id, items: drops });
     // 古樹（眼睛）的回合結束：被打到閉上的嘴巴撐過了這個回合，再張開（已經分出勝負就不播）
     if (e.part === 'eye' && e.alive && !this.result()) reopenMouth(this, fx);
@@ -612,7 +612,7 @@ export class Match {
       const ids = new Set(damages.map(d => d.id));
       if (heal > 0) ids.add(owner.id);
       ev.ents = this.entities.filter(e => ids.has(e.id)).map(e => e.toEventState());
-      const drops = snakeDrops(this);   // 打到巨蟒跨過門檻：掉解藥（客戶端在這一幀播出來）
+      const drops = snakeDrops(this);   // 打到巨蟒跨過門檻：掉蛇血（客戶端在這一幀播出來）
       if (drops.length) ev.drops = drops;
     }
     return ev;
@@ -645,7 +645,7 @@ export class Match {
       minions: this.tree ? this.tree.minions.slice() : [],   // 召喚出來的樹妖（重連時先照這個重建，再套狀態）
       treeNext: this.tree && this.tree.next ? { ...this.tree.next } : null,   // 古樹預定的下一招（客戶端照這個畫撞擊的預告）
       snakeNext: this.snake && this.snake.next ? { ...this.snake.next } : null,   // 巨蟒預定的下一招（衝撞要畫警示帶）
-      items: this.items.map(it => ({ ...it })),   // 場上的解藥
+      items: this.items.map(it => ({ ...it })),   // 場上的蛇血
     };
   }
 

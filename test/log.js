@@ -8,9 +8,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { CONFIG } from '../shared/config.js';
 import { Run } from '../shared/run.js';
+import { Match } from '../shared/match.js';
+import { Referee } from '../shared/referee.js';
 import { validateCards, needsDiscard } from '../shared/cards.js';
+import { logValue } from '../shared/utils.js';
 import { GameLog } from '../server/logger.js';
+import { RoomManager } from '../server/rooms.js';
 import { createServer } from '../server/server.js';
+import { SoloLog } from '../client/solo-log.js';
 
 const results = [];
 async function test(name, fn) {
@@ -73,31 +78,61 @@ function beefUp(run) {
 
 await test('GameLog：每行一筆 JSON、ts / ev / room 排在最前面、資料裡的 ts 蓋不掉、room 沒有就不寫', () => {
   const dir = tmpDir();
-  const log = new GameLog({ dir });
+  const log = new GameLog({ dir, now: () => new Date(2026, 9, 2, 9, 5, 8, 0) });
   log.write({ ev: 'room.create', room: 'ABCD', pid: 'x', ts: 'bogus', n: 1 }, new Date(2026, 9, 2, 9, 5, 7, 42));
-  log.write({ ev: 'server.start', port: 1 }, new Date(2026, 9, 2, 9, 5, 8, 0));
+  log.write({ ev: 'server.start', port: 1 });
   const file = path.join(dir, 'game-2026-10-02.log');
   assert(log.file === file, 'current file: ' + log.file);
   const [a, b] = readLines(file);
   assert(Object.keys(a).slice(0, 3).join() === 'ts,ev,room', 'key order: ' + Object.keys(a));
   assert(a.ts === '2026-10-02 09:05:07.042' && a.ev === 'room.create' && a.room === 'ABCD' && a.pid === 'x' && a.n === 1, JSON.stringify(a));
-  assert(!('room' in b) && b.ev === 'server.start' && b.port === 1, JSON.stringify(b));
+  assert(!('room' in b) && b.ev === 'server.start' && b.port === 1 && b.ts === '2026-10-02 09:05:08.000', JSON.stringify(b));
   log.close();
   log.write({ ev: 'after.close' });
   assert(readLines(file).length === 2, 'nothing written after close');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-await test('GameLog：跨過午夜換新的檔（以本機日期為準）', () => {
+await test('GameLog：跨過午夜換新的檔（看伺服器的時鐘）；送來的時間只影響 ts，亂跳也不會換檔；writeMany 一次寫完', () => {
   const dir = tmpDir();
-  const log = new GameLog({ dir });
-  log.write({ ev: 'a' }, new Date(2026, 9, 2, 23, 59, 59, 999));
-  log.write({ ev: 'b' }, new Date(2026, 9, 3, 0, 0, 0, 0));
+  let clock = new Date(2026, 9, 2, 23, 59, 59, 999);
+  const log = new GameLog({ dir, now: () => clock });
+  log.write({ ev: 'a' });
+  log.write({ ev: 'yesterday' }, new Date(2026, 9, 1, 12, 0, 0, 0));
+  clock = new Date(2026, 9, 3, 0, 0, 0, 0);
+  log.write({ ev: 'b' });
+  const opens = [];
+  const open = log.open.bind(log);
+  log.open = (day) => { opens.push(day); open(day); };
+  log.writeMany(Array.from({ length: 50 }, (_, i) => ({ entry: { ev: 'm', i }, at: new Date(2026, 9, i % 2 ? 2 : 3, 1, 0, 0, i) })));
   log.close();
+  assert(opens.length === 0, 'alternating client times must not reopen the file: ' + opens.join());
   const files = fs.readdirSync(dir).sort();
   assert(files.join() === 'game-2026-10-02.log,game-2026-10-03.log', files.join());
-  assert(readLines(path.join(dir, files[0]))[0].ev === 'a' && readLines(path.join(dir, files[1]))[0].ev === 'b', 'each day its own file');
+  const day1 = readLines(path.join(dir, files[0])), day2 = readLines(path.join(dir, files[1]));
+  assert(day1.map(l => l.ev).join() === 'a,yesterday' && day1[1].ts === '2026-10-01 12:00:00.000', 'ts from at, file from clock: ' + JSON.stringify(day1));
+  assert(day2[0].ev === 'b' && day2.length === 51 && day2.at(-1).i === 49 && day2[2].ts.startsWith('2026-10-02 01:00'), 'batch in today\'s file');
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+await test('GameLog：伺服器跑著的時候檔案被刪掉 → 一秒內重建，後面的紀錄不會消失', () => {
+  const dir = tmpDir();
+  let clock = new Date(2026, 9, 2, 10, 0, 0, 0);
+  const log = new GameLog({ dir, now: () => clock });
+  log.write({ ev: 'a' });
+  fs.rmSync(dir, { recursive: true, force: true });
+  clock = new Date(2026, 9, 2, 10, 0, 2, 0);
+  log.write({ ev: 'b' });
+  log.close();
+  assert(fs.existsSync(log.file) && readLines(log.file).map(l => l.ev).join() === 'b', 'recreated with the new line');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+await test('logValue：客戶端送來的值截短 / 取一位小數，物件只記型別（亂送 {"toString":0} 也不會丟錯）', () => {
+  const evil = JSON.parse('{"toString":0}');
+  assert(logValue('x'.repeat(50)).length === 20 && logValue('abc', 2) === 'ab', 'strings clipped');
+  assert(logValue(1.234) === 1.2 && logValue(NaN) === 'NaN' && logValue(Infinity) === 'Infinity', 'numbers');
+  assert(logValue(evil) === 'object' && logValue([1]) === 'array' && logValue(null) === null && logValue(true) === true && logValue(undefined) === undefined, 'others');
 });
 
 await test('GameLog：寫不進去（資料夾路徑是一個檔案）不會丟錯、只警告一次；序列化失敗也只記錯誤不當掉', () => {
@@ -142,7 +177,7 @@ await test('一關的每一步都有紀錄：開始、回合、移動、換武�
 
   io.advance(2000);
   const t1 = io.last('turn.start');
-  assert(t1 && t1.actor === 'p1' && t1.name === '甲' && t1.ai === false && t1.round === 1 && t1.turnTime > 0, 'turn.start p1: ' + JSON.stringify(t1));
+  assert(t1 && t1.actor === 'p1' && t1.pid === 'p1' && t1.name === '甲' && t1.ai === false && t1.round === 1 && t1.turnTime > 0, 'turn.start p1: ' + JSON.stringify(t1));
 
   // 不是他的回合 / 不認得的訊息 / 沒有的武器 → action.ignored
   run.handle('p2', { t: 'move', x: 1, y: 1 });
@@ -152,7 +187,10 @@ await test('一關的每一步都有紀錄：開始、回合、移動、換武�
   run.handle('p1', { t: 'weapon', weapon: 'nukes' });
   assert(io.last('action.ignored').reason === 'weaponNotOwned', 'weapon not owned');
   run.handle('p1', { t: 'fire', weapon: 'cannon', angle: NaN, power: 50 });
-  assert(io.last('action.ignored').reason === 'badAim', 'bad aim');
+  const bad = io.last('action.ignored');
+  assert(bad.reason === 'badAim' && bad.weapon === 'cannon' && bad.angle === 'NaN' && bad.power === 50, 'bad aim keeps what was sent: ' + JSON.stringify(bad));
+  run.handle('p1', JSON.parse('{"t":{"toString":0}}'));   // 亂送的物件：String() 會丟錯的那種
+  assert(io.last('action.ignored').t === 'object' && io.last('action.ignored').reason === 'unknown', 'crafted t logged safely');
 
   // 換武器
   const me = run.match.byId('p1');
@@ -167,6 +205,9 @@ await test('一關的每一步都有紀錄：開始、回合、移動、換武�
   assert(mv && mv.pid === 'p1' && mv.name === '甲' && mv.facing === -1 && mv.stage === 1 && mv.round === 1, 'move: ' + JSON.stringify(mv));
   run.handle('p1', { t: 'move', x: me.x + 390, y: -50, facing: 1, stamina: 0 });
   assert(io.last('move.reject') && io.last('move.reject').pid === 'p1', 'teleport rejected');
+  run.handle('p1', { t: 'move', x: { huge: 'x'.repeat(5000) }, y: 'y'.repeat(5000) });
+  const rej = io.last('move.reject');
+  assert(rej.x === 'object' && rej.y.length === 20, 'raw client values are clipped: ' + JSON.stringify(rej));
 
   // 開火：先記操作，再記結果（往正上方低力量開，會打到自己附近 → 一定有血量變化）
   run.handle('p1', { t: 'fire', weapon: 'cannon', angle: 90, power: 20, x: me.x, y: me.y, facing: 1, stamina: me.stamina });
@@ -183,12 +224,12 @@ await test('一關的每一步都有紀錄：開始、回合、移動、換武�
   assert(advanceUntil(io, () => io.last('turn.start').actor === 'p2'), 'p2 turn');
   assert(io.evs('turn.end').some(r => r.actor === 'p1'), 'turn.end for p1');
   assert(advanceUntil(io, () => io.last('turn.skip')), 'p2 timeout');
-  assert(io.last('turn.skip').actor === 'p2' && io.last('turn.skip').reason === 'timeout', 'skip reason');
+  assert(io.last('turn.skip').actor === 'p2' && io.last('turn.skip').pid === 'p2' && io.last('turn.skip').reason === 'timeout', 'skip reason');
 
   // 敵人的 AI 回合
   assert(advanceUntil(io, () => io.evs('ai.turn').length > 0), 'enemy ai turn');
   const ai = io.evs('ai.turn')[0];
-  assert(ai.actor.startsWith('e') && !ai.takeover && Array.isArray(ai.changes) && (ai.noShot || ai.weapon), 'ai.turn: ' + JSON.stringify(ai));
+  assert(ai.actor.startsWith('e') && !ai.takeover && !('pid' in ai) && Array.isArray(ai.changes) && (ai.noShot || ai.weapon), 'ai.turn: ' + JSON.stringify(ai));
   assert(io.evs('turn.start').some(r => r.actor === ai.actor && r.ai === true && r.team === 'enemies'), 'enemy turn.start');
 
   // 敵人全倒 → battle.over win → 發牌
@@ -267,41 +308,171 @@ await test('CONFIG.LOG.moves = false：移動不逐筆記，其他照記；io �
   assert(io2.msgs.some(m => m.t === 'shot'), 'game still runs without record');
 });
 
+await test('代打前先落地就淹死：turn.skip 的 changes 從落地之前算起（看得到他從幾滴血掉到 0）', () => {
+  const io = new FakeIo();
+  const humans = [{ id: 'p1', name: '甲' }, { id: 'p2', name: '乙' }];
+  const match = new Match({ levelId: 'level1', players: humans, seed: 1 });
+  const ref = new Referee({ match, humans, io });
+  ref.start();
+  io.advance(2000);
+  assert(ref.currentId === 'p1' && ref.phase === 'turn', 'p1 turn');
+  // 找一條上下都沒有地形的 x（水面上空）
+  let x = null;
+  for (let cx = 40; cx < CONFIG.WORLD_W - 40 && x === null; cx += 4) {
+    let open = true;
+    for (let y = 0; y <= CONFIG.WATER_LEVEL + 4 && open; y += 2) {
+      for (let dx = -24; dx <= 24; dx += 4) if (match.terrain.isSolid(cx + dx, y)) { open = false; break; }
+    }
+    if (open) x = cx;
+  }
+  assert(x !== null, 'level1 has open water');
+  const p1 = match.byId('p1');
+  Object.assign(p1, { x, y: CONFIG.WATER_LEVEL - 60, vx: 0, vy: 0, onGround: false, hp: 1 });
+  ref.setConnected('p1', false);
+  const skip = io.last('turn.skip');
+  assert(skip && skip.reason === 'water' && skip.pid === 'p1', 'drowned during takeover: ' + JSON.stringify(skip));
+  const c = skip.changes.find(ch => ch.id === 'p1');
+  assert(c && c.hp[0] === 1 && c.hp[1] === 0 && c.died, 'changes counted from before the settle: ' + JSON.stringify(skip.changes));
+});
+
+// ---------- 單人練習：瀏覽器那邊攢紀錄、送回伺服器 ----------
+
+function fakeTimers() {
+  const timers = [];
+  return {
+    timers,
+    schedule: (fn) => { const h = { fn }; timers.push(h); return h; },
+    cancel: (h) => { const i = timers.indexOf(h); if (i >= 0) timers.splice(i, 1); },
+    async tick() { for (const h of timers.splice(0)) h.fn(); await new Promise(r => setTimeout(r, 0)); },
+  };
+}
+
+await test('SoloLog：每 2 秒送一批；網路錯誤 / 5xx / 429 放回去重送（順序不變），404 之類的就算了', async () => {
+  const sent = [];
+  let reply = 503;
+  const t = fakeTimers();
+  const sl = new SoloLog({
+    send: async (body) => { sent.push(JSON.parse(body)); if (reply === 'throw') throw new Error('offline'); return reply; },
+    schedule: t.schedule, cancel: t.cancel,
+  });
+  sl.record('a', { n: 1 });
+  sl.record('b', { n: 2 });
+  assert(t.timers.length === 1 && sent.length === 0, 'waits for the timer');
+  await t.tick();
+  assert(sent.length === 1 && sl.buf.map(e => e.ev).join() === 'a,b' && t.timers.length === 1, 'requeued after 503, retry scheduled');
+  reply = 429;
+  await t.tick();
+  assert(sl.buf.map(e => e.ev).join() === 'a,b', 'requeued after 429');
+  reply = 'throw';
+  sl.record('c', {});
+  await t.tick();
+  assert(sl.buf.map(e => e.ev).join() === 'a,b,c', 'requeued after a network error');
+  reply = 204;
+  await t.tick();
+  const last = sent.at(-1);
+  assert(last.sid === sl.sid && last.entries.map(e => e.ev).join() === 'a,b,c' && sl.buf.length === 0 && t.timers.length === 0, 'delivered in order');
+  assert(last.entries.every(e => Number.isFinite(e.at)), 'entries carry the browser time');
+  reply = 404;
+  sl.record('d', {});
+  await t.tick();
+  assert(sl.buf.length === 0 && t.timers.length === 0, '404 is final (old server without /log)');
+});
+
+await test('SoloLog：最多攢 5000 筆，丟掉的補一筆 log.dropped；一批照 UTF-8 位元組不超過 30KB；離開頁面送最後一批；關掉紀錄就不記', async () => {
+  const sent = [];
+  const t = fakeTimers();
+  const sl = new SoloLog({ send: async (body) => { sent.push(body); return 204; }, schedule: t.schedule, cancel: t.cancel });
+  for (let i = 0; i < 5010; i++) sl.record('move', { i, name: '中文名字的玩家' });
+  assert(sl.buf.length === 5000 && sl.dropped === 10 && sl.buf[0].i === 10, 'oldest entries dropped');
+  sl.flush();
+  await new Promise(r => setTimeout(r, 0));
+  const first = JSON.parse(sent[0]);
+  assert(first.entries[0].ev === 'log.dropped' && first.entries[0].count === 10, 'dropped marker goes first');
+  assert(Buffer.byteLength(sent[0]) <= 30 * 1024 + 100 && Buffer.byteLength(sent[0]) > 20 * 1024, 'batch measured in bytes: ' + Buffer.byteLength(sent[0]));
+  const left = sl.buf.length;
+  sl.flushFinal();
+  await new Promise(r => setTimeout(r, 0));
+  assert(sent.length === 2 && sl.buf.length === 0 && t.timers.length === 0, 'one final request, nothing left');
+  const fin = JSON.parse(sent[1]);
+  const marker = fin.entries.at(-1);
+  assert(marker.ev === 'log.dropped' && marker.unload === true && marker.count === left - (fin.entries.length - 1), 'leftovers counted: ' + JSON.stringify(marker));
+  assert(Buffer.byteLength(sent[1]) <= 30 * 1024 + 200, 'final batch fits the keepalive budget');
+
+  const saved = CONFIG.LOG.enabled;
+  CONFIG.LOG.enabled = false;
+  try {
+    const off = new SoloLog({ send: async () => 204, schedule: t.schedule, cancel: t.cancel });
+    off.record('move', {});
+    assert(off.buf.length === 0 && t.timers.length === 0, 'disabled → nothing buffered');
+  } finally {
+    CONFIG.LOG.enabled = saved;
+  }
+});
+
+// ---------- 伺服器：房間管理 ----------
+
+await test('RoomManager：亂送的訊息照樣記成 msg.ignored / msg.bad 不丟錯；雜訊類每條連線 10 秒最多 30 筆，斷線時補 log.suppressed；guard 記下錯誤再丟出去', () => {
+  const lines = [];
+  const mgr = new RoomManager({ log: { write: (e) => lines.push(e) } });
+  const client = mgr.onConnection(null, { ip: '10.0.0.9' });
+  assert(lines[0].ev === 'conn.open' && lines[0].cid === client.cid && lines[0].ip === '10.0.0.9', 'conn.open');
+  mgr.onMessage(client, JSON.parse('{"t":{"toString":0}}'));
+  const ig = lines.at(-1);
+  assert(ig.ev === 'msg.ignored' && ig.t === 'object' && ig.reason === 'noRoom', 'crafted t: ' + JSON.stringify(ig));
+  mgr.onMessage(client, 5);
+  assert(lines.at(-1).ev === 'msg.bad' && lines.at(-1).notObject === 5, 'non-object message');
+  for (let i = 0; i < 40; i++) mgr.onMessage(client, { t: 'zzz' });
+  assert(lines.filter(l => l.ev === 'msg.ignored').length === 29, 'noise capped at 30 per window');
+  mgr.onClose(client, 1006);
+  const sup = lines.find(l => l.ev === 'log.suppressed');
+  assert(lines.some(l => l.ev === 'conn.close' && l.code === 1006) && sup && sup.count === 12 && sup.key === `c${client.cid}`, 'suppressed count: ' + JSON.stringify(sup));
+
+  let threw = false;
+  try { mgr.guard('timer', () => { throw new Error('boom'); }); } catch (err) { threw = err.message === 'boom'; }
+  assert(threw && lines.at(-1).ev === 'error' && lines.at(-1).where === 'timer' && lines.at(-1).error.includes('boom'), 'guard logs then rethrows');
+});
+
 // ---------- 伺服器：單人練習的紀錄 ----------
 
-async function post(port, body, raw = false) {
+async function post(port, body, raw = false, type = 'application/json') {
   const res = await fetch(`http://127.0.0.1:${port}/log`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: raw ? body : JSON.stringify(body),
+    method: 'POST', headers: { 'Content-Type': type }, body: raw ? body : JSON.stringify(body),
   });
   return res.status;
 }
+const pad2 = (n) => String(n).padStart(2, '0');
+const localStamp = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 
 await test('POST /log：單人練習的紀錄寫進同一個檔，房號一律 SOLO-<sid>、帶 ip、用瀏覽器記的時間；壞掉 / 太大的拒收', async () => {
   const dir = tmpDir();
   const srv = await createServer({ port: 0, host: '127.0.0.1', logDir: dir });
   try {
     const at = Date.now() - 1500;
+    const oldAt = Date.now() - 2 * 3600 * 1000;
     const status = await post(srv.port, {
       sid: 'ab$c-12',
       entries: [
-        { ev: 'move', at, room: 'HACK', ts: 'fake', pid: 'me', x: 1 },
+        { ev: 'move', at, room: 'HACK', ts: 'fake', pid: 'me', x: 1, ip: '6.6.6.6' },
         'junk', null, [1, 2], { ev: 5 },
         { ev: 'fire', at: 'not-a-time', pid: 'me', weapon: 'cannon' },
         { ev: 'x'.repeat(100), at },
+        { ev: 'old', at: oldAt },
+        { ev: 'big', at, blob: 'x'.repeat(5000) },
       ],
     });
     assert(status === 204, 'status ' + status);
     const lines = readLines(srv.log.file).filter(l => l.room && l.room.startsWith('SOLO-'));
-    assert(lines.length === 3, 'only well-formed entries: ' + JSON.stringify(lines));
-    const [mv, fire, long] = lines;
+    assert(lines.length === 5, 'only well-formed entries: ' + JSON.stringify(lines));
+    const [mv, fire, long, old, big] = lines;
     assert(mv.ev === 'move' && mv.room === 'SOLO-abc12' && mv.ip === '127.0.0.1' && mv.x === 1 && mv.ts !== 'fake', JSON.stringify(mv));
-    const d = new Date(at);
-    const hhmmss = [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => String(n).padStart(2, '0')).join(':');
-    assert(mv.ts.includes(hhmmss), `uses the browser's time: ${mv.ts} vs ${hhmmss}`);
+    assert(mv.ts.startsWith(localStamp(new Date(at))), `uses the browser's time: ${mv.ts} vs ${localStamp(new Date(at))}`);
     assert(fire.ev === 'fire' && fire.weapon === 'cannon', JSON.stringify(fire));
     assert(long.ev.length === 40, 'event name capped');
+    assert(old.ev === 'old' && !old.ts.startsWith(localStamp(new Date(oldAt))), 'times older than an hour use the server time: ' + old.ts);
+    assert(big.ev === 'big' && big.truncated === true && !('blob' in big), 'oversized entry truncated');
 
     assert(await post(srv.port, '{not json', true) === 400, 'bad json → 400');
+    assert(await post(srv.port, JSON.stringify({ sid: 'a', entries: [{ ev: 'x' }] }), true, 'text/plain') === 415, 'non-JSON content type → 415');
     let refused = false;
     try {
       const s = await post(srv.port, 'x'.repeat(300 * 1024), true);
@@ -312,6 +483,20 @@ await test('POST /log：單人練習的紀錄寫進同一個檔，房號一律 S
     assert(refused, 'oversize body refused');
     const page = await fetch(`http://127.0.0.1:${srv.port}/`);
     assert(page.status === 200, 'static files still served');
+  } finally {
+    await srv.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+await test('POST /log：每個 ip 每 10 秒最多收 1MB，超過回 429（瀏覽器會晚點重送）', async () => {
+  const dir = tmpDir();
+  const srv = await createServer({ port: 0, host: '127.0.0.1', logDir: dir });
+  try {
+    const junk = 'x'.repeat(200 * 1024);
+    const statuses = [];
+    for (let i = 0; i < 6; i++) statuses.push(await post(srv.port, junk, true));
+    assert(statuses.slice(0, 5).every(s => s === 400) && statuses[5] === 429, 'statuses: ' + statuses.join());
   } finally {
     await srv.close();
     fs.rmSync(dir, { recursive: true, force: true });

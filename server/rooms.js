@@ -6,10 +6,14 @@ import { CONFIG } from '../shared/config.js';
 import { Run } from '../shared/run.js';
 import { validateCards } from '../shared/cards.js';
 import { isSticker, allowSticker } from '../shared/stickers.js';
+import { logValue } from '../shared/utils.js';
 import { NO_LOG } from './logger.js';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // 去掉容易看錯的 I O 0 1
 const ROOM_IDLE_MS = 60_000;                              // 全員斷線多久後回收房間
+// 雜訊類紀錄（亂送 / 被擋下的訊息）：正常玩不太會有，限制額度免得被亂送的客戶端灌爆（見 RoomManager.record）
+const NOISE_EVENTS = new Set(['msg.bad', 'msg.ignored', 'action.ignored', 'move.reject', 'sticker.drop']);
+const NOISE_LIMIT = { windowMs: 10_000, count: 30 };
 const CARDS_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../shared/cards.json');
 
 const makeId = () => randomBytes(9).toString('base64url');
@@ -44,11 +48,44 @@ export class RoomManager {
     this.rooms = new Map();    // code → Room
     this.tokens = new Map();   // token → { roomCode, playerId }
     this.connSeq = 0;          // 連線流水號（紀錄裡的 cid：同一條連線先 hello 才有玩家 id）
+    this.noise = new Map();    // 雜訊類紀錄的額度：'c<cid>' / 'p<pid>' → { start, count, dropped }
   }
 
-  // 寫一筆紀錄（玩家看不到）；room 給了就標上房號
+  // 寫一筆紀錄（玩家看不到）；room 給了就標上房號。
+  // 雜訊類（亂送 / 被擋下的訊息）每條連線（或每位玩家）每 10 秒最多記 NOISE_LIMIT.count 筆，超過的只計數，
+  // 下一個時段開頭（或斷線時）補一筆 log.suppressed 說少記了幾筆——亂送的客戶端塞不爆紀錄檔
   record(ev, data, room = null) {
+    if (NOISE_EVENTS.has(ev) && !this.allowNoise(data.cid !== undefined ? `c${data.cid}` : `p${data.pid}`, room)) return;
     this.log.write({ ev, room: room ? room.code : undefined, ...data });
+  }
+
+  allowNoise(key, room) {
+    const now = Date.now();
+    let b = this.noise.get(key);
+    if (!b || now - b.start >= NOISE_LIMIT.windowMs) {
+      if (b) this.flushNoise(key, room);
+      b = { start: now, count: 0, dropped: 0 };
+      this.noise.set(key, b);
+    }
+    if (b.count < NOISE_LIMIT.count) { b.count++; return true; }
+    b.dropped++;
+    return false;
+  }
+
+  flushNoise(key, room) {
+    const b = this.noise.get(key);
+    if (b && b.dropped) this.log.write({ ev: 'log.suppressed', room: room ? room.code : undefined, key, count: b.dropped });
+    this.noise.delete(key);
+  }
+
+  // 計時器 / 事件裡丟出的錯誤會讓伺服器當掉：先記一筆 error 再照樣丟出去（當掉的行為不變）
+  guard(where, fn, room = null) {
+    try {
+      return fn();
+    } catch (err) {
+      this.record('error', { where, error: String((err && err.stack) || err) }, room);
+      throw err;
+    }
   }
 
   makeCode() {
@@ -66,8 +103,8 @@ export class RoomManager {
   }
 
   onMessage(client, msg) {
-    if (!msg || typeof msg !== 'object') return;
-    const ignored = (reason) => this.record('msg.ignored', { cid: client.cid, pid: client.id || undefined, t: String(msg.t).slice(0, 20), reason }, client.room);
+    if (!msg || typeof msg !== 'object') return this.record('msg.bad', { cid: client.cid, pid: client.id || undefined, notObject: logValue(msg) });
+    const ignored = (reason) => this.record('msg.ignored', { cid: client.cid, pid: client.id || undefined, t: logValue(msg.t), reason }, client.room);
     switch (msg.t) {
       case 'hello': {
         if (client.id) return ignored('alreadyHello');
@@ -115,6 +152,8 @@ export class RoomManager {
 
   onClose(client, code) {
     this.record('conn.close', { cid: client.cid, pid: client.id || undefined, name: client.id ? client.name : undefined, code }, client.room);
+    this.flushNoise(`c${client.cid}`, client.room);
+    if (client.id) this.flushNoise(`p${client.id}`, client.room);
     if (client.room) client.room.onDisconnect(client);
   }
 
@@ -190,7 +229,7 @@ class Room {
     // 反應貼圖：大廳、戰鬥、選牌都能丟；送的人自己已經先播了，只轉給其他人
     if (msg.t === 'sticker') {
       const why = !isSticker(msg.id) ? 'unknown' : !allowSticker(m.stickerTimes ||= [], Date.now()) ? 'spam' : null;
-      if (why) return this.record('sticker.drop', { pid: client.id, name: m.name, sticker: String(msg.id).slice(0, 20), reason: why });
+      if (why) return this.record('sticker.drop', { pid: client.id, name: m.name, sticker: logValue(msg.id), reason: why });
       this.record('sticker', { pid: client.id, name: m.name, sticker: msg.id });
       this.broadcast({ t: 'sticker', from: client.id, id: msg.id }, client.id);
       return;
@@ -226,7 +265,7 @@ class Room {
         client.id = null;
         break;
       default:
-        this.record('msg.ignored', { cid: client.cid, pid: client.id, t: String(msg.t).slice(0, 20), reason: 'lobby' });
+        this.record('msg.ignored', { cid: client.cid, pid: client.id, t: logValue(msg.t), reason: 'lobby' });
     }
   }
 
@@ -251,9 +290,7 @@ class Room {
     const io = {
       broadcast: (msg, exceptId) => this.broadcast(msg, exceptId),
       // 計時器裡（下一回合、AI 回合…）丟出的錯誤會讓伺服器當掉：先記下來再照樣丟出去
-      schedule: (fn, ms) => setTimeout(() => {
-        try { fn(); } catch (err) { this.record('error', { where: 'timer', error: String((err && err.stack) || err) }); throw err; }
-      }, ms),
+      schedule: (fn, ms) => setTimeout(() => this.manager.guard('timer', fn, this), ms),
       cancel: (h) => clearTimeout(h),
       now: () => Date.now(),
       record: (ev, data) => this.record(ev, data),   // 裁判 / 肉鴿流程寫紀錄（玩家看不到）
@@ -291,7 +328,7 @@ class Room {
     }
     if (![...this.members.values()].some(x => x.client)) {
       this.record('room.idle', { closeInSecs: ROOM_IDLE_MS / 1000 });
-      this.idleTimer = setTimeout(() => this.manager.destroyRoom(this, 'idle'), ROOM_IDLE_MS);
+      this.idleTimer = setTimeout(() => this.manager.guard('idle', () => this.manager.destroyRoom(this, 'idle'), this), ROOM_IDLE_MS);
     }
   }
 

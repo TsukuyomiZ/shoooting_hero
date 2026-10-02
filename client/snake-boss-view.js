@@ -4,7 +4,7 @@ import { VINE_HAND } from '../shared/entities.js';
 import { clamp } from '../shared/utils.js';
 import { text } from './draw.js';
 
-// 叢林巨蟒的客戶端：巨蟒回合的動畫腳本（照伺服器廣播的招式播）與巨蟒 / 藤蔓 / 解藥 / 招式 / 叢林背景的繪圖。
+// 叢林巨蟒的客戶端：巨蟒回合的動畫腳本（照伺服器廣播的招式播）與巨蟒 / 藤蔓 / 蛇血 / 招式 / 叢林背景的繪圖。
 const FPS = 60;
 const SCALE = '#5f7a2c', SCALE_DARK = '#3b4a1a', BELLY = '#c8b878', BLOTCH = '#2f2a14';
 const POISON = '#c084fc';
@@ -68,7 +68,7 @@ export function onSnakeDeath(view, e) {
   return true;
 }
 
-// 解藥從巨蟒嘴裡掉出來（事件 / 回合結束效果帶來的 drops）：加進場上，畫面上用 0.7 秒的拋物線飛到落點
+// 蛇血從巨蟒嘴裡掉出來（事件 / 回合結束效果帶來的 drops）：加進場上，畫面上用 0.7 秒的拋物線飛到落點
 export function addDrops(view, drops) {
   const match = view.match;
   if (!match || !drops) return;
@@ -77,12 +77,12 @@ export function addDrops(view, drops) {
     if (match.items.some(it => it.id === d.id)) return;
     match.items.push({ ...d, anim: { x: from.x, y: from.y - 20, t0: view.time + k * 0.12 } });
   });
-  view.floatText(match.byId('snake') || { cx: from.x, y: from.y, h: 0, id: 'snake' }, drops.length > 1 ? `掉出解藥 ×${drops.length}` : '掉出解藥', '#6ee7b7', 16);
+  view.floatText(match.byId('snake') || { cx: from.x, y: from.y, h: 0, id: 'snake' }, drops.length > 1 ? `掉出蛇血 ×${drops.length}` : '掉出蛇血', '#f87171', 16);
 }
 
 // ---------- 繪圖：場景 ----------
 
-// 藤蔓、水裡的蛇身、解藥、預定衝撞的警示帶（地形之後、角色之前畫）
+// 藤蔓、水裡的蛇身、蛇血、預定衝撞的警示帶（地形之後、角色之前畫）
 export function drawSnakeScene(ctx, view) {
   const match = view.match;
   if (!match || !match.snake) return;
@@ -179,7 +179,7 @@ function drawCoils(ctx, view) {
   ctx.restore();
 }
 
-// 解藥瓶：玻璃瓶 + 發亮的綠色藥水 + 軟木塞，輕輕上下浮動。剛掉出來的沿拋物線飛過去（it.anim）
+// 蛇血瓶：玻璃瓶 + 發亮的紅色蛇血 + 軟木塞，輕輕上下浮動。剛掉出來的沿拋物線飛過去（it.anim）
 function drawItem(ctx, it, view) {
   let x = it.x, y = it.y;
   if (it.anim) {   // 照 view.time 算進度（跟畫面更新率無關）
@@ -192,22 +192,22 @@ function drawItem(ctx, it, view) {
       y = it.anim.y + (it.y - it.anim.y) * t - Math.sin(t * Math.PI) * 110;
     }
   }
-  drawAntidote(ctx, x, y - 2 + (it.anim ? 0 : Math.sin(view.time * 3 + it.x) * 1.5), view.time);
+  drawSnakeBlood(ctx, x, y - 2 + (it.anim ? 0 : Math.sin(view.time * 3 + it.x) * 1.5), view.time);
 }
 
-export function drawAntidote(ctx, x, y, time) {
+export function drawSnakeBlood(ctx, x, y, time) {
   const glow = 0.35 + 0.25 * Math.sin(time * 4 + x);
   ctx.save();
-  ctx.fillStyle = `rgba(110,231,183,${glow * 0.5})`;
+  ctx.fillStyle = `rgba(239,68,68,${glow * 0.5})`;
   ctx.beginPath(); ctx.arc(x, y - 9, 13, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = 'rgba(220,252,231,0.35)';   // 瓶身
-  ctx.strokeStyle = 'rgba(236,253,245,0.9)';
+  ctx.fillStyle = 'rgba(254,226,226,0.35)';   // 瓶身
+  ctx.strokeStyle = 'rgba(254,242,242,0.9)';
   ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.arc(x, y - 7, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#34d399';                   // 藥水
+  ctx.fillStyle = '#dc2626';                   // 蛇血
   ctx.beginPath(); ctx.arc(x, y - 7, 5.5, 0.15 * Math.PI, 0.85 * Math.PI); ctx.closePath(); ctx.fill();
   ctx.beginPath(); ctx.arc(x, y - 7, 5.5, 0, Math.PI); ctx.fill();
-  ctx.fillStyle = 'rgba(220,252,231,0.5)';     // 瓶頸
+  ctx.fillStyle = 'rgba(254,226,226,0.5)';     // 瓶頸
   ctx.fillRect(x - 2.5, y - 18, 5, 5);
   ctx.strokeRect(x - 2.5, y - 18, 5, 5);
   ctx.fillStyle = '#a16207';                   // 軟木塞
@@ -217,7 +217,7 @@ export function drawAntidote(ctx, x, y, time) {
   ctx.restore();
 }
 
-// 血條旁的中毒標記：紫色毒液滴 + 層數（還沒結算的；自己的回合開始時結算）
+// 血條旁的中毒標記：紫色毒液滴 + 層數（每個自己的回合開始都會結算，喝蛇血才解除）
 export function drawPoisonMark(ctx, x, y, stacks) {
   ctx.save();
   ctx.fillStyle = '#a855f7';

@@ -82,7 +82,7 @@ export class Renderer {
     view.painter.sync();
     ctx.drawImage(view.painter.canvas, 0, 0);
     drawTreeScene(ctx, view);   // 古樹之庭：樹冠、預定撞擊的警示帶、出招預兆
-    drawSnakeScene(ctx, view);  // 叢林巨蟒：藤蔓、水裡的蛇身、解藥、預定衝撞的警示帶
+    drawSnakeScene(ctx, view);  // 叢林巨蟒：藤蔓、水裡的蛇身、蛇血、預定衝撞的警示帶
     this.drawAim();
     // 巨蟒的頭先畫：被大地震擊甩到嘴前的人要畫在牠前面，不會像是鑽進牠的頭裡
     const ents = view.match.entities;
@@ -213,7 +213,7 @@ export class Renderer {
     if (e.onVine >= 0 && e.alive) drawVineHands(ctx, e);   // 抓著藤蔓：兩手往上握著
 
     // 血條 + 名字（＋ 你 / AI 標籤）。古樹之口打不壞，不畫血條、改標狀態。
-    // 被中毒鎖住的上限畫成右邊一段灰色（整條 = 原本的上限）；巨蟒的血條比較長，每 10%（掉解藥的門檻）一道刻度
+    // 被中毒鎖住的上限畫成右邊一段灰色（整條 = 原本的上限）；巨蟒的血條比較長，每 10%（掉蛇血的門檻）一道刻度
     const snake = e.part === 'snake';
     const bw = snake ? 170 : e.boss ? 90 : 46, bh = snake ? 8 : 6, by = y - e.h - 16;
     if (!e.closeOnHit) {
@@ -229,9 +229,9 @@ export class Renderer {
         ctx.fillStyle = '#6b7280';
         roundRect(ctx, gx, by, x + bw / 2 - gx, bh, 3); ctx.fill();
       }
-      if (snake && CONFIG.SNAKE_BOSS.antidoteEveryPct > 0) {
+      if (snake && CONFIG.SNAKE_BOSS.bloodEveryPct > 0) {
         ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        for (let k = CONFIG.SNAKE_BOSS.antidoteEveryPct; k < 100; k += CONFIG.SNAKE_BOSS.antidoteEveryPct) ctx.fillRect(x - bw / 2 + bw * k / 100 - 0.5, by, 1, bh);
+        for (let k = CONFIG.SNAKE_BOSS.bloodEveryPct; k < 100; k += CONFIG.SNAKE_BOSS.bloodEveryPct) ctx.fillRect(x - bw / 2 + bw * k / 100 - 0.5, by, 1, bh);
       }
     }
     let label = e.name;
@@ -242,7 +242,7 @@ export class Renderer {
       color: e.isPlayer ? '#e8f4ff' : '#ffd54f', outline: 'rgba(0,0,0,0.9)',
     });
     if (e.alive && e.burn > 0) this.drawBurn(x + bw / 2 + 7, by + 3, e.burn);
-    if (e.alive && e.poison > 0) drawPoisonMark(ctx, x + bw / 2 + 7 + (e.burn > 0 ? 26 : 0), by + 3, e.poison);   // 還沒結算的中毒層數
+    if (e.alive && e.poison > 0) drawPoisonMark(ctx, x + bw / 2 + 7 + (e.burn > 0 ? 26 : 0), by + 3, e.poison);   // 中毒層數（每個自己的回合開始都會結算，喝蛇血才解除）
     if (e.alive && view.match.linkPartners(e).length) this.drawLinkMark(x - bw / 2 - 9, by + 3);   // 攜手之伴：連結生效中
     if (e.alive && e.shield > 0) {   // 神佑之石的無敵護罩
       const r = Math.max(e.h, e.hw * 2) * 0.72 + 4;

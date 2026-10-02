@@ -26,7 +26,7 @@ const actorOf = (e) => ({ actor: e.id, ...(e.team === 'players' ? { pid: e.id } 
 // 同一份程式在 Node 房間裡跑（多人），也在瀏覽器裡跑（單人練習）。
 // io = { broadcast(msg, exceptId), schedule(fn, ms) → handle, cancel(handle), now() → ms }
 //
-// 一個回合：nextTurn（回合開始：無差別轟炸）→ startTurn（中毒結算、站在解藥上就喝、恩賜之杖回血、開始計時 / AI 行動；被毒倒就直接換人）
+// 一個回合：nextTurn（回合開始：無差別轟炸）→ startTurn（中毒結算、站在蛇血上就喝、恩賜之杖回血、開始計時 / AI 行動；被毒倒就直接換人）
 //          → 開火 / 超時 / AI 播完 → finishTurn（回合結束：燃燒、神佑之石、時間扭曲）→ 下一位的 nextTurn
 //          （時間扭曲給了額外回合的話，nextTurn 會讓同一位再來一次，不算新的一輪）
 export class Referee {
@@ -175,7 +175,7 @@ export class Referee {
     return false;
   }
 
-  // 行動玩家走路途中喝到解藥（叢林巨蟒）：告訴所有人（包括他自己——客戶端不自己判斷撿到沒），
+  // 行動玩家走路途中喝到蛇血（叢林巨蟒）：告訴所有人（包括他自己——客戶端不自己判斷撿到沒），
   // 只帶上限相關的數值，不帶位置（他自己的畫面已經走到更前面了）
   flushPickups() {
     for (const fx of this.match.takePickups()) {
@@ -289,7 +289,7 @@ export class Referee {
     const human = this.humans.get(actor.id);
     const isHuman = actor.team === 'players' && !!human && human.connected;
     const { entities, items } = this.match.snapshot();
-    // ai = 敵人或斷線玩家的代打（takeover）；fx = 回合開始的效果（中毒、喝解藥、回血）；diedAtStart = 被毒倒，這回合不開始
+    // ai = 敵人或斷線玩家的代打（takeover）；fx = 回合開始的效果（中毒、喝蛇血、回血）；diedAtStart = 被毒倒，這回合不開始
     this.record('turn.start', {
       ...actorOf(actor), team: actor.team, ai: !isHuman,
       ...(actor.team === 'players' && !isHuman ? { takeover: true } : {}),

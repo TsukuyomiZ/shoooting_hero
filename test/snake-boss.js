@@ -1,6 +1,6 @@
 // node test/snake-boss.js
 // Boss 關「叢林巨蟒」的規則測試：地圖（藤蔓橋、橋的盡頭是水、巨蟒的橢圓判定）、藤蔓（抓、爬、放手、跳開、被打下來、伺服器檢查回報）、
-// 中毒（上毒、無敵擋、連結不分、自己的回合開始結算 + 生命鎖、被毒倒）、解藥（每 10% 掉一瓶、走過去喝 / 回合開始站在上面、只解鎖不回血）、
+// 中毒（上毒、無敵擋、連結不分、自己的回合開始結算 + 生命鎖、被毒倒）、蛇血（每 10% 掉一瓶、走過去喝 / 回合開始站在上面、解鎖 + 回 30 血）、
 // 四種招式（權重、預定下一招、衝撞範圍、噴灑每人最多一次、震擊只打站在橋上的人並往巨蟒甩、撕咬最近的人）、
 // 客戶端重播一致、裁判流程、客戶端警示帶、確定性
 import { CONFIG } from '../shared/config.js';
@@ -76,6 +76,12 @@ function hang(m, e, i, y) {
   assert(e.canHangAt(m.terrain, i, e.x, e.y), `can hang on vine ${i} at y ${y}`);
 }
 const hangRange = (m, e, i) => { const v = m.terrain.vines[i]; return { lo: v.top + e.h - VINE_HAND, hi: v.bottom + e.h - VINE_HAND }; };
+function withPoison(patch, fn) {
+  const P = CONFIG.POISON;
+  const saved = Object.fromEntries(Object.keys(patch).map(k => [k, P[k]]));
+  Object.assign(P, patch);
+  try { return fn(); } finally { Object.assign(P, saved); }
+}
 function withSnake(patch, fn) {
   const T = CONFIG.SNAKE_BOSS;
   const saved = Object.fromEntries(Object.keys(patch).map(k => [k, T[k]]));
@@ -318,19 +324,19 @@ test('中毒：巨蟒的攻擊上毒（傷害 0 也上），無敵整下擋掉�
   return { p1: p1.poison, p2: p2.poison };
 });
 
-test('中毒結算：每層扣最大血量 1%（照現在的上限），上限鎖住一樣多、層數歸零；第二次照鎖住後的上限算；回血到不了被鎖住的部分', () => {
+test('中毒結算：每層扣最大血量 1%（照現在的上限），上限鎖住一樣多；層數不會自己消失，下個回合照鎖住後的上限再扣一次；回血到不了被鎖住的部分', () => withPoison({ persist: true }, () => {
   const m = jungle(1, { hp: 150 });
   const p = m.players[0];
   p.poison = 10;
   let fx = m.turnStartEffects(p);
   const want = Math.round(10 * CONFIG.POISON.pctPerStack / 100 * 150);
-  assert(p.hp === 150 - want && p.maxHp === 150 - want && p.poisonLock === want && p.poison === 0, `first tick: ${p.hp}/${p.maxHp} lock ${p.poisonLock}`);
-  assert(fx.length === 1 && fx[0].type === 'poison' && fx[0].stacks === 10 && fx[0].dmg === want && fx[0].lock === want && !fx[0].died, 'fx ' + JSON.stringify(fx));
-  p.poison = 10;
-  m.turnStartEffects(p);
+  assert(p.hp === 150 - want && p.maxHp === 150 - want && p.poisonLock === want && p.poison === 10, `first tick: ${p.hp}/${p.maxHp} lock ${p.poisonLock} stacks ${p.poison}`);
+  assert(fx.length === 1 && fx[0].type === 'poison' && fx[0].stacks === 10 && fx[0].dmg === want && fx[0].lock === want && !fx[0].died && fx[0].left === 10, 'fx ' + JSON.stringify(fx));
+  m.turnStartEffects(p);   // 沒有新的毒：還是同樣 10 層
   const want2 = Math.round(10 * CONFIG.POISON.pctPerStack / 100 * (150 - want));
-  assert(p.poisonLock === want + want2 && p.maxHp === 150 - want - want2 && p.hp === p.maxHp, 'second tick uses the locked max: ' + p.maxHp);
-  assert(m.turnStartEffects(p).length === 0, 'nothing to settle');
+  assert(p.poisonLock === want + want2 && p.maxHp === 150 - want - want2 && p.hp === p.maxHp && p.poison === 10, 'second tick uses the locked max: ' + p.maxHp);
+  p.poison = 0;
+  assert(m.turnStartEffects(p).length === 0, 'nothing to settle without stacks');
   m.heal(p, 1000);
   assert(p.hp === p.maxHp && p.maxHp + p.poisonLock === 150, 'heals stop at the locked max');
   // 狀態同步帶著層數與生命鎖
@@ -344,8 +350,15 @@ test('中毒結算：每層扣最大血量 1%（照現在的上限），上限�
   p.hp = 3; p.poison = 30;
   fx = m.turnStartEffects(p);
   assert(!p.alive && fx[0].died && fx[0].lock === 0, 'poisoned to death: ' + JSON.stringify(fx));
+  // persist 關掉 = 舊規則：結算完就歸零
+  withPoison({ persist: false }, () => {
+    const q = jungle(1, { hp: 150 }).players[0];
+    q.poison = 10;
+    poisonTick(q);
+    assert(q.poison === 0 && q.poisonLock === want, 'persist false clears after the tick');
+  });
   return { first: want, second: want2 };
-});
+}));
 
 test('裁判：回合開始先結算中毒（turn 帶 fx 與 lk）；被毒倒的人這回合不開始（廣播 turnFx）、直接換下一位；全隊被毒倒就輸', () => {
   const m = jungle(2, { hp: 100 });
@@ -357,7 +370,7 @@ test('裁判：回合開始先結算中毒（turn 帶 fx 與 lk）；被毒倒�
   assert(advanceUntil(io, () => io.take('turn').length >= 1), 'first turn');
   const t1 = io.take('turn')[0];
   const s1 = t1.entities.find(e => e.id === 'p1');
-  assert(t1.actorId === 'p1' && t1.fx.some(f => f.type === 'poison' && f.dmg === 10) && s1.hp === 90 && s1.mhp === 90 && s1.lk === 10 && s1.ps === 0, 'p1 settles at turn start: ' + JSON.stringify(t1.fx));
+  assert(t1.actorId === 'p1' && t1.fx.some(f => f.type === 'poison' && f.dmg === 10) && s1.hp === 90 && s1.mhp === 90 && s1.lk === 10 && s1.ps === (CONFIG.POISON.persist ? 10 : 0), 'p1 settles at turn start: ' + JSON.stringify(t1.fx));
   ref.handle('p1', { t: 'fire', weapon: 'sniper', angle: 80, power: 100, x: m.byId('p1').x, y: m.byId('p1').y, facing: 1, stamina: 0 });
   assert(advanceUntil(io, () => io.take('turnFx').some(f => f.actorId === 'p2')), 'p2 turnFx');
   const tf = io.take('turnFx').find(f => f.actorId === 'p2');
@@ -376,7 +389,7 @@ test('裁判：回合開始先結算中毒（turn 帶 fx 與 lk）；被毒倒�
   return { p1: s1.hp + '/' + s1.mhp };
 });
 
-test('解藥：巨蟒每受到最大血量 10% 的傷害掉一瓶（一下打很多一次掉好幾瓶），落在橋上的範圍裡；倒下就不掉；被燒到跨門檻也會掉', () => withSnake({ antidoteEveryPct: 10 }, () => {
+test('蛇血：巨蟒每受到最大血量 10% 的傷害掉一瓶（一下打很多一次掉好幾瓶），落在橋上的範圍裡；倒下就不掉；被燒到跨門檻也會掉', () => withSnake({ bloodEveryPct: 10 }, () => {
   const m = jungle(2, { seed: 5 });
   const s = m.byId('snake');
   const tenth = s.maxHp / 10;
@@ -388,8 +401,8 @@ test('解藥：巨蟒每受到最大血量 10% 的傷害掉一瓶（一下打很
   s.takeDamage(Math.ceil(tenth * 2.5));
   const d2 = snakeDrops(m);
   assert(d2.length === 2 && m.items.length === 3, 'big hit drops two: ' + d2.length);
-  const [x0, x1] = m.snake.def.antidoteX;
-  assert(m.items.every(it => it.type === 'antidote' && it.x >= x0 && it.x <= x1 && it.y === bridgeY(m)), 'on the bridge: ' + JSON.stringify(m.items));
+  const [x0, x1] = m.snake.def.bloodX;
+  assert(m.items.every(it => it.type === 'snakeBlood' && it.x >= x0 && it.x <= x1 && it.y === bridgeY(m)), 'on the bridge: ' + JSON.stringify(m.items));
   assert(new Set(m.items.map(it => it.id)).size === 3, 'unique ids');
   // 開火打到巨蟒：事件帶 drops
   const p1 = m.players[0];
@@ -415,7 +428,7 @@ test('解藥：巨蟒每受到最大血量 10% 的傷害掉一瓶（一下打很
   return { items: m.items.length };
 }));
 
-test('解藥：自己的回合走過去就喝掉——生命鎖全部解開、不回血（10/50(100) → 10/100），全員收到 pickup；沒被鎖住就不撿；回合開始站在上面也會喝', () => {
+test('蛇血：自己的回合走過去就喝掉——先解開生命鎖、再回 30 血（10/50(100) → 40/100），全員收到 pickup；滿血又沒被鎖住就不撿；回合開始站在上面也會喝', () => withSnake({ bloodHeal: 30 }, () => {
   const m = jungle(1, { hp: 100 });
   const io = new FakeIo();
   const ref = new Referee({ match: m, humans: mkPlayers(1), io });
@@ -423,31 +436,44 @@ test('解藥：自己的回合走過去就喝掉——生命鎖全部解開、�
   assert(advanceUntil(io, () => ref.phase === 'turn'), 'p1 turn');
   const p = m.byId('p1');
   placeOn(m, p, 360);
-  m.items.push({ id: 'a9', type: 'antidote', x: 400, y: bridgeY(m) });
-  // 沒被鎖：走過去不撿
+  m.items.push({ id: 'a9', type: 'snakeBlood', x: 400, y: bridgeY(m) });
+  // 滿血、沒被鎖：走過去不撿
   ref.handle('p1', { t: 'move', x: 440, y: p.y, vy: 0, facing: 1, stamina: p.stamina });
-  assert(m.items.length === 1 && !io.take('pickup').length, 'no lock: walks over it');
+  assert(m.items.length === 1 && !io.take('pickup').length, 'full hp, no lock: walks over it');
   // 被鎖 50（10/50，原本 100）：走回去經過就喝
   p.hp = 10; p.maxHp = 50; p.poisonLock = 50;
   ref.handle('p1', { t: 'move', x: 360, y: p.y, vy: 0, facing: -1, stamina: p.stamina });
   const pk = io.take('pickup');
-  assert(pk.length === 1 && pk[0].id === 'p1' && pk[0].item === 'a9' && pk[0].unlocked === 50 && pk[0].mhp === 100 && pk[0].lk === 0 && pk[0].hp === 10 && pk[0]._except === undefined, 'pickup broadcast to everyone: ' + JSON.stringify(pk));
-  assert(p.hp === 10 && p.maxHp === 100 && p.poisonLock === 0 && m.items.length === 0, 'unlocked, no heal');
-  // 回合開始時站在解藥上
+  assert(pk.length === 1 && pk[0].id === 'p1' && pk[0].item === 'a9' && pk[0].unlocked === 50 && pk[0].heal === 30 && pk[0].mhp === 100 && pk[0].lk === 0 && pk[0].hp === 40 && pk[0]._except === undefined, 'pickup broadcast to everyone: ' + JSON.stringify(pk));
+  assert(p.hp === 40 && p.maxHp === 100 && p.poisonLock === 0 && m.items.length === 0, 'unlocked, then +30');
+  // 回合開始時站在蛇血上
   const m2 = jungle(1, { hp: 100 });
   const p2 = m2.players[0];
   placeOn(m2, p2, 420);
-  m2.items.push({ id: 'a1', type: 'antidote', x: 424, y: bridgeY(m2) });
+  m2.items.push({ id: 'a1', type: 'snakeBlood', x: 424, y: bridgeY(m2) });
   p2.poison = 10;
   const fx = m2.turnStartEffects(p2);
-  assert(fx.map(f => f.type).join() === 'poison,antidote' && p2.maxHp === 100 && p2.hp === 90 && m2.items.length === 0, 'settle then drink: ' + JSON.stringify(fx));
-  // 快照帶著場上的解藥
-  m2.items.push({ id: 'a2', type: 'antidote', x: 333, y: bridgeY(m2) });
+  assert(fx.map(f => f.type).join() === 'poison,snakeBlood' && p2.maxHp === 100 && p2.hp === 100 && fx[1].heal === 10 && m2.items.length === 0, 'settle then drink (heal capped at the max): ' + JSON.stringify(fx));
+  // 快照帶著場上的蛇血
+  m2.items.push({ id: 'a2', type: 'snakeBlood', x: 333, y: bridgeY(m2) });
   const c = jungle(1);
   c.applySnapshot(JSON.parse(JSON.stringify(m2.snapshot())));
   assert(c.items.length === 1 && c.items[0].id === 'a2' && c.items[0].x === 333, 'snapshot items');
+  // 沒被鎖住、但血沒滿：也會撿來回血
+  const m3 = jungle(1, { hp: 100 });
+  const p3 = m3.players[0];
+  placeOn(m3, p3, 420);
+  m3.items.push({ id: 'a3', type: 'snakeBlood', x: 424, y: bridgeY(m3) });
+  p3.hp = 50;
+  const fx3 = m3.turnStartEffects(p3);
+  assert(fx3.length === 1 && fx3[0].heal === 30 && fx3[0].unlocked === 0 && p3.hp === 80 && p3.maxHp === 100 && !m3.items.length, 'damaged, unlocked: drinks for the heal');
+  // 滿血、還沒被鎖，但身上有毒：也會撿來解毒
+  m3.items.push({ id: 'a4', type: 'snakeBlood', x: 424, y: bridgeY(m3) });
+  p3.hp = p3.maxHp; p3.poison = 5;
+  const got = pickupAlong(m3, p3, p3.x - 2, p3.y, p3.x, p3.y);
+  assert(got && got.cured === 5 && p3.poison === 0 && !m3.items.length, 'poisoned at full hp: drinks to cure');
   return { pickup: pk[0] };
-});
+}));
 
 test('權重：45 / 25 / 10 / 20；開場（大家落地後）就預定第一招，快照帶著，客戶端照快照套用；每出一招就重新預定（aiTurn 的 boss.next）', () => withSnake({ weights: { charge: 45, spray: 25, quake: 10, bite: 20 } }, () => {
   const m = jungle(1, { seed: 9 });
@@ -469,7 +495,7 @@ test('權重：45 / 25 / 10 / 20；開場（大家落地後）就預定第一招
   return Object.fromEntries(Object.entries(count).map(([k, v]) => [k, +(v / N * 100).toFixed(1)]));
 }));
 
-test('巨蟒衝撞：範圍 = 頭的上緣到水面（chargeLane）；橋上、藤蔓下段的人中 3 層毒（被撞下藤蔓），爬到範圍上面的人沒事；不打自己', () => {
+test('巨蟒衝撞：範圍 = 頭的上緣到水面（chargeLane）；橋上、藤蔓下段的人受到 30 傷害（× 敵人倍率）+ 3 層毒（被撞下藤蔓），爬到範圍上面的人沒事；不打自己', () => {
   const m = jungle(3, { seed: 2, hp: 150 });
   const [p1, p2, p3] = m.players;
   const lane = chargeLane(m);
@@ -651,7 +677,7 @@ test('客戶端：預定衝撞時一直畫出警示帶（範圍 = chargeLane 到
   return { phases: seen };
 });
 
-test('確定性：同 seed 同輸入，叢林巨蟒整段流程的廣播完全一樣（含解藥、中毒、斷線代打）', () => {
+test('確定性：同 seed 同輸入，叢林巨蟒整段流程的廣播完全一樣（含蛇血、中毒、斷線代打）', () => {
   const run = () => {
     const players = mkPlayers(3);
     const m = new Match({ levelId: 'jungleSerpent', players, seed: 77, stage: 6 });
@@ -666,7 +692,7 @@ test('確定性：同 seed 同輸入，叢林巨蟒整段流程的廣播完全�
       io.advance(250);
       if (ref.phase === 'turn') {
         const a = m.byId(ref.currentId);
-        if (m.items.length && a.poisonLock > 0) {   // 去喝解藥
+        if (m.items.length && a.poisonLock > 0) {   // 去喝蛇血
           const it = m.items[0];
           ref.handle(a.id, { t: 'move', x: it.x, y: a.y, vy: 0, facing: 1, stamina: a.stamina });
         }
@@ -758,7 +784,7 @@ test('裁判：第一位玩家在自己的回合開始被毒倒，輪數不會�
   const broadcast = io.broadcast.bind(io);
   io.broadcast = (msg, ex) => {
     broadcast(msg, ex);
-    if (msg.t === 'turn') seen.push(`${msg.actorId}@${msg.round}`);
+    if (msg.t === 'turn' && !msg.ai) seen.push(`${msg.actorId}@${msg.round}`);
     if (msg.t === 'aiTurn') seen.push(`snake@${ref.round}`);
     if (msg.t === 'turnFx' && msg.atStart) seen.push(`dead:${msg.actorId}@${msg.round}`);
     if (msg.t === 'aiTurn') { const p1 = m.byId('p1'); if (p1.alive) { p1.hp = 3; p1.poison = 50; } }   // 巨蟒的回合之後 p1 就會被毒倒
@@ -776,7 +802,7 @@ test('裁判：第一位玩家在自己的回合開始被毒倒，輪數不會�
   return { seen: seen.join(' ') };
 });
 
-test('解藥（客戶端預測）：客戶端照自己的路線逐幀判到解藥、馬上回報位置 → 伺服器也判到，兩邊解開後的上限一樣', () => {
+test('蛇血（客戶端預測）：客戶端照自己的路線逐幀判到蛇血、馬上回報位置 → 伺服器也判到，兩邊解開後的上限一樣', () => {
   const m = jungle(1, { hp: 100 });
   const io = new FakeIo();
   const ref = new Referee({ match: m, humans: mkPlayers(1), io });
@@ -785,7 +811,7 @@ test('解藥（客戶端預測）：客戶端照自己的路線逐幀判到解�
   const p = m.byId('p1');
   placeOn(m, p, 300);
   p.hp = 30; p.maxHp = 60; p.poisonLock = 40;
-  m.items.push({ id: 'a5', type: 'antidote', x: 420, y: bridgeY(m) });
+  m.items.push({ id: 'a5', type: 'snakeBlood', x: 420, y: bridgeY(m) });
   // 客戶端：同樣的狀態，自己往右走（跳一下），逐幀檢查
   const cm = jungle(1);
   cm.applySnapshot(JSON.parse(JSON.stringify(m.snapshot())));
@@ -794,7 +820,7 @@ test('解藥（客戶端預測）：客戶端照自己的路線逐幀判到解�
   cp.moveDir = 1; cp.stamina = 1e9;
   let got = null, frames = 0, lastReport = { x: cp.x, y: cp.y };
   while (!got && frames++ < 200) {
-    if (frames === 20) cp.wantJump = true;
+    if (frames === 3) cp.wantJump = true;   // 跳一下、落地時正好落在蛇血上（路線是拋物線，不是直線）
     const px = cp.x, py = cp.y;
     cm.step();
     got = pickupAlong(cm, cp, px, py, cp.x, cp.y);
@@ -807,9 +833,48 @@ test('解藥（客戶端預測）：客戶端照自己的路線逐幀判到解�
   ref.handle('p1', { t: 'move', x: cp.x, y: cp.y, vy: cp.vy, facing: 1, stamina: p.stamina });   // 預測到就馬上回報
   const pk = io.take('pickup');
   assert(pk.length === 1 && pk[0].item === 'a5', 'server confirms the same bottle: ' + JSON.stringify(pk));
-  assert(cp.maxHp === p.maxHp && cp.poisonLock === 0 && p.poisonLock === 0 && cp.maxHp === 100, `same unlocked max: client ${cp.maxHp} server ${p.maxHp}`);
+  assert(cp.maxHp === p.maxHp && cp.poisonLock === 0 && p.poisonLock === 0 && cp.maxHp === 100 && cp.hp === p.hp && p.hp === 30 + CONFIG.SNAKE_BOSS.bloodHeal, `same unlocked max and hp: client ${cp.hp}/${cp.maxHp} server ${p.hp}/${p.maxHp}`);
   return { frames, from: lastReport };
 });
+
+test('中毒不會自己解除：每個自己的回合開始都再扣一次、再被打中還會疊上去；喝蛇血才解毒（層數歸零 + 解鎖 + 回血），全員看到的層數一致', () => withPoison({ persist: true }, () => withSnake({ bloodHeal: 30 }, () => {
+  const m = jungle(1, { hp: 200 });
+  const io = new FakeIo();
+  const ref = new Referee({ match: m, humans: mkPlayers(1), io });
+  const p = m.byId('p1');
+  placeOn(m, p, 100);
+  p.poison = 10;
+  ref.start();
+  const ticks = [];
+  for (let k = 0; k < 3; k++) {
+    const mine = () => io.take('turn').filter(x => x.actorId === 'p1');
+    assert(advanceUntil(io, () => ref.phase === 'turn' && mine().length > k, 600_000), 'turn ' + k);
+    const t = mine()[k];
+    const fx = t.fx.find(f => f.type === 'poison');
+    ticks.push(fx ? fx.stacks : 0);
+    assert(t.entities.find(e => e.id === 'p1').ps === p.poison, 'turn snapshot carries the stacks');
+    if (k < 2) ref.handle('p1', { t: 'fire', weapon: 'sniper', angle: 80, power: 100, x: p.x, y: p.y, facing: 1, stamina: 0 });
+  }
+  assert(ticks[0] === 10 && ticks.every((s, i) => !i || s >= ticks[i - 1]), 'stacks stay (and may grow from new hits): ' + ticks);
+  // 喝蛇血：解毒
+  const stacks = p.poison;
+  m.items.push({ id: 'a7', type: 'snakeBlood', x: 140, y: bridgeY(m) });
+  ref.handle('p1', { t: 'move', x: 160, y: p.y, vy: 0, facing: 1, stamina: p.stamina });
+  const pk = io.take('pickup').at(-1);
+  assert(pk && pk.cured === stacks && p.poison === 0 && p.poisonLock === 0, 'snake blood cures: ' + JSON.stringify(pk));
+  const curedAt = io.log.length;
+  ref.handle('p1', { t: 'fire', weapon: 'sniper', angle: 80, power: 100, x: p.x, y: p.y, facing: 1, stamina: 0 });
+  const mineNow = () => io.take('turn').filter(x => x.actorId === 'p1');
+  const n = mineNow().length;
+  assert(advanceUntil(io, () => mineNow().length > n, 600_000), 'next turn');
+  const next = mineNow()[n];
+  // 解毒之後只剩新被打中的層數
+  const fresh = io.log.slice(curedAt).filter(x => x.t === 'aiTurn').flatMap(x => x.boss.steps).flatMap(st => st.shot ? st.shot.events : [])
+    .flatMap(ev => ev.damages || []).filter(d => d.id === 'p1' && d.poison).reduce((sum, d) => sum + d.poison, 0);
+  const tick = next.fx.find(f => f.type === 'poison');
+  assert((tick ? tick.stacks : 0) === fresh, `after the cure only new stacks tick: ${tick && tick.stacks} vs ${fresh}`);
+  return { ticks, cured: stacks };
+})));
 
 const failed = results.filter(r => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

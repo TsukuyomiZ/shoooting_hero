@@ -13,9 +13,11 @@ import { makeProjectile } from './weapons.js';
 //     大地震擊（10%）：震波沿著橋面跑，站在橋上的玩家 50 傷害、往巨蟒的方向擊退 600（藤蔓上 / 半空中的不會被打到）
 //     劇毒撕咬（20%）：咬向離嘴巴最近的玩家，15 傷害 + 10 層中毒
 // - 中毒（任何角色都可能有，現在只有巨蟒會上毒）：在被毒的人自己的回合開始時結算（見 poisonTick）——
-//     每層扣最大血量 POISON.pctPerStack%，同時把最大血量鎖住一樣多（100/100 → 99/99），結算完層數歸零
-// - 解藥：巨蟒每受到最大血量 antidoteEveryPct% 的傷害就掉一瓶到橋上（match.items）。
-//     自己的回合走過去（或回合開始時就站在上面）而且有被鎖住的上限就喝掉：上限全部解開，但不會回血（10/50(100) → 10/100）
+//     每層扣最大血量 POISON.pctPerStack%，同時把最大血量鎖住一樣多（100/100 → 99/99）。層數不會自己消失（POISON.persist），
+//     每個自己的回合開始都再結算一次，要喝蛇血才解除
+// - 蛇血：巨蟒每受到最大血量 bloodEveryPct% 的傷害就掉一瓶到橋上（match.items）。
+//     自己的回合走過去（或回合開始時就站在上面）就喝掉（中毒了、有被鎖住的上限、或血沒滿才撿）：解除中毒、把上限全部解開，再回 bloodHeal 血
+//     （10/50(100) → 25/100）
 
 export const SNAKE_ACTION_NAMES = {
   charge: '巨蟒衝撞',
@@ -29,7 +31,7 @@ export const SNAKE_ACTION_NAMES = {
 export function buildSnake(match, hpScale) {
   const def = match.level.snake;
   const h = def.head;
-  // next：預定的下一招（Match 開場落地後才決定）；dropped：已經掉了幾瓶解藥；itemSeq：解藥的流水號
+  // next：預定的下一招（Match 開場落地後才決定）；dropped：已經掉了幾瓶蛇血；itemSeq：蛇血的流水號
   match.snake = { def, next: null, dropped: 0, itemSeq: 0 };
   match.entities.push(new Entity({
     ...CONFIG.ENEMY, id: 'snake', name: '叢林巨蟒', team: 'enemies', controller: 'ai', slot: 0, facing: -1,
@@ -171,12 +173,13 @@ function stillResult(match) {
 
 // ---- 中毒 ----
 
-// 自己的回合開始時結算中毒：每層扣最大血量 pctPerStack%（照現在的上限算），活下來的話上限也鎖住一樣多，層數歸零。
+// 自己的回合開始時結算中毒：每層扣最大血量 pctPerStack%（照現在的上限算），活下來的話上限也鎖住一樣多。
+// POISON.persist：層數留著（下個回合開始再結算一次，要喝蛇血才解除）；關掉的話結算完就歸零。
 // 不吃減傷、狂熱、無敵（無敵擋的是上毒的那一下）。回傳 fx（沒中毒回傳 null）
 export function poisonTick(e) {
   if (!e.alive || !(e.poison > 0)) return null;
   const stacks = e.poison;
-  e.poison = 0;
+  if (!CONFIG.POISON.persist) e.poison = 0;
   const amount = Math.max(1, Math.round(stacks * CONFIG.POISON.pctPerStack / 100 * e.maxHp));
   const dmg = e.takeDamage(amount);
   let lock = 0;
@@ -186,54 +189,61 @@ export function poisonTick(e) {
     e.poisonLock += lock;
     e.hp = Math.min(e.hp, e.maxHp);
   }
-  return { type: 'poison', id: e.id, stacks, dmg, lock, died: !e.alive };
+  return { type: 'poison', id: e.id, stacks, dmg, lock, died: !e.alive, left: e.poison };
 }
 
-// ---- 解藥 ----
+// ---- 蛇血 ----
 
-// 巨蟒受到的傷害每跨過一個 antidoteEveryPct% 的門檻就掉一瓶解藥（一下打很多可能一次掉好幾瓶）。
-// 巨蟒倒下就不掉了（已經過關）。新掉的解藥加進 match.items 並回傳（給事件 / fx 帶給客戶端）
+// 巨蟒受到的傷害每跨過一個 bloodEveryPct% 的門檻就掉一瓶蛇血（一下打很多可能一次掉好幾瓶）。
+// 巨蟒倒下就不掉了（已經過關）。新掉的蛇血加進 match.items 並回傳（給事件 / fx 帶給客戶端）
 export function snakeDrops(match) {
   if (!match.snake) return [];
   const snake = match.byId('snake');
   if (!snake || !snake.alive) return [];
-  const every = CONFIG.SNAKE_BOSS.antidoteEveryPct;
+  const every = CONFIG.SNAKE_BOSS.bloodEveryPct;
   if (!(every > 0)) return [];
   const due = Math.floor((snake.maxHp - snake.hp) * 100 / (every * snake.maxHp) + 1e-9);
   const out = [];
-  const [x0, x1] = match.snake.def.antidoteX;
+  const [x0, x1] = match.snake.def.bloodX;
   while (match.snake.dropped < due) {
     match.snake.dropped++;
-    const item = { id: `a${++match.snake.itemSeq}`, type: 'antidote', x: Math.round(match.rng.range(x0, x1)), y: match.snake.def.bridge.y };
+    const item = { id: `a${++match.snake.itemSeq}`, type: 'snakeBlood', x: Math.round(match.rng.range(x0, x1)), y: match.snake.def.bridge.y };
     match.items.push(item);
     out.push({ ...item });
   }
   return out;
 }
 
-// 解藥瓶的判定點（瓶身中間）與半徑
+// 蛇血瓶的判定點（瓶身中間）與半徑
 const ITEM_R = 9;
 const itemCenter = (it) => ({ x: it.x, y: it.y - 10 });
 
-// 有被中毒鎖住的上限才會撿：上限全部解開（不回血），解藥從場上消失。回傳 fx
+// 喝了有用才撿：中毒了、有被中毒鎖住的上限，或血沒滿
+const wants = (e) => e.alive && (e.poison > 0 || e.poisonLock > 0 || e.hp < e.maxHp);
+
+// 喝蛇血：解除中毒（層數歸零）、把被鎖住的上限全部解開，再回 bloodHeal 血（不超過上限），蛇血從場上消失。回傳 fx
 function drink(match, e, item) {
+  const cured = e.poison;
+  e.poison = 0;
   const unlocked = e.poisonLock;
   e.maxHp += unlocked;
   e.poisonLock = 0;
+  const heal = Math.max(0, Math.min(CONFIG.SNAKE_BOSS.bloodHeal, e.maxHp - e.hp));
+  e.hp += heal;
   match.items = match.items.filter(it => it !== item);
-  return { type: 'antidote', id: e.id, item: item.id, unlocked };
+  return { type: 'snakeBlood', id: e.id, item: item.id, cured, unlocked, heal };
 }
 
-// 回合開始時（中毒結算之後）：人就站在解藥上
+// 回合開始時（中毒結算之後）：人就站在蛇血上
 export function pickupAt(match, e) {
-  if (!e.alive || !(e.poisonLock > 0)) return null;
+  if (!wants(e)) return null;
   const item = match.items.find(it => { const c = itemCenter(it); return e.containsPoint(c.x, c.y, ITEM_R); });
   return item ? drink(match, e, item) : null;
 }
 
-// 行動玩家從 (x0, y0) 移動到 (x1, y1)（位置回報之間走的路線，每 4px 檢查一次）：路上碰到解藥就喝掉
+// 行動玩家從 (x0, y0) 移動到 (x1, y1)（位置回報之間走的路線，每 4px 檢查一次）：路上碰到蛇血就喝掉
 export function pickupAlong(match, e, x0, y0, x1, y1) {
-  if (!e.alive || !(e.poisonLock > 0) || !match.items.length) return null;
+  if (!wants(e) || !match.items.length) return null;
   const n = Math.max(1, Math.ceil(Math.sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)) / 4));
   for (let i = 0; i <= n; i++) {
     const px = x0 + (x1 - x0) * i / n, py = y0 + (y1 - y0) * i / n;

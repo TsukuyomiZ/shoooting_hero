@@ -91,7 +91,7 @@ export class GameView {
         this.restoreTurn(msg);
         break;
       // water 也走佇列：畫面還在播前面的事件時（分頁在背景、很卡），才不會先套上、又被之後才播的舊快照（他的 turn）蓋回掉水前的血量
-      // pickup（喝到解藥）也一樣：會改上限，不能被之後才播的舊快照蓋回去
+      // pickup（喝到蛇血）也一樣：會改上限，不能被之後才播的舊快照蓋回去
       case 'turn': case 'aiTurn': case 'shot': case 'skip': case 'turnFx': case 'gameOver': case 'water': case 'pickup':
         this.queue.push(msg);
         this.pump();
@@ -263,7 +263,7 @@ export class GameView {
     this.lastSent = null;
     this.deadline = mine && msg.turnTime ? performance.now() + msg.turnTime * 1000 : null;
     if (!actor) return;
-    for (const fx of msg.fx || []) {   // 回合開始的效果（中毒結算、站在解藥上喝掉、恩賜之杖回血）
+    for (const fx of msg.fx || []) {   // 回合開始的效果（中毒結算、站在蛇血上喝掉、恩賜之杖回血）
       const e = this.match.byId(fx.id);
       if (!e) continue;
       if (fx.type === 'heal') this.floatText(e, `+${fx.amount}`, '#4ade80');
@@ -287,10 +287,13 @@ export class GameView {
     return `狂熱！所有角色的傷害 +${n * CONFIG.FEVER.damagePct}%`;
   }
 
-  // 背景音樂：小關放山谷曲，狂熱生效後換狂熱版（跟狂熱橫幅同一刻）；Boss 關還沒有配樂，淡出
+  // 背景音樂：小關放山谷曲，狂熱生效後換狂熱版（跟狂熱橫幅同一刻）；曲目表在 music.js 的 TRACKS
   musicTrack() {
-    if (!this.started || !this.match || this.match.level.pool !== 'normal') return null;
-    return this.match.feverAt(this.round) > 0 ? 'fever' : 'normal';
+    if (!this.started || !this.match) return null;
+    if (this.match.level.pool === 'normal') return this.match.feverAt(this.round) > 0 ? 'fever' : 'normal';
+    if (this.match.tree) return 'tree';     // 古樹之庭
+    if (this.match.snake) return 'snake';   // 叢林巨蟒（先一聲蛇的哈氣再淡入）
+    return null;
   }
 
   *aiTurnScript(msg) {
@@ -449,7 +452,7 @@ export class GameView {
       const e = this.match.byId(s.id);
       if (e) e.applyEventState(s);
     }
-    if (ev.drops) addDrops(this, ev.drops);   // 打到巨蟒跨過門檻：掉解藥
+    if (ev.drops) addDrops(this, ev.drops);   // 打到巨蟒跨過門檻：掉蛇血
     for (const d of ev.damages || []) {
       const e = this.match.byId(d.id);
       if (!e) continue;
@@ -526,7 +529,7 @@ export class GameView {
       } else if (fx.type === 'mouthOpen') {   // 古樹之口撐過一回合，又張開了
         this.floatText(e, '張開了', '#fca5a5');
         e.floatedClosed = false;
-      } else if (fx.type === 'drops') {       // 巨蟒被燒到跨過門檻，掉出解藥
+      } else if (fx.type === 'drops') {       // 巨蟒被燒到跨過門檻，掉出蛇血
         addDrops(this, fx.items);
       } else {
         this.statusFx(e, fx);   // 中毒結算把人毒倒了（回合開始時，這回合就不開始了）
@@ -538,7 +541,7 @@ export class GameView {
     yield { frames: Math.round(CONFIG.TIMING.fxDelay * FPS * 0.6) };
   }
 
-  // 中毒結算 / 喝到解藥的飄字與特效（回合開始的 fx、回合沒開始就被毒倒的 turnFx、走路喝到的 pickup 都用這個）
+  // 中毒結算 / 喝到蛇血的飄字與特效（回合開始的 fx、回合沒開始就被毒倒的 turnFx、走路喝到的 pickup 都用這個）
   statusFx(e, fx) {
     if (fx.type === 'poison') {
       e.hurtTimer = 0.35;
@@ -546,21 +549,24 @@ export class GameView {
       this.floatText(e, fx.dmg > 0 ? `-${fx.dmg} 中毒` : '中毒', '#c084fc');
       if (fx.lock > 0) this.floatText(e, `上限 -${fx.lock}`, '#9ca3af', 15);
       this.spawnParticles(e.cx, e.cy, 14, { speed: 80, life: 0.7, size: 4, color: '#a855f7', gravity: -120 });
-    } else if (fx.type === 'antidote') {
+    } else if (fx.type === 'snakeBlood') {
       this.match.items = this.match.items.filter(it => it.id !== fx.item);
-      this.floatText(e, fx.unlocked > 0 ? `解藥！上限 +${fx.unlocked}` : '解藥！', '#6ee7b7');
-      this.spawnParticles(e.cx, e.cy, 18, { speed: 120, life: 0.8, size: 3, color: '#6ee7b7', gravity: -60 });
+      this.floatText(e, fx.heal > 0 ? `蛇血！+${fx.heal}` : '蛇血！', '#f87171');
+      if (fx.cured > 0) this.floatText(e, '解毒', '#e9d5ff', 15);
+      if (fx.unlocked > 0) this.floatText(e, `上限 +${fx.unlocked}`, '#fca5a5', 15);
+      this.spawnParticles(e.cx, e.cy, 18, { speed: 120, life: 0.8, size: 3, color: '#ef4444', gravity: -60 });
     }
   }
 
-  // 場上的道具換成伺服器的版本（還在飛的解藥動畫留著）
+  // 場上的道具換成伺服器的版本（還在飛的蛇血動畫留著）
   setItems(items) {
     const anims = new Map(this.match.items.filter(it => it.anim).map(it => [it.id, it.anim]));
     this.match.items = items.map(it => (anims.has(it.id) ? { ...it, anim: anims.get(it.id) } : { ...it }));
   }
 
-  // 行動玩家走路途中喝到解藥：只改上限（位置照他自己 / 他的 move 回報）
-  // 自己的血量照本地的（喝完之後可能已經在本地掉過水），伺服器帶的 hp 是喝的那一刻；自己已經先喝過（預測）就不再播一次
+  // 行動玩家走路途中喝到蛇血：改上限與血量（位置照他自己 / 他的 move 回報）。
+  // 自己的血量照本地的（喝完之後可能已經在本地掉過水），伺服器帶的 hp 是喝的那一刻：自己已經先喝過（預測）就什麼都不用改，
+  // 沒預測到（伺服器的直線判到、自己的路線沒碰到）才在本地補上回的血
   onPickup(msg) {
     const e = this.match.byId(msg.id);
     if (!e) return;
@@ -568,12 +574,14 @@ export class GameView {
     const predicted = self && !this.match.items.some(it => it.id === msg.item);
     e.maxHp = msg.mhp;
     e.poisonLock = msg.lk;
+    e.poison = 0;   // 喝了蛇血就解毒
     if (!self) e.hp = msg.hp;
+    else if (!predicted) e.hp = Math.min(e.maxHp, e.hp + (msg.heal || 0));
     if (!predicted) this.statusFx(e, msg);
   }
 
-  // 自己的回合這一幀從 (px, py) 走到現在的位置，路上碰到解藥（有被鎖住的上限）就先在本地喝掉，並馬上回報位置：
-  // 伺服器檢查的線段就停在解藥上，一定也會判到（之後的 pickup 只是確認）
+  // 自己的回合這一幀從 (px, py) 走到現在的位置，路上碰到蛇血（有被鎖住的上限或血沒滿）就先在本地喝掉，並馬上回報位置：
+  // 伺服器檢查的線段就停在蛇血上，一定也會判到（之後的 pickup 只是確認）
   predictPickup(me, px, py) {
     const got = pickupAlong(this.match, me, px, py, me.x, me.y);
     if (!got) return;
@@ -742,7 +750,7 @@ export class GameView {
       } else {
         const falls = e.waterFalls;
         e.update(dt, world);
-        // 叢林巨蟒：自己的回合走過解藥，先在本地喝掉（跟伺服器同一套判斷）——之後在本地掉水才會照解開後的上限扣，跟伺服器一樣
+        // 叢林巨蟒：自己的回合走過蛇血，先在本地喝掉（跟伺服器同一套判斷）——之後在本地掉水才會照解開後的上限扣，跟伺服器一樣
         if (e.id === this.myId && this.canAct && e.waterFalls === falls) this.predictPickup(e, px, py);
       }
       this.moveSfx(e, px, py, wantedJump);

@@ -138,3 +138,87 @@ export const sfx = {
     SOUNDS[name](ctx, out, now + 0.005, opts);
   },
 };
+
+// 叢林巨蟒登場的哈氣：一聲長長的「嘶——」（約 2 秒），叢林巨蟒的 BGM 開頭用（music.js 的 intro: 'hiss'）。
+// 主體是 3~10 kHz 的嘶聲，共鳴點往上滑、越噴越用力；底下墊一點 1 kHz 左右的氣音讓牠聽起來很大隻；
+// 音量帶一點不規則的抖動（氣流不穩），左右聲道各一份雜訊（比較寬），再加一點殘響。dest = 要接到哪條匯流排
+export function snakeHiss(ctx, dest, t, vol = 1) {
+  const dur = 2;
+  const out = ctx.createGain();
+  out.gain.value = vol;
+  out.connect(dest);
+  const env = ctx.createGain();
+  env.gain.setValueAtTime(0, t);
+  env.gain.linearRampToValueAtTime(0.55, t + 0.08);   // 一下子噴出來
+  env.gain.linearRampToValueAtTime(1, t + 0.7);       // 越來越用力
+  env.gain.setValueAtTime(1, t + 1.15);
+  env.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  env.connect(out);
+  const verb = ctx.createConvolver();
+  verb.buffer = hissImpulse(ctx);
+  const wet = ctx.createGain();
+  wet.gain.value = 0.25;
+  env.connect(verb).connect(wet).connect(out);
+
+  const am = ctx.createGain();                          // 氣流不穩的抖動
+  am.gain.value = 0.85;
+  const wob = loopNoise(ctx, t, t + dur);
+  const wobLp = ctx.createBiquadFilter();
+  wobLp.type = 'lowpass';
+  wobLp.frequency.value = 8;
+  const wobDepth = ctx.createGain();
+  wobDepth.gain.value = 6;
+  wob.connect(wobLp).connect(wobDepth).connect(am.gain);
+  am.connect(env);
+
+  for (const side of [-0.3, 0.3]) {                     // 主體的嘶聲（左右各一份）
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 2800;
+    const peak = ctx.createBiquadFilter();
+    peak.type = 'peaking';
+    peak.Q.value = 1;
+    peak.gain.value = 7;
+    peak.frequency.setValueAtTime(4500, t);
+    peak.frequency.linearRampToValueAtTime(6500, t + 1.2);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 10000;
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = side;
+    loopNoise(ctx, t, t + dur).connect(hp).connect(peak).connect(lp).connect(gainNode(ctx, 0.5)).connect(pan).connect(am);
+  }
+  const body = ctx.createBiquadFilter();               // 低一點的氣音
+  body.type = 'bandpass';
+  body.frequency.value = 1100;
+  body.Q.value = 0.8;
+  loopNoise(ctx, t, t + dur).connect(body).connect(gainNode(ctx, 0.15)).connect(am);
+}
+
+function loopNoise(ctx, t, end) {
+  const s = ctx.createBufferSource();
+  s.buffer = noiseBuffer(ctx);
+  s.loop = true;
+  s.start(t, R(0, 2));
+  s.stop(end);
+  return s;
+}
+
+function gainNode(ctx, v) {
+  const g = ctx.createGain();
+  g.gain.value = v;
+  return g;
+}
+
+let hissIr = null;
+function hissImpulse(ctx) {
+  if (!hissIr || hissIr.sampleRate !== ctx.sampleRate) {
+    const sr = ctx.sampleRate, n = Math.round(sr * 1.4);
+    hissIr = ctx.createBuffer(2, n, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = hissIr.getChannelData(ch);
+      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (sr * 0.3));
+    }
+  }
+  return hissIr;
+}

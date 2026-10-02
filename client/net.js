@@ -1,6 +1,6 @@
 import { Run } from '../shared/run.js';
 import { validateCards } from '../shared/cards.js';
-import { CONFIG } from '../shared/config.js';
+import { SoloLog } from './solo-log.js';
 
 // 兩種傳輸層，介面一樣：send(msg)、onMessage(cb)
 // - WsTransport：連到 Node 伺服器（多人）
@@ -72,53 +72,27 @@ export class WsTransport {
   emit(msg) { for (const cb of this.listeners) cb(msg); }
 }
 
-// 單人練習的紀錄（LOG）：裁判在瀏覽器裡跑，紀錄攢一批（每 2 秒、或離開頁面時）送回伺服器寫檔（POST /log），玩家看不到。
-// 伺服器沒開紀錄 / 送不出去就算了，不影響遊戲。sid 讓伺服器把同一場的紀錄標成同一個 SOLO-xxxx
-const SOLO_LOG_FLUSH_MS = 2000;
-const SOLO_LOG_MAX_BUFFER = 5000;      // 伺服器一直收不到時最多攢這麼多筆，再多就丟掉最舊的
-const SOLO_LOG_MAX_BATCH = 48 * 1024;  // 一次送多少（keepalive 的請求本體上限是 64KB）
-class SoloLog {
-  constructor() {
-    this.sid = Math.random().toString(36).slice(2, 8).toUpperCase();
-    this.buf = [];
-    this.timer = null;
-    addEventListener('pagehide', () => this.flush());
-  }
-
-  record(ev, data) {
-    if (!CONFIG.LOG.enabled) return;
-    this.buf.push({ ev, at: Date.now(), ...data });
-    if (this.buf.length > SOLO_LOG_MAX_BUFFER) this.buf.splice(0, this.buf.length - SOLO_LOG_MAX_BUFFER);
-    if (!this.timer) this.timer = setTimeout(() => this.flush(), SOLO_LOG_FLUSH_MS);
-  }
-
-  flush() {
-    clearTimeout(this.timer);
-    this.timer = null;
-    while (this.buf.length) {
-      // 照序列化後的大小切成好幾批（一筆就超過上限的照樣單獨送，伺服器那邊還收得下）
-      const batch = [];
-      let size = 0;
-      while (this.buf.length) {
-        const n = JSON.stringify(this.buf[0]).length + 1;
-        if (batch.length && size + n > SOLO_LOG_MAX_BATCH) break;
-        batch.push(this.buf.shift());
-        size += n;
-      }
-      fetch('log', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
-        body: JSON.stringify({ sid: this.sid, entries: batch }),
-      }).catch(() => {});
-    }
-  }
-}
-
 export class LocalTransport {
   constructor() {
     this.listeners = [];
     this.id = 'me';
     this.connected = true;
+    // 紀錄（玩家看不到，送回伺服器寫檔，見 solo-log.js）。單人沒有離開按鈕，關分頁 / 重新整理就是結束：記一筆 solo.end 再送最後一批
     this.log = new SoloLog();
+    this.ended = false;
+    addEventListener('pagehide', () => this.end('pagehide'));
+  }
+
+  // solo.end：在哪一關、哪個階段結束的（runPhase over = 冒險已經打完，result 是輸贏）
+  end(reason) {
+    if (this.run && !this.ended) {
+      this.ended = true;
+      const run = this.run;
+      this.log.record('solo.end', {
+        reason, stage: run.stage, runPhase: run.phase, round: run.referee ? run.referee.round : 0, ...(run.result ? { result: run.result } : {}),
+      });
+    }
+    this.log.flushFinal();
   }
 
   // 單人也是一場完整冒險：讀牌庫 → 在瀏覽器裡跑 Run
@@ -157,8 +131,8 @@ export class LocalTransport {
   }
 
   close() {
+    this.end('close');
     if (this.run) this.run.stop();
-    this.log.flush();
   }
   onMessage(cb) { this.listeners.push(cb); }
   emit(msg) { for (const cb of this.listeners) cb(msg); }
