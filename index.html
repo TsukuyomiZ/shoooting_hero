@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shooting Hero</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game" width="1024" height="768"></canvas>
+  </div>
+
+  <div id="lobby" class="overlay">
+    <div class="panel">
+      <h1>Shooting Hero</h1>
+      <p class="sub">彈彈堂風格 PVE 共鬥，最多 4 人</p>
+      <label class="row">暱稱 <input id="name" maxlength="12" placeholder="你的名字"></label>
+      <div id="menu">
+        <button id="btn-solo" class="big">單人練習</button>
+        <button id="btn-create" class="big primary">建立房間</button>
+        <div class="row join">
+          <input id="code" maxlength="4" placeholder="房號" autocomplete="off">
+          <button id="btn-join">加入房間</button>
+        </div>
+      </div>
+      <div id="room" hidden>
+        <div class="code-line">房號 <b id="room-code"></b><span class="hint">把房號告訴朋友，最多 4 人</span></div>
+        <ul id="players"></ul>
+        <div class="row">
+          <button id="btn-ready" class="primary">準備</button>
+          <button id="btn-start" hidden>開始遊戲</button>
+          <button id="btn-leave">離開</button>
+        </div>
+      </div>
+      <div id="status" class="status"></div>
+      <div id="error" class="error"></div>
+    </div>
+  </div>
+
+  <div id="cards" class="overlay" hidden>
+    <div class="panel cards-panel">
+      <h1 id="cards-title">第 1 關通過！</h1>
+      <p class="sub" id="cards-sub">選一張牌</p>
+      <div id="cards-list" class="cards-list"></div>
+      <div id="cards-discard" class="discard" hidden>
+        <div id="discard-title" class="discard-title"></div>
+        <div id="discard-list" class="discard-list"></div>
+        <button id="discard-cancel" class="discard-cancel">取消，改選別張</button>
+      </div>
+      <div id="cards-loadout" class="loadout"></div>
+      <div id="cards-note" class="note"></div>
+      <div class="cards-foot">
+        <span id="cards-timer" class="timer"></span>
+        <span id="cards-status" class="status"></span>
+      </div>
+      <div id="cards-others" class="others"></div>
+    </div>
+  </div>
+
+  <script type="module" src="client/main.js"></script>
+</body>
+</html>

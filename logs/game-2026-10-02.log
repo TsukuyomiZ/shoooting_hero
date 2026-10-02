@@ -1,0 +1,516 @@
+{"ts":"2026-10-02 11:01:18.304","ev":"server.start","port":8125,"host":"0.0.0.0","node":"v24.12.0","proc":30300}
+{"ts":"2026-10-02 11:02:14.727","ev":"server.start","port":52763,"host":"127.0.0.1","node":"v24.12.0","proc":36924}
+{"ts":"2026-10-02 11:02:14.741","ev":"conn.open","cid":1,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:02:14.747","ev":"player.hello","cid":1,"pid":"c-CIWiziTbMO","name":"甲","ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:02:14.751","ev":"conn.open","cid":2,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:02:14.752","ev":"player.hello","cid":2,"pid":"tf-QKple1DoJ","name":"乙","ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:02:14.753","ev":"room.create","room":"9Y8N","pid":"c-CIWiziTbMO","name":"甲"}
+{"ts":"2026-10-02 11:02:14.754","ev":"room.join","room":"9Y8N","pid":"tf-QKple1DoJ","name":"乙","players":2}
+{"ts":"2026-10-02 11:02:14.755","ev":"room.start.fail","room":"9Y8N","pid":"c-CIWiziTbMO","name":"甲","reason":"notReady","notReady":["甲","乙"]}
+{"ts":"2026-10-02 11:02:14.756","ev":"lobby.ready","room":"9Y8N","pid":"c-CIWiziTbMO","name":"甲","ready":true}
+{"ts":"2026-10-02 11:02:14.756","ev":"lobby.ready","room":"9Y8N","pid":"tf-QKple1DoJ","name":"乙","ready":true}
+{"ts":"2026-10-02 11:02:14.758","ev":"room.start","room":"9Y8N","pid":"c-CIWiziTbMO","name":"甲","seed":3618115715,"cards":42,"players":[{"pid":"c-CIWiziTbMO","name":"甲"},{"pid":"tf-QKple1DoJ","name":"乙"}]}
+{"ts":"2026-10-02 11:02:16.277","ev":"sticker.drop","room":"9Y8N","pid":"c-CIWiziTbMO","name":"甲","sticker":"nope","reason":"unknown"}
+{"ts":"2026-10-02 11:02:16.277","ev":"sticker","room":"9Y8N","pid":"c-CIWiziTbMO","name":"甲","sticker":"lol"}
+{"ts":"2026-10-02 11:02:16.277","ev":"sticker","room":"9Y8N","pid":"c-CIWiziTbMO","name":"甲","sticker":"lol"}
+{"ts":"2026-10-02 11:02:16.277","ev":"sticker","room":"9Y8N","pid":"c-CIWiziTbMO","name":"甲","sticker":"lol"}
+{"ts":"2026-10-02 11:02:16.277","ev":"sticker","room":"9Y8N","pid":"c-CIWiziTbMO","name":"甲","sticker":"lol"}
+{"ts":"2026-10-02 11:02:16.277","ev":"sticker.drop","room":"9Y8N","pid":"c-CIWiziTbMO","name":"甲","sticker":"lol","reason":"spam"}
+{"ts":"2026-10-02 11:02:16.277","ev":"sticker.drop","room":"9Y8N","pid":"c-CIWiziTbMO","name":"甲","sticker":"lol","reason":"spam"}
+{"ts":"2026-10-02 11:02:16.277","ev":"sticker","room":"9Y8N","pid":"tf-QKple1DoJ","name":"乙","sticker":"dog"}
+{"ts":"2026-10-02 11:02:19.229","ev":"conn.close","room":"9Y8N","cid":2,"pid":"tf-QKple1DoJ","name":"乙","code":1005}
+{"ts":"2026-10-02 11:02:19.229","ev":"player.disconnect","room":"9Y8N","pid":"tf-QKple1DoJ","name":"乙","inGame":true}
+{"ts":"2026-10-02 11:02:19.251","ev":"conn.open","cid":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:02:19.252","ev":"player.reconnect","room":"9Y8N","cid":3,"pid":"tf-QKple1DoJ","name":"乙","ip":"127.0.0.1","inGame":true}
+{"ts":"2026-10-02 11:02:19.255","ev":"conn.open","cid":4,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:02:19.256","ev":"player.hello","cid":4,"pid":"IWi0lIELNpyn","name":"丙","ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:02:19.257","ev":"room.join.fail","pid":"IWi0lIELNpyn","name":"丙","code":"9Y8N","reason":"started"}
+{"ts":"2026-10-02 11:02:19.258","ev":"room.destroy","room":"9Y8N","reason":"shutdown"}
+{"ts":"2026-10-02 11:02:19.259","ev":"server.stop"}
+{"ts":"2026-10-02 11:02:24.948","ev":"server.start","port":52768,"host":"127.0.0.1","node":"v24.12.0","proc":26452}
+{"ts":"2026-10-02 11:02:24.962","ev":"conn.open","cid":1,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:02:24.969","ev":"player.hello","cid":1,"pid":"_spHa2pSJ0qX","name":"甲","ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:02:24.973","ev":"conn.open","cid":2,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:02:24.974","ev":"player.hello","cid":2,"pid":"HyGrFtFW4Wde","name":"乙","ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:02:24.975","ev":"room.create","room":"ZE5U","pid":"_spHa2pSJ0qX","name":"甲"}
+{"ts":"2026-10-02 11:02:24.976","ev":"room.join","room":"ZE5U","pid":"HyGrFtFW4Wde","name":"乙","players":2}
+{"ts":"2026-10-02 11:02:24.977","ev":"room.start.fail","room":"ZE5U","pid":"_spHa2pSJ0qX","name":"甲","reason":"notReady","notReady":["甲","乙"]}
+{"ts":"2026-10-02 11:02:24.977","ev":"lobby.ready","room":"ZE5U","pid":"_spHa2pSJ0qX","name":"甲","ready":true}
+{"ts":"2026-10-02 11:02:24.977","ev":"lobby.ready","room":"ZE5U","pid":"HyGrFtFW4Wde","name":"乙","ready":true}
+{"ts":"2026-10-02 11:02:24.979","ev":"room.start","room":"ZE5U","pid":"_spHa2pSJ0qX","name":"甲","seed":1528491043,"cards":42,"players":[{"pid":"_spHa2pSJ0qX","name":"甲"},{"pid":"HyGrFtFW4Wde","name":"乙"}]}
+{"ts":"2026-10-02 11:02:26.491","ev":"sticker.drop","room":"ZE5U","pid":"_spHa2pSJ0qX","name":"甲","sticker":"nope","reason":"unknown"}
+{"ts":"2026-10-02 11:02:26.491","ev":"sticker","room":"ZE5U","pid":"_spHa2pSJ0qX","name":"甲","sticker":"lol"}
+{"ts":"2026-10-02 11:02:26.491","ev":"sticker","room":"ZE5U","pid":"_spHa2pSJ0qX","name":"甲","sticker":"lol"}
+{"ts":"2026-10-02 11:02:26.491","ev":"sticker","room":"ZE5U","pid":"_spHa2pSJ0qX","name":"甲","sticker":"lol"}
+{"ts":"2026-10-02 11:02:26.491","ev":"sticker","room":"ZE5U","pid":"_spHa2pSJ0qX","name":"甲","sticker":"lol"}
+{"ts":"2026-10-02 11:02:26.491","ev":"sticker.drop","room":"ZE5U","pid":"_spHa2pSJ0qX","name":"甲","sticker":"lol","reason":"spam"}
+{"ts":"2026-10-02 11:02:26.491","ev":"sticker.drop","room":"ZE5U","pid":"_spHa2pSJ0qX","name":"甲","sticker":"lol","reason":"spam"}
+{"ts":"2026-10-02 11:02:26.491","ev":"sticker","room":"ZE5U","pid":"HyGrFtFW4Wde","name":"乙","sticker":"dog"}
+{"ts":"2026-10-02 11:02:29.452","ev":"conn.close","room":"ZE5U","cid":2,"pid":"HyGrFtFW4Wde","name":"乙","code":1005}
+{"ts":"2026-10-02 11:02:29.452","ev":"player.disconnect","room":"ZE5U","pid":"HyGrFtFW4Wde","name":"乙","inGame":true}
+{"ts":"2026-10-02 11:02:29.474","ev":"conn.open","cid":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:02:29.475","ev":"player.reconnect","room":"ZE5U","cid":3,"pid":"HyGrFtFW4Wde","name":"乙","ip":"127.0.0.1","inGame":true}
+{"ts":"2026-10-02 11:02:29.477","ev":"conn.open","cid":4,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:02:29.478","ev":"player.hello","cid":4,"pid":"Jmb9Hl16AVXp","name":"丙","ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:02:29.479","ev":"room.join.fail","pid":"Jmb9Hl16AVXp","name":"丙","code":"ZE5U","reason":"started"}
+{"ts":"2026-10-02 11:02:29.479","ev":"room.destroy","room":"ZE5U","reason":"shutdown"}
+{"ts":"2026-10-02 11:02:29.481","ev":"server.stop"}
+{"ts":"2026-10-02 11:07:51.535","ev":"solo.start","room":"SOLO-STTSD4","name":"玩家316","seed":1263111039,"cards":42,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:07:51.536","ev":"stage.start","room":"SOLO-STTSD4","stage":1,"stageCount":6,"boss":false,"level":"level3","players":[{"pid":"me","name":"玩家316","hp":150,"maxHp":150,"weapons":["cannon","sniper"],"cards":[]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:07:51.540","ev":"battle.start","room":"SOLO-STTSD4","stage":1,"round":0,"level":"level3","seed":373281520,"entities":[{"id":"me","name":"玩家316","team":"players","hp":150,"maxHp":150,"x":50,"y":378},{"id":"e1","name":"敵人 A","team":"enemies","hp":45,"maxHp":45,"x":510,"y":566},{"id":"e2","name":"敵人 B","team":"enemies","hp":45,"maxHp":45,"x":860,"y":399.3}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:07:53.050","ev":"turn.start","room":"SOLO-STTSD4","stage":1,"round":1,"actor":"me","name":"玩家316","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:07:53.162","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":50,"y":378,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:19.111","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":52.2,"y":378,"facing":1,"stamina":299.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:19.233","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":67.3,"y":377.3,"facing":1,"stamina":294,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:19.343","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":82.5,"y":377.3,"facing":1,"stamina":288.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:19.465","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":97.7,"y":377.3,"facing":1,"stamina":283.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:19.574","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":112.8,"y":377.3,"facing":1,"stamina":278.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:19.805","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":128,"y":378,"facing":1,"stamina":273,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:19.928","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":143.2,"y":378.3,"facing":1,"stamina":267.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:20.055","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":158.3,"y":379.5,"facing":1,"stamina":262.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:20.194","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":167,"y":362,"facing":1,"stamina":229.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:20.334","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":167,"y":329.9,"facing":1,"stamina":229.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:20.459","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":167,"y":310.1,"facing":1,"stamina":229.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:20.694","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":167,"y":302.5,"facing":1,"stamina":229.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:20.817","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":167,"y":307.2,"facing":1,"stamina":229.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:20.926","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":167,"y":324.1,"facing":1,"stamina":229.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:21.051","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":167,"y":353.3,"facing":1,"stamina":229.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:21.191","ev":"move","room":"SOLO-STTSD4","stage":1,"round":1,"pid":"me","name":"玩家316","x":167,"y":379.4,"facing":1,"stamina":229.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:23.051","ev":"turn.skip","room":"SOLO-STTSD4","stage":1,"round":1,"actor":"me","name":"玩家316","reason":"timeout","changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:24.059","ev":"turn.end","room":"SOLO-STTSD4","stage":1,"round":1,"actor":"me","name":"玩家316","hp":150,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:24.059","ev":"turn.start","room":"SOLO-STTSD4","stage":1,"round":1,"actor":"e1","name":"敵人 A","team":"enemies","ai":true,"hp":45,"maxHp":45,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:24.073","ev":"ai.turn","room":"SOLO-STTSD4","stage":1,"round":1,"actor":"e1","name":"敵人 A","walk":{"dir":-1,"frames":54},"weapon":"cannon","angle":110.6,"power":54.4,"hit":"terrain","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:29.299","ev":"turn.end","room":"SOLO-STTSD4","stage":1,"round":1,"actor":"e1","name":"敵人 A","hp":45,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:29.299","ev":"turn.start","room":"SOLO-STTSD4","stage":1,"round":1,"actor":"e2","name":"敵人 B","team":"enemies","ai":true,"hp":45,"maxHp":45,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:29.300","ev":"ai.turn","room":"SOLO-STTSD4","stage":1,"round":1,"actor":"e2","name":"敵人 B","walk":null,"weapon":"sniper","angle":179,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家316","hp":[150,139]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:32.954","ev":"turn.end","room":"SOLO-STTSD4","stage":1,"round":1,"actor":"e2","name":"敵人 B","hp":45,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:32.954","ev":"turn.start","room":"SOLO-STTSD4","stage":1,"round":2,"actor":"me","name":"玩家316","team":"players","ai":false,"hp":139,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:08:32.969","ev":"move","room":"SOLO-STTSD4","stage":1,"round":2,"pid":"me","name":"玩家316","x":148.2,"y":379.7,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:02.535","ev":"fire","room":"SOLO-STTSD4","stage":1,"round":2,"pid":"me","name":"玩家316","weapon":"cannon","angle":40,"power":62,"x":148.2,"y":379.7,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:02.536","ev":"shot","room":"SOLO-STTSD4","stage":1,"round":2,"kind":"weapon","pid":"me","name":"玩家316","weapon":"cannon","hit":"entity","frames":85,"kills":[],"changes":[{"id":"e2","name":"敵人 B","hp":[45,15]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:05.948","ev":"turn.end","room":"SOLO-STTSD4","stage":1,"round":2,"actor":"me","name":"玩家316","hp":139,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:05.948","ev":"turn.start","room":"SOLO-STTSD4","stage":1,"round":2,"actor":"e1","name":"敵人 A","team":"enemies","ai":true,"hp":45,"maxHp":45,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:05.956","ev":"ai.turn","room":"SOLO-STTSD4","stage":1,"round":2,"actor":"e1","name":"敵人 A","walk":null,"weapon":"cannon","angle":113.9,"power":53,"hit":"terrain","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:10.256","ev":"turn.end","room":"SOLO-STTSD4","stage":1,"round":2,"actor":"e1","name":"敵人 A","hp":45,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:10.256","ev":"turn.start","room":"SOLO-STTSD4","stage":1,"round":2,"actor":"e2","name":"敵人 B","team":"enemies","ai":true,"hp":15,"maxHp":45,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:10.268","ev":"ai.turn","room":"SOLO-STTSD4","stage":1,"round":2,"actor":"e2","name":"敵人 B","walk":{"dir":1,"frames":51},"weapon":"cannon","angle":159,"power":97.6,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家316","hp":[139,118]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:16.215","ev":"turn.end","room":"SOLO-STTSD4","stage":1,"round":2,"actor":"e2","name":"敵人 B","hp":15,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:16.215","ev":"turn.start","room":"SOLO-STTSD4","stage":1,"round":3,"actor":"me","name":"玩家316","team":"players","ai":false,"hp":118,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:16.526","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:16.651","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:16.884","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:16.993","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:17.117","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:17.257","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.8,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:17.392","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:17.516","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:17.748","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:17.871","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:17.980","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:18.105","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:18.337","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.8,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:18.478","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:18.602","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:18.710","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:18.974","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:19.099","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:19.237","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:19.361","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.8,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:19.501","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:19.627","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:19.890","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:19.997","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:20.123","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:20.248","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:20.452","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.8,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:20.576","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:20.686","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:20.814","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:21.048","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:21.174","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:21.281","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:21.404","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.8,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:21.513","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:21.636","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:21.870","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:22.009","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:22.136","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:22.261","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:22.493","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.8,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:22.602","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:22.726","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:22.835","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:23.098","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:23.222","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:23.364","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:23.487","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.8,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:23.629","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:23.753","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:24.014","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:24.155","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:24.280","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:24.419","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:24.669","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.8,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:24.777","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:24.900","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:25.007","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:25.240","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:25.363","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:25.472","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:25.597","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.8,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:25.707","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:25.829","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:26.064","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:26.189","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:26.296","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:26.424","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:26.689","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.8,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:26.814","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:26.923","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:27.047","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:27.279","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:27.389","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:27.512","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:27.652","ev":"move","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","x":26.2,"y":416.8,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:27.703","ev":"fire","room":"SOLO-STTSD4","stage":1,"round":3,"pid":"me","name":"玩家316","weapon":"sniper","angle":-10,"power":60,"x":26.2,"y":416.6,"vy":90,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:27.703","ev":"shot","room":"SOLO-STTSD4","stage":1,"round":3,"kind":"weapon","pid":"me","name":"玩家316","weapon":"sniper","hit":"terrain","frames":3,"kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:29.031","ev":"turn.end","room":"SOLO-STTSD4","stage":1,"round":3,"actor":"me","name":"玩家316","hp":118,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:29.031","ev":"turn.start","room":"SOLO-STTSD4","stage":1,"round":3,"actor":"e1","name":"敵人 A","team":"enemies","ai":true,"hp":45,"maxHp":45,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:29.035","ev":"ai.turn","room":"SOLO-STTSD4","stage":1,"round":3,"actor":"e1","name":"敵人 A","walk":null,"weapon":"cannon","angle":112.1,"power":55.2,"hit":"terrain","kills":[],"changes":[{"id":"me","name":"玩家316","hp":[118,106]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:33.904","ev":"turn.end","room":"SOLO-STTSD4","stage":1,"round":3,"actor":"e1","name":"敵人 A","hp":45,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:33.904","ev":"turn.start","room":"SOLO-STTSD4","stage":1,"round":3,"actor":"e2","name":"敵人 B","team":"enemies","ai":true,"hp":15,"maxHp":45,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:33.911","ev":"ai.turn","room":"SOLO-STTSD4","stage":1,"round":3,"actor":"e2","name":"敵人 B","walk":{"dir":-1,"frames":52},"weapon":"cannon","angle":161.7,"power":87.2,"hit":"terrain","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:38.465","ev":"turn.end","room":"SOLO-STTSD4","stage":1,"round":3,"actor":"e2","name":"敵人 B","hp":15,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:38.465","ev":"turn.start","room":"SOLO-STTSD4","stage":1,"round":4,"actor":"me","name":"玩家316","team":"players","ai":false,"hp":106,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:38.534","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":25.8,"y":475.9,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:38.669","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":32.3,"y":477.9,"facing":1,"stamina":297.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:38.796","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":47.5,"y":472.9,"facing":1,"stamina":292.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:38.904","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":62.7,"y":456.9,"facing":1,"stamina":287.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:39.155","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":282,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:39.265","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":276.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:39.390","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":271.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:39.496","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":266.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:39.621","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":261,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:39.731","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":255.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:39.982","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":250.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:40.088","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":245.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:40.213","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":240,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:40.323","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":234.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:40.447","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":229.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:40.555","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":224.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:40.806","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":216.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:40.915","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":211.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:41.179","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":204.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:41.303","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":199.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:41.413","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":194.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:41.537","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":189,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:41.677","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":183.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:41.929","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":178.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:42.039","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":173.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:42.161","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":168,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:42.394","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":160.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:42.503","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":155.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:42.626","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":148.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:42.766","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":143.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:42.999","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":138,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:43.123","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":132.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:43.248","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":127.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:43.357","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":122.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:43.480","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":117,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:43.588","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":111.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:43.823","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":104.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:43.947","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":99,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:44.211","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":92.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:44.349","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":87,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:44.473","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":81.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:44.580","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":76.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:44.704","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":71.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:44.971","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":66,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:45.096","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":60.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:45.204","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":55.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:45.436","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":48,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:45.560","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":42.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:45.669","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":36,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:45.794","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":30.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:46.058","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":25.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:46.166","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":20.3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:46.291","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":15,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:46.417","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":9.8,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:46.527","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":4.5,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:46.651","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:46.884","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:46.991","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:47.242","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:47.350","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:47.476","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:47.585","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:47.709","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:47.972","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:48.080","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:48.204","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:48.437","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:48.561","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:48.669","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:48.794","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:49.060","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:49.168","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:49.293","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:49.432","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:49.556","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:49.696","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:49.925","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:50.047","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:50.281","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:50.391","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:50.517","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:50.642","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:50.751","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:51.017","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:51.141","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:51.279","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:51.512","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:51.638","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:51.763","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:51.870","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:52.101","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:52.225","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:52.334","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:52.459","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:52.567","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:52.691","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:52.959","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:53.082","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:53.315","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:53.425","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:53.551","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:53.675","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:53.784","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:54.017","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:54.141","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:54.248","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:54.480","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:54.606","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:54.746","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:54.868","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:55.101","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:55.207","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:55.331","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:55.438","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:55.561","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:55.671","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:55.934","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:56.057","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:56.321","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:56.460","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:56.584","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:56.693","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:56.816","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:57.049","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:57.187","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:57.310","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:57.543","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:57.683","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:57.806","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:57.946","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:58.178","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:58.303","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:58.429","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:58.536","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:58.659","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:58.767","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:59.002","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:59.128","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:59.359","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:59.484","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:00.318","ev":"server.start","port":8126,"host":"0.0.0.0","node":"v24.12.0","proc":13304}
+{"ts":"2026-10-02 11:09:59.593","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:59.717","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:09:59.824","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:00.058","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:00.183","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:00.309","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:00.541","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:00.651","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:00.775","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:00.916","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:01.167","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:01.274","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:01.398","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:01.505","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:01.629","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:01.740","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:01.973","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:02.098","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:02.364","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:02.491","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:02.633","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:02.758","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:02.883","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.4,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:03.116","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.7,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:03.223","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.2,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:03.348","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":66.8,"y":446.9,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:03.458","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":352,"y":481.5,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:03.583","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":352,"y":493.8,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:03.707","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":352,"y":518.3,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:03.942","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":352,"y":555,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:04.050","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":352,"y":604,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:04.176","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":352,"y":655.8,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:04.176","ev":"water","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":352,"dmg":45,"died":false,"hp":61,"respawn":[47.5,472.9],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:04.177","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.3,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:04.283","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:04.404","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.5,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:04.514","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.8,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:04.745","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:04.870","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.8,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:05.008","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.5,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:05.132","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:05.239","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.3,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:05.364","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.5,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:05.627","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.3,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:05.765","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:05.891","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.5,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:06.033","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.8,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:06.157","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:06.295","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.8,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:06.560","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.5,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:06.686","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:06.810","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.3,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:06.919","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.5,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:07.045","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.3,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:07.186","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:07.419","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.5,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:07.543","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.8,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:07.683","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:07.807","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.8,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:07.945","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.5,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:08.070","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:08.335","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.3,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:08.460","ev":"move","room":"SOLO-STTSD4","stage":1,"round":4,"pid":"me","name":"玩家316","x":70,"y":435.5,"facing":1,"stamina":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:08.475","ev":"turn.skip","room":"SOLO-STTSD4","stage":1,"round":4,"actor":"me","name":"玩家316","reason":"timeout","changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:09.486","ev":"turn.end","room":"SOLO-STTSD4","stage":1,"round":4,"actor":"me","name":"玩家316","hp":61,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:09.486","ev":"turn.start","room":"SOLO-STTSD4","stage":1,"round":4,"actor":"e1","name":"敵人 A","team":"enemies","ai":true,"hp":45,"maxHp":45,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:09.490","ev":"ai.turn","room":"SOLO-STTSD4","stage":1,"round":4,"actor":"e1","name":"敵人 A","walk":null,"weapon":"cannon","angle":111.4,"power":52.8,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家316","hp":[61,40]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:11.815","ev":"solo.start","room":"SOLO-K0E4GH","name":"玩家166","seed":4043488519,"cards":42,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:11.815","ev":"stage.start","room":"SOLO-K0E4GH","stage":1,"stageCount":6,"boss":false,"level":"grove","players":[{"pid":"me","name":"玩家166","hp":150,"maxHp":150,"weapons":["cannon","sniper"],"cards":[]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:11.820","ev":"battle.start","room":"SOLO-K0E4GH","stage":1,"round":0,"level":"grove","seed":1247690470,"entities":[{"id":"me","name":"玩家166","team":"players","hp":150,"maxHp":150,"x":50,"y":518},{"id":"e1","name":"狙擊手 A","team":"enemies","kind":"sniper","hp":30,"maxHp":30,"x":618,"y":185},{"id":"e2","name":"狙擊手 B","team":"enemies","kind":"sniper","hp":30,"maxHp":30,"x":700,"y":185},{"id":"e3","name":"狙擊手 C","team":"enemies","kind":"sniper","hp":30,"maxHp":30,"x":826,"y":177},{"id":"e4","name":"狙擊手 D","team":"enemies","kind":"sniper","hp":30,"maxHp":30,"x":930,"y":177}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:13.322","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":1,"actor":"me","name":"玩家166","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:13.430","ev":"move","room":"SOLO-K0E4GH","stage":1,"round":1,"pid":"me","name":"玩家166","x":50,"y":518,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:14.421","ev":"turn.end","room":"SOLO-STTSD4","stage":1,"round":4,"actor":"e1","name":"敵人 A","hp":45,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:14.421","ev":"turn.start","room":"SOLO-STTSD4","stage":1,"round":4,"actor":"e2","name":"敵人 B","team":"enemies","ai":true,"hp":15,"maxHp":45,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:14.430","ev":"ai.turn","room":"SOLO-STTSD4","stage":1,"round":4,"actor":"e2","name":"敵人 B","walk":{"dir":-1,"frames":36},"weapon":"cannon","angle":165.1,"power":92.3,"hit":"terrain","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:18.744","ev":"turn.end","room":"SOLO-STTSD4","stage":1,"round":4,"actor":"e2","name":"敵人 B","hp":15,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:18.744","ev":"turn.start","room":"SOLO-STTSD4","stage":1,"round":5,"actor":"me","name":"玩家316","team":"players","ai":false,"hp":40,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:18.791","ev":"move","room":"SOLO-STTSD4","stage":1,"round":5,"pid":"me","name":"玩家316","x":9.3,"y":463.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:18.901","ev":"move","room":"SOLO-STTSD4","stage":1,"round":5,"pid":"me","name":"玩家316","x":9.3,"y":463.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:19.025","ev":"move","room":"SOLO-STTSD4","stage":1,"round":5,"pid":"me","name":"玩家316","x":9.3,"y":463.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:19.256","ev":"move","room":"SOLO-STTSD4","stage":1,"round":5,"pid":"me","name":"玩家316","x":9.3,"y":463.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:19.364","ev":"move","room":"SOLO-STTSD4","stage":1,"round":5,"pid":"me","name":"玩家316","x":9.3,"y":463.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:19.488","ev":"move","room":"SOLO-STTSD4","stage":1,"round":5,"pid":"me","name":"玩家316","x":9.3,"y":463.8,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:19.626","ev":"move","room":"SOLO-STTSD4","stage":1,"round":5,"pid":"me","name":"玩家316","x":9.3,"y":463.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:19.859","ev":"move","room":"SOLO-STTSD4","stage":1,"round":5,"pid":"me","name":"玩家316","x":9.3,"y":463.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:19.983","ev":"move","room":"SOLO-STTSD4","stage":1,"round":5,"pid":"me","name":"玩家316","x":9.3,"y":463.1,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:20.122","ev":"move","room":"SOLO-STTSD4","stage":1,"round":5,"pid":"me","name":"玩家316","x":9.3,"y":463.3,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:20.244","ev":"move","room":"SOLO-STTSD4","stage":1,"round":5,"pid":"me","name":"玩家316","x":9.3,"y":463.6,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:20.352","ev":"move","room":"SOLO-STTSD4","stage":1,"round":5,"pid":"me","name":"玩家316","x":9.3,"y":463.8,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:24.952","ev":"weapon","room":"SOLO-K0E4GH","stage":1,"round":1,"pid":"me","name":"玩家166","weapon":"sniper","ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:24.961","ev":"weapon","room":"SOLO-K0E4GH","stage":1,"round":1,"pid":"me","name":"玩家166","weapon":"cannon","ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:25.003","ev":"fire","room":"SOLO-K0E4GH","stage":1,"round":1,"pid":"me","name":"玩家166","weapon":"cannon","angle":33.5,"power":100,"x":50,"y":518,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:25.006","ev":"shot","room":"SOLO-K0E4GH","stage":1,"round":1,"kind":"weapon","pid":"me","name":"玩家166","weapon":"cannon","hit":"out","frames":85,"kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:27.643","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":1,"actor":"me","name":"玩家166","hp":150,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:27.643","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":1,"actor":"e1","name":"狙擊手 A","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:27.646","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":1,"actor":"e1","name":"狙擊手 A","walk":null,"weapon":"sniper","angle":-151.1,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家166","hp":[150,139]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:31.301","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":1,"actor":"e1","name":"狙擊手 A","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:31.301","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":1,"actor":"e2","name":"狙擊手 B","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:31.302","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":1,"actor":"e2","name":"狙擊手 B","walk":null,"weapon":"sniper","angle":-153.2,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家166","hp":[139,128]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:34.906","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":1,"actor":"e2","name":"狙擊手 B","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:34.906","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":1,"actor":"e3","name":"狙擊手 C","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:34.906","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":1,"actor":"e3","name":"狙擊手 C","walk":null,"weapon":"sniper","angle":-155.8,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家166","hp":[128,117]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:38.584","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":1,"actor":"e3","name":"狙擊手 C","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:38.584","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":1,"actor":"e4","name":"狙擊手 D","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:38.585","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":1,"actor":"e4","name":"狙擊手 D","walk":null,"weapon":"sniper","angle":-161.3,"power":100,"hit":"out","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:41.856","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":1,"actor":"e4","name":"狙擊手 D","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:41.856","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":2,"actor":"me","name":"玩家166","team":"players","ai":false,"hp":117,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:10:41.932","ev":"move","room":"SOLO-K0E4GH","stage":1,"round":2,"pid":"me","name":"玩家166","x":38.8,"y":518,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:06.119","ev":"weapon","room":"SOLO-K0E4GH","stage":1,"round":2,"pid":"me","name":"玩家166","weapon":"sniper","ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:06.123","ev":"weapon","room":"SOLO-K0E4GH","stage":1,"round":2,"pid":"me","name":"玩家166","weapon":"cannon","ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:06.173","ev":"fire","room":"SOLO-K0E4GH","stage":1,"round":2,"pid":"me","name":"玩家166","weapon":"cannon","angle":34.5,"power":100,"x":38.8,"y":518,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:06.175","ev":"shot","room":"SOLO-K0E4GH","stage":1,"round":2,"kind":"weapon","pid":"me","name":"玩家166","weapon":"cannon","hit":"out","frames":87,"kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:08.858","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":2,"actor":"me","name":"玩家166","hp":117,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:08.858","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":2,"actor":"e1","name":"狙擊手 A","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:08.860","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":2,"actor":"e1","name":"狙擊手 A","walk":null,"weapon":"sniper","angle":-149.3,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家166","hp":[117,106]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:12.467","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":2,"actor":"e1","name":"狙擊手 A","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:12.468","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":2,"actor":"e2","name":"狙擊手 B","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:12.468","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":2,"actor":"e2","name":"狙擊手 B","walk":null,"weapon":"sniper","angle":-152.1,"power":100,"hit":"terrain","kills":[],"changes":[{"id":"me","name":"玩家166","hp":[106,97]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:16.104","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":2,"actor":"e2","name":"狙擊手 B","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:16.104","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":2,"actor":"e3","name":"狙擊手 C","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:16.105","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":2,"actor":"e3","name":"狙擊手 C","walk":null,"weapon":"sniper","angle":-159.5,"power":100,"hit":"out","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:19.349","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":2,"actor":"e3","name":"狙擊手 C","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:19.349","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":2,"actor":"e4","name":"狙擊手 D","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:19.350","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":2,"actor":"e4","name":"狙擊手 D","walk":null,"weapon":"sniper","angle":-159.3,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家166","hp":[97,86]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:22.636","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":2,"actor":"e4","name":"狙擊手 D","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:22.636","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"me","name":"玩家166","team":"players","ai":false,"hp":86,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:22.684","ev":"move","room":"SOLO-K0E4GH","stage":1,"round":3,"pid":"me","name":"玩家166","x":9.4,"y":519.2,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:52.646","ev":"turn.skip","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"me","name":"玩家166","reason":"timeout","changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:53.650","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"me","name":"玩家166","hp":86,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:53.650","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"e1","name":"狙擊手 A","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:53.651","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"e1","name":"狙擊手 A","walk":null,"weapon":"sniper","angle":-149,"power":100,"hit":"terrain","kills":[],"changes":[{"id":"me","name":"玩家166","hp":[86,80]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:56.847","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"e1","name":"狙擊手 A","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:56.847","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"e2","name":"狙擊手 B","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:56.848","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"e2","name":"狙擊手 B","walk":null,"weapon":"sniper","angle":-151.1,"power":100,"hit":"terrain","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:59.985","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"e2","name":"狙擊手 B","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:59.985","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"e3","name":"狙擊手 C","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:11:59.985","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"e3","name":"狙擊手 C","walk":null,"weapon":"sniper","angle":-157.5,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家166","hp":[80,69]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:03.315","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"e3","name":"狙擊手 C","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:03.315","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"e4","name":"狙擊手 D","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:03.315","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"e4","name":"狙擊手 D","walk":null,"weapon":"sniper","angle":-157.5,"power":100,"hit":"terrain","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:06.537","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":3,"actor":"e4","name":"狙擊手 D","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:06.537","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"me","name":"玩家166","team":"players","ai":false,"hp":69,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:06.584","ev":"move","room":"SOLO-K0E4GH","stage":1,"round":4,"pid":"me","name":"玩家166","x":9.4,"y":519.7,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:36.555","ev":"turn.skip","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"me","name":"玩家166","reason":"timeout","changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:37.564","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"me","name":"玩家166","hp":69,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:37.564","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"e1","name":"狙擊手 A","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:37.564","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"e1","name":"狙擊手 A","walk":null,"weapon":"sniper","angle":-150.4,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家166","hp":[69,58]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:40.726","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"e1","name":"狙擊手 A","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:40.726","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"e2","name":"狙擊手 B","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:40.726","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"e2","name":"狙擊手 B","walk":null,"weapon":"sniper","angle":-154.3,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家166","hp":[58,47]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:43.977","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"e2","name":"狙擊手 B","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:43.977","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"e3","name":"狙擊手 C","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:43.977","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"e3","name":"狙擊手 C","walk":null,"weapon":"sniper","angle":-156.8,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家166","hp":[47,36]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:47.195","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"e3","name":"狙擊手 C","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:47.195","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"e4","name":"狙擊手 D","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:47.196","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"e4","name":"狙擊手 D","walk":null,"weapon":"sniper","angle":-161.6,"power":100,"hit":"out","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:50.475","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":4,"actor":"e4","name":"狙擊手 D","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:50.475","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"me","name":"玩家166","team":"players","ai":false,"hp":36,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:12:50.492","ev":"move","room":"SOLO-K0E4GH","stage":1,"round":5,"pid":"me","name":"玩家166","x":9.4,"y":519.2,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:20.478","ev":"turn.skip","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"me","name":"玩家166","reason":"timeout","changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:21.478","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"me","name":"玩家166","hp":36,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:21.478","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"e1","name":"狙擊手 A","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:21.479","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"e1","name":"狙擊手 A","walk":null,"weapon":"sniper","angle":-153.4,"power":100,"hit":"out","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:24.633","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"e1","name":"狙擊手 A","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:24.633","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"e2","name":"狙擊手 B","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:24.633","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"e2","name":"狙擊手 B","walk":null,"weapon":"sniper","angle":-156.5,"power":100,"hit":"out","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:27.829","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"e2","name":"狙擊手 B","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:27.829","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"e3","name":"狙擊手 C","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:27.829","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"e3","name":"狙擊手 C","walk":null,"weapon":"sniper","angle":-158.1,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家166","hp":[36,25]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:31.182","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"e3","name":"狙擊手 C","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:31.183","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"e4","name":"狙擊手 D","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:31.183","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"e4","name":"狙擊手 D","walk":null,"weapon":"sniper","angle":-156.5,"power":100,"hit":"terrain","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:34.394","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":5,"actor":"e4","name":"狙擊手 D","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:34.394","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"me","name":"玩家166","team":"players","ai":false,"hp":25,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:13:34.428","ev":"move","room":"SOLO-K0E4GH","stage":1,"round":6,"pid":"me","name":"玩家166","x":9.4,"y":519.7,"facing":1,"stamina":300,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:04.397","ev":"turn.skip","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"me","name":"玩家166","reason":"timeout","changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:05.413","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"me","name":"玩家166","hp":25,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:05.413","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"e1","name":"狙擊手 A","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:05.413","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"e1","name":"狙擊手 A","walk":null,"weapon":"sniper","angle":-148.2,"power":100,"hit":"terrain","kills":[],"changes":[{"id":"me","name":"玩家166","hp":[25,22]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:08.571","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"e1","name":"狙擊手 A","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:08.571","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"e2","name":"狙擊手 B","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:08.572","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"e2","name":"狙擊手 B","walk":null,"weapon":"sniper","angle":-156,"power":100,"hit":"out","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:11.763","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"e2","name":"狙擊手 B","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:11.763","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"e3","name":"狙擊手 C","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:11.763","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"e3","name":"狙擊手 C","walk":null,"weapon":"sniper","angle":-157.1,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家166","hp":[22,11]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:15.045","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"e3","name":"狙擊手 C","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:15.045","ev":"turn.start","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"e4","name":"狙擊手 D","team":"enemies","ai":true,"hp":30,"maxHp":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:15.045","ev":"ai.turn","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"e4","name":"狙擊手 D","walk":null,"weapon":"sniper","angle":-159.1,"power":100,"hit":"entity","kills":["me"],"changes":[{"id":"me","name":"玩家166","hp":[11,0],"died":"hit"}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:18.281","ev":"turn.end","room":"SOLO-K0E4GH","stage":1,"round":6,"actor":"e4","name":"狙擊手 D","hp":30,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:18.282","ev":"battle.over","room":"SOLO-K0E4GH","stage":1,"round":6,"result":"lose","level":"grove","players":[{"pid":"me","name":"玩家166","hp":0,"alive":false,"kills":0}],"ip":"127.0.0.1"}
+{"ts":"2026-10-02 11:14:18.282","ev":"run.over","room":"SOLO-K0E4GH","result":"lose","stage":1,"stageCount":6,"players":[{"pid":"me","name":"玩家166","hp":0,"cards":[],"weapons":["cannon","sniper"]}],"ip":"127.0.0.1"}

@@ -1,0 +1,39 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "shooting-hero",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/server.js"],
+      "port": 8123
+    },
+    {
+      "name": "shooting-hero-8124",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/server.js"],
+      "env": { "PORT": "8124" },
+      "port": 8124
+    },
+    {
+      "name": "shooting-hero-8125",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/server.js"],
+      "env": { "PORT": "8125" },
+      "port": 8125
+    },
+    {
+      "name": "shooting-hero-8126",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/server.js"],
+      "env": { "PORT": "8126" },
+      "port": 8126
+    },
+    {
+      "name": "shooting-hero-auto",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server/server.js"],
+      "port": 8127,
+      "autoPort": true
+    }
+  ]
+}
