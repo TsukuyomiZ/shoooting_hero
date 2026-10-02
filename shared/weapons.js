@@ -190,11 +190,15 @@ export function traceShot(world, owner, weapon, angleDeg, power, { bounces = 0, 
 }
 
 // 自己瞄準時的預覽（client/render.js 畫，測試也拿它驗）：照牌給的特性（shotTraits）算。
-// 拋射武器只給前 PREVIEW.dots 個點（kind 'arc'，大砲只給方向提示）；直線武器給完整路線（kind 'line'，含彈射點、穿透點）
+// 拋射武器只給前 PREVIEW.dots 個點（kind 'arc'，大砲只給方向提示；有全知之眼就給到落點）；直線武器給完整路線（kind 'line'，含彈射點、穿透點）
 export function aimPreview(world, owner, weapon, angleDeg, power) {
   const traits = shotTraits(owner, weapon.id);
   if (weapon.gravity > 0) {
     const pv = CONFIG.PREVIEW;
+    if (owner.mods && owner.mods.fullArc > 0) {   // 全知之眼：畫完整條拋物線，最後一點是落點（full = true）
+      const r = simulateShot(world, owner, weapon, angleDeg, power, 6, pv.framesPerDot, traits);
+      return { kind: 'arc', full: true, ...r, points: [...r.points, { x: r.hit.x, y: r.hit.y }] };
+    }
     return { kind: 'arc', ...simulateShot(world, owner, weapon, angleDeg, power, pv.dots * pv.framesPerDot / 60, pv.framesPerDot, traits) };
   }
   return { kind: 'line', ...traceShot(world, owner, weapon, angleDeg, power, traits) };

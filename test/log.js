@@ -199,6 +199,24 @@ await test('一關的每一步都有紀錄：開始、回合、移動、換武�
   assert(io.last('weapon') && io.last('weapon').weapon === other && io.last('weapon').pid === 'p1', 'weapon switch');
   run.handle('p1', { t: 'weapon', weapon: 'cannon' });
 
+  // 慢動作（空中瞄準）：開 / 關各記一筆（關掉的原因認得才記）、轉給其他人畫光環；狀態沒變的重複訊息不處理
+  run.handle('p1', { t: 'slow', on: true });
+  const s1 = io.last('slowmo');
+  assert(s1 && s1.pid === 'p1' && s1.name === '甲' && s1.on === true && typeof s1.stamina === 'number' && !('why' in s1) && s1.round === 1, 'slowmo on: ' + JSON.stringify(s1));
+  const relay = io.msgs.filter(x => x.t === 'slow').at(-1);
+  assert(relay && relay.id === 'p1' && relay.on === true && relay._except === 'p1', 'slow relayed to the others: ' + JSON.stringify(relay));
+  run.handle('p1', { t: 'slow', on: true });
+  assert(io.last('action.ignored').reason === 'slowUnchanged' && io.evs('slowmo').length === 1, 'duplicate slow ignored');
+  run.handle('p1', { t: 'slow', on: false, why: 'stamina' });
+  assert(io.last('slowmo').on === false && io.last('slowmo').why === 'stamina', 'slowmo off + reason: ' + JSON.stringify(io.last('slowmo')));
+  run.handle('p1', { t: 'slow', on: true });
+  run.handle('p1', { t: 'slow', on: false, why: { toString: 0 } });
+  assert(io.last('slowmo').on === false && !('why' in io.last('slowmo')), 'unknown reason not recorded');
+  run.handle('p2', { t: 'slow', on: true });
+  assert(io.last('action.ignored').pid === 'p2' && io.last('action.ignored').reason === 'notYourTurn' && io.evs('slowmo').length === 4, 'slow from someone else ignored');
+  run.handle('p1', { t: 'slow', on: true });   // 開著慢動作就開火（沒送關）：裁判補記關掉，下一位的回合重新算
+  assert(run.referee.statePayload().slowOn === true, 'reconnect state carries slowOn');
+
   // 移動（照當下的位置回報，體力往下報）與被擋下的瞬移
   run.handle('p1', { t: 'move', x: me.x, y: me.y, facing: -1, stamina: me.stamina - 5 });
   const mv = io.last('move');
@@ -216,15 +234,23 @@ await test('一關的每一步都有紀錄：開始、回合、移動、換武�
   const shot = io.last('shot');
   assert(shot && shot.kind === 'weapon' && shot.pid === 'p1' && shot.frames > 0 && Array.isArray(shot.kills), 'shot: ' + JSON.stringify(shot));
   assert(io.records.indexOf(fire) < io.records.indexOf(shot), 'fire is recorded before its result');
+  const autoOff = io.evs('slowmo').at(-1);
+  assert(autoOff.pid === 'p1' && autoOff.on === false && autoOff.why === 'fire' && autoOff.auto === true && io.records.indexOf(autoOff) < io.records.indexOf(fire),
+    'slow-mo still on at fire: closed by the referee before the fire record: ' + JSON.stringify(autoOff));
+  assert(run.referee.statePayload().slowOn === false, 'slowOn off after fire');
   assert(shot.changes.length > 0 && shot.changes.every(c => c.id && Array.isArray(c.hp) && c.hp[0] !== c.hp[1]), 'shot changes: ' + JSON.stringify(shot.changes));
   run.handle('p1', { t: 'move', x: me.x, y: me.y });
   assert(io.last('action.ignored').reason === 'phase:resolving', 'moves during resolving are ignored');
 
-  // 乙的回合：什麼都不做 → 超時
+  // 乙的回合：開一下慢動作（甲最後開著也不影響）→ 什麼都不做 → 超時
   assert(advanceUntil(io, () => io.last('turn.start').actor === 'p2'), 'p2 turn');
+  run.handle('p2', { t: 'slow', on: true });
+  assert(io.last('slowmo').pid === 'p2' && io.last('slowmo').on === true, 'slow state resets every turn: ' + JSON.stringify(io.last('slowmo')));
   assert(io.evs('turn.end').some(r => r.actor === 'p1'), 'turn.end for p1');
   assert(advanceUntil(io, () => io.last('turn.skip')), 'p2 timeout');
   assert(io.last('turn.skip').actor === 'p2' && io.last('turn.skip').pid === 'p2' && io.last('turn.skip').reason === 'timeout', 'skip reason');
+  const toOff = io.evs('slowmo').at(-1);
+  assert(toOff.pid === 'p2' && toOff.on === false && toOff.why === 'timeout' && toOff.auto === true, 'timeout closes slow-mo: ' + JSON.stringify(toOff));
 
   // 敵人的 AI 回合
   assert(advanceUntil(io, () => io.evs('ai.turn').length > 0), 'enemy ai turn');
@@ -263,9 +289,18 @@ await test('輪到他時斷線 → turn.takeover + ai.turn（takeover）；全�
   beefUp(run);
   io.advance(2000);
   assert(io.last('turn.start').actor === 'p1', 'p1 first');
+  run.handle('p1', { t: 'slow', on: true });   // 開著慢動作時斷線
   run.setConnected('p1', false);
   const tk = io.last('turn.takeover');
   assert(tk && tk.pid === 'p1' && tk.alive === true, 'turn.takeover: ' + JSON.stringify(tk));
+  const tkOff = io.last('slowmo');
+  assert(tkOff.pid === 'p1' && tkOff.on === false && tkOff.why === 'takeover' && tkOff.auto === true, 'takeover closes slow-mo: ' + JSON.stringify(tkOff));
+  // 回線（回合中重新連線，新的頁面送 reconnect 關）：認得這個原因
+  run.referee.slowOn = true;
+  run.referee.phase = 'turn';
+  run.referee.handle('p1', { t: 'slow', on: false, why: 'reconnect' });
+  assert(io.last('slowmo').why === 'reconnect' && !io.last('slowmo').auto && run.referee.slowOn === false, 'reconnect off recorded: ' + JSON.stringify(io.last('slowmo')));
+  run.referee.phase = 'resolving';
   const ai = io.last('ai.turn');
   assert(ai && ai.actor === 'p1' && ai.takeover === true, 'ai.turn takeover: ' + JSON.stringify(ai));
   // 之後他的回合一開始就是代打

@@ -44,6 +44,9 @@ class FakeIo {
 }
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
 const grove = (n = 1, opts = {}) => new Match({ levelId: 'grove', players: mkPlayers(n), seed: 1, ...opts });
+// 狙擊手幾隻、站哪根樹枝都照關卡資料（使用者會自己改地圖，例如 4 隻改 3 隻）
+const SNIPERS = LEVELS.grove.enemySpawns.filter(s => s.type === 'sniper').length;
+const branchOf = (x) => (x < 760 ? 0 : 1);
 // 測試不吃使用者在 config 調的數值：需要的值自己設，跑完還原
 function withConfig(patch, fn) {
   const saved = Object.fromEntries(Object.keys(patch).map(k => [k, { ...CONFIG[k] }]));
@@ -53,11 +56,11 @@ function withConfig(patch, fn) {
 // 砲口正對目標中心的角度（不加誤差）
 const exactAngle = (s, t) => { const m = s.muzzle(); return Math.atan2(-(t.cy - m.y), t.cx - m.x) * 180 / Math.PI; };
 
-test('樹影重重在一般地圖池；4 個狙擊手：kind sniper、只有狙擊槍、血量照 SNIPER.hp 依人數 / 關數放大', () => withConfig(
+test('樹影重重在一般地圖池；狙擊手（數量照關卡）：kind sniper、只有狙擊槍、血量照 SNIPER.hp 依人數 / 關數放大', () => withConfig(
   { SNIPER: { hp: 30 }, ENEMY: { hp: 45 } }, () => {
     assert(levelsInPool('normal').includes('grove') && LEVELS.grove.name === '樹影重重', 'grove is in the normal pool');
     const solo = grove(1);
-    assert(solo.enemies.length === 4, 'four snipers');
+    assert(SNIPERS >= 1 && solo.enemies.length === LEVELS.grove.enemySpawns.length && solo.enemies.length === SNIPERS, `${SNIPERS} snipers: ${solo.enemies.length}`);
     for (const s of solo.enemies) {
       assert(s.kind === 'sniper', `${s.id} kind ${s.kind}`);
       assert(s.weapons.length === 1 && s.weapons[0] === 'sniper' && s.weapon === 'sniper', `${s.id} weapons ${s.weapons}`);
@@ -85,7 +88,7 @@ test('關卡寫了不存在的敵人種類會直接報錯（不會默默變成�
   }
 });
 
-test('開場站位：玩家站在左側高地，狙擊手兩兩站在兩根樹枝上，沒人掉水', () => {
+test('開場站位：玩家站在左側高地，狙擊手都站在樹枝上（每根幾隻照關卡），沒人掉水', () => {
   const m = grove(4);
   const t = m.terrain;
   for (const p of m.players) {
@@ -96,9 +99,11 @@ test('開場站位：玩家站在左側高地，狙擊手兩兩站在兩根樹�
   for (const s of m.enemies) {
     assert(s.alive && s.onGround && s.waterFalls === 0, `${s.id} stands`);
     assert(t.at(s.x, s.y + 1) === PLATFORM, `${s.id} stands on a branch (${s.x}, ${s.y})`);
-    perBranch[s.x < 760 ? 0 : 1]++;
+    perBranch[branchOf(s.x)]++;
   }
-  assert(perBranch[0] === 2 && perBranch[1] === 2, 'two snipers per branch: ' + perBranch);
+  const want = [0, 0];
+  for (const s of LEVELS.grove.enemySpawns) want[branchOf(s.x)]++;
+  assert(perBranch.join() === want.join(), `snipers per branch ${perBranch} vs level ${want}`);
   // 樹枝炸不壞、子彈穿得過；樹幹與樹冠只是裝飾（不是地形）
   t.carve(660, 190, 40);
   assert(t.isPlatform(660, 190) && !t.isSolid(660, 190), 'branch survives a blast and is not solid');
@@ -108,7 +113,7 @@ test('開場站位：玩家站在左側高地，狙擊手兩兩站在兩根樹�
 
 test('射界：每個狙擊手對每個出生點都有直線視野，正中間的一槍直接打中那位玩家（不會先打到同伴）', () => {
   let shots = 0;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < SNIPERS; i++) {
     for (let j = 0; j < 4; j++) {
       const m = grove(4);
       const s = m.enemies[i], p = m.players[j];
@@ -127,7 +132,7 @@ test('狙擊手的 AI：只用狙擊槍、不走動，角度誤差在 ±sniperSp
     let maxErr = 0, n = 0;
     for (let seed = 1; seed <= 120; seed++) {
       const m = grove(2, { seed });
-      const s = m.enemies[seed % 4];
+      const s = m.enemies[seed % SNIPERS];
       const x0 = s.x;
       const { walk, plan } = m.planAiTurn(s);
       assert(walk === null && s.x === x0, `seed ${seed}: sniper walked`);
@@ -156,7 +161,7 @@ test('只有狙擊槍的射手先挑打得到的人：躲進坑裡（血最少�
   const rng = new Rng(9);
   for (let seed = 1; seed <= 80; seed++) {
     const { m, p2 } = setup(seed);
-    const plan = planShot(m.world, m.enemies[seed % 4], rng);
+    const plan = planShot(m.world, m.enemies[seed % SNIPERS], rng);
     assert(plan.targetId === p2.id, `seed ${seed}: aimed at the hidden player`);
   }
   const { m, p1, p2 } = setup(3);

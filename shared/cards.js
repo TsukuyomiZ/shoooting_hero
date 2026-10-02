@@ -47,6 +47,12 @@ export const EFFECT_KEYS = {
   loneLifestealPct: '場上沒有活著的隊友時（單人一直算），傷害吸血 +N%',
   allyDamagePct:    '場上每有一名活著的隊友，武器傷害 +N%',
   allyArmorPct:     '場上每有一名活著的隊友，受到的傷害 -N%（只算自己）',
+  feverDamagePct:   '狂熱生效時（一般小關第 11 輪起；Boss 關沒有狂熱），武器傷害再 +N%',
+  fullArc:          '拋射武器（大砲等）的瞄準預覽畫出完整拋物線直到落點（填 1）',
+  missDamagePct:    '每次射擊沒打中敵人得到一層「準備」，每層武器傷害 +N%；打中敵人就歸零',
+  missMaxStacks:    '上面「準備」最多幾層',
+  hitDamagePct:     '每次射擊打中敵人得到一層「狂獵」，每層武器傷害 +N%；沒打中就歸零',
+  hitMaxStacks:     '上面「狂獵」最多幾層',
   link:             `選牌時指定一名隊友「連結」（填 1）：兩人受到的傷害先 -${CONFIG.EQUIP.link.damageCutPct}%，再跟活著的連結對象平分`,
 };
 

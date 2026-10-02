@@ -1,6 +1,6 @@
 // node test/snake-boss.js
 // Boss 關「叢林巨蟒」的規則測試：地圖（藤蔓橋、橋的盡頭是水、巨蟒的橢圓判定）、藤蔓（抓、爬、放手、跳開、被打下來、伺服器檢查回報）、
-// 中毒（上毒、無敵擋、連結不分、自己的回合開始結算 + 生命鎖、被毒倒）、蛇血（每 10% 掉一瓶、走過去喝 / 回合開始站在上面、解鎖 + 回 30 血）、
+// 中毒（上毒、無敵擋、連結不分、自己的回合開始結算 + 生命鎖、被毒倒）、蛇血（每 N% 掉一瓶、走過去喝 / 回合開始站在上面、解毒 + 解鎖 + 回血）、
 // 四種招式（權重、預定下一招、衝撞範圍、噴灑每人最多一次、震擊只打站在橋上的人並往巨蟒甩、撕咬最近的人）、
 // 客戶端重播一致、裁判流程、客戶端警示帶、確定性
 import { CONFIG } from '../shared/config.js';
@@ -173,7 +173,7 @@ test('地圖：在 Boss 池裡；藤蔓橋炸不壞、子彈穿得過、站得�
   return { snakeHp4p: s.maxHp };
 });
 
-test('藤蔓：站在橋上搆不到；按住 W 跳起來就抓住；往上爬耗體力、到上端停；放開不動也不耗體力；沒體力只能掛著', () => {
+test('藤蔓：站在橋上搆不到；按住 W 跳起來就抓住；往上爬耗體力、到上端停；回合外（hangDrain 關）放開不動不耗體力、沒體力也掛著', () => {
   const m = jungle(1);
   const p = m.players[0];
   const v = m.terrain.vines[0];
@@ -193,7 +193,7 @@ test('藤蔓：站在橋上搆不到；按住 W 跳起來就抓住；往上爬�
   p.vineDir = 0;
   const y1 = p.y, st1 = p.stamina;
   stepN(m, 120);
-  assert(p.y === y1 && p.stamina === st1 && p.onVine === 0 && m.isSettled(), 'hangs still for free (and counts as settled)');
+  assert(p.y === y1 && p.stamina === st1 && p.onVine === 0 && m.isSettled(), 'not in my turn (hangDrain off): hangs still for free (and counts as settled)');
   p.stamina = 1e9;
   p.vineDir = -1;
   stepN(m, 600);
@@ -204,6 +204,61 @@ test('藤蔓：站在橋上搆不到；按住 W 跳起來就抓住；往上爬�
   stepN(m, 30);
   assert(p.y === lo && p.onVine === 0, 'no stamina: just hangs');
   return { reach: { lo, hi } };
+});
+
+test('藤蔓：自己的回合（hangDrain）掛著也耗 vineHangCost 體力、用完就鬆手掉下去，沒體力也抓不住；回合外免費一直掛著；慢動作時重抓冷卻照遊戲時間算', () => {
+  const m = jungle(1);
+  const p = m.players[0];
+  const { hi } = hangRange(m, p, 1);
+  assert(p.vineHangCost === CONFIG.PLAYER.vineHangCost && p.vineHangCost > 0, 'players get vineHangCost: ' + p.vineHangCost);
+  hang(m, p, 1, hi - 30);
+  p.hangDrain = true;
+  p.stamina = 100;
+  stepN(m, 60);
+  assert(p.onVine === 1 && Math.abs((100 - p.stamina) - p.vineHangCost) < 0.5, 'my turn: hanging drains vineHangCost per second: ' + p.stamina);
+  const st = p.stamina;
+  p.vineDir = -1;
+  stepN(m, 30);
+  p.vineDir = 0;
+  assert(Math.abs((st - p.stamina) - p.moveCost / 2) < 0.5, 'climbing costs moveCost only (not plus the hang cost): ' + (st - p.stamina));
+  // 體力用完：鬆手掉下去；按著 W 也抓不回去，一路掉回橋上
+  stepN(m, Math.ceil(p.stamina / p.vineHangCost * 60) + 2);
+  assert(p.onVine === -1 && p.stamina === 0, 'lets go when stamina runs out: vine ' + p.onVine + ' stamina ' + p.stamina);
+  // （抓了又在同一幀鬆手的話 onVine 看不出來，但每抓一次 vy 就歸零、會一頓一頓地慢慢飄下去：所以檢查是不是一路自由落體）
+  p.vineDir = -1;
+  let regrabbed = false, braked = false, prevVy = p.vy;
+  for (let i = 0; i < 180 && !p.onGround; i++) {
+    m.step();
+    if (p.onVine >= 0) regrabbed = true;
+    if (!p.onGround && p.vy < prevVy) braked = true;
+    prevVy = p.vy;
+  }
+  p.vineDir = 0;
+  assert(!regrabbed && !braked && p.onGround && Math.abs(p.y - bridgeY(m)) <= 1, `cannot grab with no stamina in my turn (free fall: ${!braked}); lands on the bridge: ${p.y}`);
+  // 回合外（回合結束還掛著）：不耗體力，沒體力也一直掛著
+  hang(m, p, 1, hi - 30);
+  p.hangDrain = false;
+  p.stamina = 40;
+  stepN(m, 300);
+  assert(p.onVine === 1 && p.stamina === 40 && m.isSettled(), 'outside my turn: no drain');
+  p.stamina = 0;
+  stepN(m, 300);
+  assert(p.onVine === 1 && m.isSettled(), 'outside my turn: hangs with no stamina');
+  // 慢動作（每一步的 dt 只有 0.3 倍）：按著 W 跳開，重抓冷卻一樣是 15 個固定步長那麼久的遊戲時間
+  hang(m, p, 1, hi - 30);
+  p.hangDrain = true;
+  p.stamina = 100;
+  p.vineDir = -1;
+  p.wantJump = true;
+  const k = 0.3;
+  let n = 0;
+  p.update(CONFIG.FIXED_DT * k, m.world);
+  assert(p.onVine === -1 && p.vy < 0 && p.midJump, 'jumped off (counts as a jump for slow-mo)');
+  while (p.onVine < 0 && n++ < 200) p.update(CONFIG.FIXED_DT * k, m.world);
+  p.vineDir = 0;
+  assert(p.onVine === 1 && n * k >= 13 && n * k <= 16, 'slow-mo regrab after the same game time: ' + n + ' small steps');
+  assert(!p.midJump && !p.jumped, 'grabbing the vine ends the jump');
+  return { hangCost: p.vineHangCost, slowRegrabSteps: n };
 });
 
 test('藤蔓：S 往下爬到手滑過下端就掉回橋上；A / D 放手；空白鍵跳開（按著 W 也不會馬上抓回去）；被擊退就被打下來', () => {
@@ -540,7 +595,7 @@ test('毒液噴灑：從嘴巴往左上散射 count 顆（拋物線、穿過藤�
   return { globs, hitPlayers: hitPlayers + '/100' };
 });
 
-test('大地震擊：只打站在橋上的人（50 × 敵人倍率），往巨蟒的方向擊退 600；離巨蟒近的被甩下水、遠的留在橋上；掛在藤蔓上的沒事', () => {
+test('大地震擊：只打站在橋上的人（50 × 敵人倍率），往巨蟒的方向擊退（knockback）；離巨蟒近的被甩下水、遠的留在橋上；掛在藤蔓上的沒事', () => {
   const m = jungle(3, { seed: 8, hp: 150 });
   const [p1, p2, p3] = m.players;
   placeOn(m, p1, 60);
@@ -551,7 +606,7 @@ test('大地震擊：只打站在橋上的人（50 × 敵人倍率），往巨�
   assert(evs.map(e => e.target).sort().join() === 'p1,p2', 'only bridge standers: ' + evs.map(e => e.target));
   for (const ev of evs) {
     const s = ev.ents.find(x => x.id === ev.target);
-    assert(s.vx > 500 && s.vy < 0, `${ev.target} pushed toward the snake: vx ${s.vx}`);
+    assert(Math.abs(s.vx - CONFIG.WEAPONS.snakeQuake.knockback) < 1 && s.vy < 0, `${ev.target} pushed toward the snake: vx ${s.vx}`);
     assert(ev.damages[0].dmg === enemyDmg('snakeQuake'), 'quake damage ' + ev.damages[0].dmg);
   }
   assert(p2.waterFalls === 1 && p1.waterFalls === 0 && p1.onGround, `p2 into the water, p1 stays: ${p2.waterFalls} ${p1.waterFalls}`);

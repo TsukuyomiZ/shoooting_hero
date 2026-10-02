@@ -140,7 +140,10 @@ function tick(now) {
   acc += Math.min(0.1, (now - last) / 1000);
   last = now;
   while (acc >= STEP) {
-    view.update(STEP);
+    // 每一步 = 真實時間 STEP 秒：先照真實時間開關慢動作、扣體力（決定 timeScale），
+    // 慢動作時這一步的 dt 跟著縮小（一樣每秒 60 步，畫面才順）；平常、播事件腳本時 timeScale 一定是 1
+    view.frame(STEP);
+    view.update(STEP * view.timeScale);
     acc -= STEP;
   }
   view.render();

@@ -21,6 +21,9 @@ function hpChanges(match, before) {
 }
 // 回合類紀錄的主角：actor = 誰的回合（玩家或敵人的 id）；是玩家的話再帶 pid，用 pid 找一個人的紀錄才找得到他的回合
 const actorOf = (e) => ({ actor: e.id, ...(e.team === 'players' ? { pid: e.id } : {}), name: e.name });
+// 慢動作關掉的原因（客戶端送的，認得的才記）：fire 放開左鍵開火、land 落地 / 抓到藤蔓 / 掉進水裡、stamina 體力用完、release 沒開火就放開、
+// reconnect 回合中重新連線（新的頁面沒有開著慢動作）。回合結束時還開著的，裁判自己補記（closeSlow：fire / timeout / water / disconnected / takeover）
+const SLOW_WHY = ['fire', 'land', 'stamina', 'release', 'reconnect'];
 
 // 裁判：一場遊戲的流程（誰的回合、計時、AI 回合、開火結算、裝備的回合效果、勝負）。
 // 同一份程式在 Node 房間裡跑（多人），也在瀏覽器裡跑（單人練習）。
@@ -39,6 +42,7 @@ export class Referee {
     this.humans = new Map(humans.map(h => [h.id, { id: h.id, name: h.name, connected: h.connected !== false }]));
     this.currentId = null;
     this.extraTurn = false;   // 目前這個回合是不是時間扭曲給的額外回合
+    this.slowOn = false;      // 行動玩家現在是不是開著慢動作（他回報的；每個回合開始重設）
     this.round = 0;
     this.phase = 'idle';   // idle | starting | turn | resolving | over
     this.timer = null;
@@ -109,6 +113,19 @@ export class Referee {
         }
         break;
       }
+      case 'slow': {
+        // 慢動作（空中瞄準；只放慢他自己的畫面，體力在他那邊扣、照 move / fire 回報）：開 / 關各記一筆，
+        // 告訴其他人在他身上畫光環。狀態沒變的重複訊息不處理；why = 關掉的原因（見 SLOW_WHY）
+        const on = msg.on === true;
+        if (on === this.slowOn) return this.ignored(playerId, msg, 'slowUnchanged');
+        this.slowOn = on;
+        const why = !on && SLOW_WHY.includes(msg.why) ? msg.why : null;
+        this.record('slowmo', {
+          pid: actor.id, name: actor.name, on, stamina: r1(actor.stamina), x: r1(actor.x), y: r1(actor.y), ...(why ? { why } : {}),
+        });
+        this.io.broadcast({ t: 'slow', id: actor.id, on }, playerId);
+        break;
+      }
       case 'weapon': {
         if (actor.weapons.includes(msg.weapon)) {   // 只能切換自己武器欄裡的武器
           actor.weapon = msg.weapon;
@@ -128,6 +145,7 @@ export class Referee {
         const moved = this.match.setPlayerPosition(actor, msg.x, msg.y, msg.facing, msg.stamina, null, msg.vine);
         this.flushPickups();
         const power = clamp(msg.power, 0, 100);
+        this.closeSlow(actor, 'fire');   // 客戶端開火前沒送關的話，這裡補記
         // 先記開火（玩家的操作：他回報的出手位置），結算的結果另記一筆 shot：結算途中出錯的話，至少知道他是怎麼開的。
         // 出手的位置在水裡的話，後面接著是 water（與淹死的 turn.skip）；posRejected = 回報的位置不合理，從伺服器記得的位置出手
         this.record('fire', {
@@ -154,9 +172,22 @@ export class Referee {
     }
   }
 
+  // 回合結束時慢動作還開著（客戶端沒送關：開火前沒關、超時、淹死、斷線代打）：裁判自己補一筆關掉，紀錄的開 / 關才成對
+  // （auto = 裁判補的）。客戶端在 shot / skip / aiTurn 都會清掉他身上的光環，不用另外廣播
+  closeSlow(actor, why) {
+    if (!this.slowOn) return;
+    this.slowOn = false;
+    this.record('slowmo', {
+      pid: actor.id, name: actor.name, on: false, stamina: r1(actor.stamina), x: r1(actor.x), y: r1(actor.y), why, auto: true,
+    });
+  }
+
   // 一發（或一波轟炸）的結果：打到什麼、誰扣了多少血、誰倒下
   recordShot(shot, before) {
+    const a = this.match.byId(shot.actorId);
+    const stacks = a && (a.mods.missDamagePct > 0 || a.mods.hitDamagePct > 0) ? { ready: a.readyStacks, hunt: a.huntStacks } : null;
     this.record('shot', {
+      ...(shot.hitEnemy !== undefined ? { hitEnemy: shot.hitEnemy } : {}), ...(stacks ? { stacks } : {}),
       kind: shot.kind, pid: shot.actorId, name: (this.match.byId(shot.actorId) || {}).name, weapon: shot.weapon,
       hit: shot.hit && shot.hit.type, frames: shot.flightFrames, kills: shot.kills, changes: hpChanges(this.match, before),
     });
@@ -195,6 +226,7 @@ export class Referee {
     if (!connected && this.phase === 'turn' && this.currentId === id) {
       const actor = this.match.byId(id);
       this.record('turn.takeover', { pid: id, name: h.name, alive: !!(actor && actor.alive) });   // 輪到他時斷線：AI 接手這回合
+      if (actor) this.closeSlow(actor, 'takeover');
       if (actor && actor.alive) this.runAiTurn(actor);
       else this.skipTurn('disconnected');
     }
@@ -209,6 +241,7 @@ export class Referee {
       round: this.round,
       phase: this.phase,
       timeLeft: this.deadline ? Math.max(0, (this.deadline - this.io.now()) / 1000) : null,
+      slowOn: this.slowOn,   // 行動玩家開著慢動作（重連的是他自己：客戶端送關；別人：在他身上畫光環）
       players: this.match.players.map(p => ({
         id: p.id, name: p.name, slot: p.slot, color: p.color,
         connected: this.humans.has(p.id) ? this.humans.get(p.id).connected : false,
@@ -309,6 +342,7 @@ export class Referee {
     if (isHuman) {
       const turnTime = this.turnTimeFor(actor);
       this.phase = 'turn';
+      this.slowOn = false;
       this.deadline = this.io.now() + turnTime * 1000;
       this.io.broadcast({ t: 'turn', actorId: actor.id, round: this.round, ai: false, turnTime, entities, items, fx, extra: this.extraTurn });
       this.schedule(() => this.skipTurn('timeout'), turnTime);
@@ -390,7 +424,7 @@ export class Referee {
     this.phase = 'resolving';
     this.deadline = null;
     const actor = this.match.byId(this.currentId);
-    if (actor) { actor.moveDir = 0; actor.aiming = false; }
+    if (actor) { actor.moveDir = 0; actor.aiming = false; this.closeSlow(actor, reason); }
     splashes.push(...this.settleWithSplashes());
     // changes = 跳過時大家落地途中的血量變化（例如超時那一刻人在水面上空、掉下去）
     this.record('turn.skip', {

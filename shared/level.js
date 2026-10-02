@@ -71,7 +71,7 @@ export const LEVELS = {
     ],
   },
 
-  // 左邊一塊高地（玩家出生點），右邊一棵大樹，樹上兩根樹枝各站兩個狙擊手（中間隔著水，走不過去）
+  // 左邊一塊高地（玩家出生點），右邊一棵大樹，樹上兩根樹枝站著狙擊手（左邊那根兩隻、右邊一隻；中間隔著水，走不過去）
   grove: {
     name: '樹影重重',
     pool: 'normal',
@@ -103,8 +103,7 @@ export const LEVELS = {
     enemySpawns: [
       { x: 618, y: 150, name: '狙擊手 A', type: 'sniper' },
       { x: 700, y: 150, name: '狙擊手 B', type: 'sniper' },
-      { x: 826, y: 142, name: '狙擊手 C', type: 'sniper' },
-      { x: 930, y: 142, name: '狙擊手 D', type: 'sniper' },
+      { x: 930, y: 142, name: '狙擊手 C', type: 'sniper' },
     ],
   },
 

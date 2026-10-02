@@ -114,6 +114,17 @@ const SOUNDS = {
     tone(ctx, out, t, { type: 'square', f0: 380, f1: 160, dur: 0.12, vol: 0.08 });
     noise(ctx, out, t, { filter: 'lowpass', f0: 1200, dur: 0.06, vol: 0.25 });
   },
+  // 進入慢動作：往下沉的「嗡——」＋一陣風聲
+  slowIn(ctx, out, t) {
+    tone(ctx, out, t, { type: 'sine', f0: 560, f1: 120, dur: 0.5, vol: 0.22, attack: 0.02 });
+    tone(ctx, out, t, { type: 'triangle', f0: 280, f1: 60, dur: 0.55, vol: 0.1, attack: 0.02 });
+    noise(ctx, out, t, { filter: 'bandpass', f0: 2200, f1: 350, q: 0.8, dur: 0.45, vol: 0.12, attack: 0.04 });
+  },
+  // 慢動作解除（落地、體力用完；開火那次有砲聲就不播）：短短往上滑一下
+  slowOut(ctx, out, t) {
+    tone(ctx, out, t, { type: 'sine', f0: 140, f1: 460, dur: 0.18, vol: 0.14, attack: 0.01 });
+    noise(ctx, out, t, { filter: 'bandpass', f0: 500, f1: 2000, q: 0.8, dur: 0.15, vol: 0.06 });
+  },
 };
 
 export const sfx = {

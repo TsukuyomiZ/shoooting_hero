@@ -51,6 +51,8 @@ export class GameView {
     this.snakeFx = null;               // 巨蟒出招的預兆動畫（見 snake-boss-view.js）
     this.keys = {};
     this.mouse = { x: 0, y: 0, down: false };
+    this.slowMo = false;               // 慢動作中（自己的回合在空中瞄準，見 frame）
+    this.timeScale = 1;                // 畫面的速度倍率：main.js 每一步 update 的 dt = 固定步長 × 這個（慢動作時 < 1）
     this.time = 0;
     this.shake = 0;
     this.banner = null;
@@ -92,7 +94,8 @@ export class GameView {
         break;
       // water 也走佇列：畫面還在播前面的事件時（分頁在背景、很卡），才不會先套上、又被之後才播的舊快照（他的 turn）蓋回掉水前的血量
       // pickup（喝到蛇血）也一樣：會改上限，不能被之後才播的舊快照蓋回去
-      case 'turn': case 'aiTurn': case 'shot': case 'skip': case 'turnFx': case 'gameOver': case 'water': case 'pickup':
+      // slow（別人開 / 關慢動作）也是：畫面落後時，之後才播的他的 turn 會把光環清掉
+      case 'turn': case 'aiTurn': case 'shot': case 'skip': case 'turnFx': case 'gameOver': case 'water': case 'pickup': case 'slow':
         this.queue.push(msg);
         this.pump();
         break;
@@ -132,6 +135,7 @@ export class GameView {
   }
 
   setup(msg) {
+    if (this.slowMo) this.setSlowMo(false);
     this.match = new Match({ levelId: msg.levelId, players: msg.players, seed: msg.seed, carry: msg.carry || {}, stage: msg.stage || 1 });
     this.match.applySnapshot(msg.snapshot);
     this.stageInfo = msg.stageInfo || msg.run || null;
@@ -173,6 +177,20 @@ export class GameView {
     this.canAct = mine;
     this.deadline = mine && msg.timeLeft != null ? performance.now() + msg.timeLeft * 1000 : null;
     if (msg.phase === 'over') this.result = this.match.result();
+    // 伺服器記得行動玩家開著慢動作：是自己（重連前沒來得及送關，新的頁面沒開著）→ 送關（記一筆、別人的光環也會清掉）；
+    // 是別人 → 在他身上畫光環
+    if (msg.slowOn && msg.phase === 'turn') {
+      if (mine) this.transport.send({ t: 'slow', on: false, why: 'reconnect' });
+      else { const a = this.match.byId(msg.currentId); if (a) a.slowMo = true; }
+    }
+  }
+
+  // 行動中的玩家開 / 關慢動作（只放慢他自己的畫面，他的動作會看起來變慢）：在他身上畫光環
+  onSlow(msg) {
+    const e = this.match.byId(msg.id);
+    if (!e || msg.id === this.myId) return;
+    e.slowMo = !!msg.on;
+    if (msg.on) sfx.play('slowIn', { x: e.x, vol: 0.5 });
   }
 
   // ---------- 事件腳本（用 generator 逐幀推進，跟固定步長完全對齊） ----------
@@ -234,6 +252,9 @@ export class GameView {
       case 'pickup':
         this.onPickup(msg);
         break;
+      case 'slow':
+        this.onSlow(msg);
+        break;
       case 'turnFx':
         yield* this.turnFxScript(msg);
         break;
@@ -251,7 +272,7 @@ export class GameView {
   beginTurn(msg) {
     this.match.applyEntities(msg.entities);
     if (msg.items) this.setItems(msg.items);
-    for (const e of this.match.entities) { e.moveDir = 0; e.vineDir = 0; e.aiming = false; e.netTarget = null; }
+    for (const e of this.match.entities) { e.moveDir = 0; e.vineDir = 0; e.aiming = false; e.netTarget = null; e.slowMo = false; }
     this.currentId = msg.actorId;
     this.round = msg.round;
     this.currentIsAi = !!msg.ai;
@@ -307,6 +328,7 @@ export class GameView {
       return;
     }
     actor.netTarget = null;
+    actor.slowMo = false;   // 開著慢動作時斷線、AI 代打：光環清掉
     yield { frames: CONFIG.TIMING.aiThink * FPS };
     if (msg.walk && actor.alive) {
       actor.moveDir = msg.walk.dir;
@@ -357,6 +379,7 @@ export class GameView {
       actor.moveDir = 0;
       actor.wantJump = false;
       actor.netTarget = null;
+      actor.slowMo = false;
       if (actor.id === this.myId) this.waiting = false;   // 結果到了，射手接著照伺服器的狀態動
     }
 
@@ -401,7 +424,17 @@ export class GameView {
     this.projectiles = [];
 
     yield { until: () => this.match.isSettled(), max: shot.settleFrames + 60 };
+    const stacksBefore = actor ? [actor.readyStacks, actor.huntStacks] : null;
     this.match.applyEntities(shot.results);   // 校正成伺服器結果
+    if (actor && shot.hitEnemy !== undefined) {   // 磨刀霍霍 / 越戰越強的層數變化
+      const m = actor.mods;
+      if (m.missDamagePct > 0 && actor.readyStacks !== stacksBefore[0]) {
+        this.floatText(actor, actor.readyStacks ? `準備 ×${actor.readyStacks}` : '準備 歸零', '#fcd34d');
+      }
+      if (m.hitDamagePct > 0 && actor.huntStacks !== stacksBefore[1]) {
+        this.floatText(actor, actor.huntStacks ? `狂獵 ×${actor.huntStacks}` : '狂獵 歸零', '#f87171');
+      }
+    }
     if (actor && shot.kills && shot.kills.length && actor.mods.killDamagePct > 0) {
       this.floatText(actor, `噬魂 +${shot.kills.length * actor.mods.killDamagePct}%`, '#c084fc');
     }
@@ -612,7 +645,7 @@ export class GameView {
     const splashes = this.serverSplashes(msg.splashes);
     if (msg.entities) this.match.applyEntities(msg.entities);
     const a = this.match.byId(msg.actorId);
-    if (a) a.netTarget = null;   // 不要再滑回他最後回報的位置（例如掉進水裡的那一點）
+    if (a) { a.netTarget = null; a.slowMo = false; }   // 不要再滑回他最後回報的位置（例如掉進水裡的那一點）
     const name = a ? a.name : '';
     // 淹死（water）的橫幅由 onDeath 播
     if (msg.reason === 'timeout') this.showBanner(msg.actorId === this.myId ? '時間到！' : `${name} 時間到`, '#fbbf24');
@@ -689,15 +722,16 @@ export class GameView {
   updateInput() {
     const me = this.me;
     if (!me) return;
-    if (!this.canAct || !me.alive) { me.moveDir = 0; me.vineDir = 0; me.aiming = false; return; }
+    if (!this.canAct || !me.alive) { me.moveDir = 0; me.vineDir = 0; me.aiming = false; me.hangDrain = false; return; }
+    me.hangDrain = true;   // 自己的回合：掛在藤蔓上也耗體力，用完就鬆手（Entity.updateVine）；回合一結束就關掉，一直掛著
     me.moveDir = (this.keys.KeyA ? -1 : 0) + (this.keys.KeyD ? 1 : 0);
     me.vineDir = (this.keys.KeyW ? -1 : 0) + (this.keys.KeyS ? 1 : 0);   // 藤蔓：按住 W / S 抓住、上下爬
     if (this.mouse.down) {
       me.aiming = true;
       this.updateAim();
     }
-    // 位置有變才回報，最多每 1/moveSendHz 秒一次（vine = 抓著第幾條藤蔓，伺服器才知道他是掛著）
-    if (this.time - this.lastMoveSent >= 1 / CONFIG.TIMING.moveSendHz) {
+    // 位置有變才回報，最多每 1/moveSendHz 秒（真實時間；慢動作時 this.time 走得比較慢）一次（vine = 抓著第幾條藤蔓，伺服器才知道他是掛著）
+    if (this.time - this.lastMoveSent >= this.timeScale / CONFIG.TIMING.moveSendHz) {
       const s = this.lastSent;
       if (!s || s.x !== me.x || s.y !== me.y || s.facing !== me.facing || s.vine !== me.onVine) this.sendMove(me);
     }
@@ -712,7 +746,9 @@ export class GameView {
   fire() {
     const me = this.me;
     if (!this.canAct || !me || !me.alive) return;
+    if (this.slowMo) this.setSlowMo(false, 'fire');   // 先關慢動作（伺服器照順序記），這一發照正常速度結算、重播
     me.aiming = false;
+    me.hangDrain = false;
     me.wantJump = false;   // 跟開火同一幀按的 W 沒有送出去，伺服器是照沒跳的狀態結算
     this.canAct = false;
     this.waiting = true;
@@ -723,6 +759,41 @@ export class GameView {
       t: 'fire', weapon: me.weapon, angle: me.aimAngle, power: me.aimPower,
       x: me.x, y: me.y, vy: me.vy, facing: me.facing, stamina: me.stamina, vine: me.onVine,
     });
+  }
+
+  // ---------- 慢動作 ----------
+  // main.js 每一步 update 之前呼叫（realDt = 這一步代表的真實時間）：自己的回合「跳起來」之後（Entity.midJump：真的按了跳、還沒落地、沒抓藤蔓；
+  // 走下坡 / 走下台階的那種離地不算）按住左鍵瞄準就開慢動作，每真實秒扣 SLOWMO.cost 體力；
+  // 體力扣光、落地 / 抓到藤蔓 / 掉進水裡就解除（放開左鍵開火在 fire 裡解除）。timeScale 決定接下來每一步 update 的 dt：
+  // 只有自己操作的那段會放慢——播事件腳本、別人的回合一定是 1，重播才會跟伺服器的固定步長一樣
+  frame(realDt) {
+    const S = CONFIG.SLOWMO;
+    const me = this.me;
+    const acting = !!(me && me.alive && this.canAct && !this.waiting);
+    const want = acting && !!S && S.scale < 1 && !this.script && this.mouse.down && me.midJump && me.stamina > 0;
+    if (want !== this.slowMo) {
+      // 回合還在才告訴伺服器為什麼關掉（回合結束 / 倒下的話伺服器那邊已經換人了，只在自己的畫面關掉）
+      const why = want || !acting ? null : me.stamina <= 0 ? 'stamina' : this.mouse.down ? 'land' : 'release';
+      this.setSlowMo(want, why);
+    }
+    if (this.slowMo) me.stamina = Math.max(0, me.stamina - S.cost * realDt);
+    this.timeScale = this.slowMo ? Math.max(S.scale, this.timeScale - (1 - S.scale) * realDt / Math.max(0.001, S.rampIn)) : 1;
+  }
+
+  // 開 / 關慢動作：背景音樂跟著放慢、音效、自己身上的光環。why = 回合中關掉的原因，開的時候或有 why 才告訴伺服器（記紀錄、讓別人畫光環）
+  setSlowMo(on, why = null) {
+    this.slowMo = on;
+    if (!on) this.timeScale = 1;
+    const me = this.me;
+    if (me) me.slowMo = on;
+    this.music.setRate(on ? CONFIG.SLOWMO.musicRate : 1);
+    if (on) sfx.play('slowIn', { x: me.x });
+    else if (why && why !== 'fire') sfx.play('slowOut', { x: me.x });   // 開火的那次有砲聲
+    if (on || why) {
+      // 先回報現在的位置 / 體力（不等節流）：伺服器記 slowmo 時才是跳起來之後的位置，不是起跳前站著的地方
+      this.sendMove(me);
+      this.transport.send({ t: 'slow', on, ...(why ? { why } : {}) });
+    }
   }
 
   // ---------- 更新 ----------

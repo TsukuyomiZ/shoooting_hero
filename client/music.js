@@ -21,6 +21,17 @@ export class Music {
     this.buffers = new Map();      // key → Promise<AudioBuffer>
     this.want = null;              // 現在應該放的曲子（null = 安靜）
     this.cur = null;               // 正在放的 { key, src, gain }
+    this.rate = 1;                 // 播放速度（慢動作時 < 1，音調跟著變低）
+  }
+
+  // 慢動作：曲子跟著放慢（很快滑過去，不會喀一聲）；rate = 1 恢復
+  setRate(rate) {
+    this.rate = rate;
+    const c = this.cur;
+    if (!c || !audio.ctx) return;
+    const now = audio.ctx.currentTime;
+    c.src.playbackRate.cancelScheduledValues(now);
+    c.src.playbackRate.setTargetAtTime(rate, now, 0.06);
   }
 
   // 每幀呼叫都可以：曲子沒變就什麼都不做
@@ -66,6 +77,7 @@ export class Music {
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.loop = true;               // 曲尾本身就淡出了，直接接回開頭
+    src.playbackRate.value = this.rate;
     src.connect(gain);
     src.start(at);
     let amb = null;

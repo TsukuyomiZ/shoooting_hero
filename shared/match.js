@@ -299,6 +299,22 @@ export class Match {
     return m.stageDamagePct + (allies === 0 ? m.loneDamagePct : 0) + allies * m.allyDamagePct;
   }
 
+  // 看自己狀態的武器傷害加成 %：嗨到最高點（狂熱生效中）、磨刀霍霍（準備層數）、越戰越強（狂獵層數）
+  stateDamagePct(e) {
+    const m = e.mods;
+    return (this.fever > 0 ? m.feverDamagePct : 0) + e.readyStacks * m.missDamagePct + e.huntStacks * m.hitDamagePct;
+  }
+
+  // 一次射擊結算完：有沒有打中敵人（直擊或波及到敵方都算，傷害 0 也算，例如閉上的古樹之口）。
+  // 磨刀霍霍：沒打中 +1 層準備（最多 missMaxStacks）、打中歸零；越戰越強：打中 +1 層狂獵（最多 hitMaxStacks）、沒打中歸零
+  updateShotStacks(e, events) {
+    const hit = events.some(ev => ev.damages && ev.damages.some(d => !d.friendly));
+    const m = e.mods;
+    if (m.missDamagePct > 0) e.readyStacks = hit ? 0 : Math.min(m.missMaxStacks, e.readyStacks + 1);
+    if (m.hitDamagePct > 0) e.huntStacks = hit ? Math.min(m.hitMaxStacks, e.huntStacks + 1) : 0;
+    return hit;
+  }
+
   // 受到的傷害 -N%：健壯藥丸類 + 團結力量大（每個活著的隊友，只算自己）
   armorPct(e, allies = this.alliesAlive(e)) {
     return e.mods.armorPct + allies * e.mods.allyArmorPct;
@@ -325,7 +341,8 @@ export class Match {
     if (attacker.team === 'enemies') return CONFIG.ENEMY.damageMult;
     const m = attacker.mods;
     const per = weapon.id === 'cannon' ? m.cannonDamagePct : weapon.id === 'sniper' ? m.sniperDamagePct : 0;
-    return Math.max(0, 1 + (m.damagePct + per + this.rampBonus(attacker) + attacker.soulPct + this.situationalDamagePct(attacker)) / 100);
+    return Math.max(0, 1 + (m.damagePct + per + this.rampBonus(attacker) + attacker.soulPct
+      + this.situationalDamagePct(attacker) + this.stateDamagePct(attacker)) / 100);
   }
   explosionRadius(attacker, weapon) {
     const pct = attacker && weapon.id === 'cannon' ? attacker.mods.radiusPct : 0;
@@ -485,7 +502,7 @@ export class Match {
     return {
       kind: 'weapon', actorId: actor.id, weapon: weaponId, angle, power, facing: actor.facing,
       actor: actorPos,
-      ...this.resolveVolley(actor, weapon, projs, burn),
+      ...this.resolveVolley(actor, weapon, projs, burn, true),
     };
   }
 
@@ -509,16 +526,18 @@ export class Match {
     return { kind: 'bombard', actorId: owner.id, weapon: weapon.id, ...this.resolveVolley(owner, weapon, projs, 0) };
   }
 
-  resolveVolley(owner, weapon, projs, burn) {
+  // isShot = 自己開的一槍（轟炸、Boss 招式不算）：結算完更新磨刀霍霍 / 越戰越強的層數，results 帶的是更新後的
+  resolveVolley(owner, weapon, projs, burn, isShot = false) {
     const specs = projs.map(p => ({ spawn: p.spawn, x: p.x, y: p.y, vx: p.vx, vy: p.vy, ...(p.follow ? { follow: true } : {}) }));
     const before = this.entities.filter(e => e.alive);
     const { events, frames } = this.runVolley(owner, weapon, projs, burn);
     const settleFrames = this.settle(360);
     witherTree(this);   // 這一發打倒了古樹之眼 → 嘴巴與樹妖一起枯萎（也算擊殺）
     const kills = this.creditKills(owner, before);
+    const hitEnemy = isShot ? this.updateShotStacks(owner, events) : undefined;
     return {
       projectiles: specs, events, hit: summarizeHit(events),
-      kills, soul: owner.soulPct,
+      kills, soul: owner.soulPct, ...(isShot ? { hitEnemy } : {}),
       results: this.entities.map(e => e.toState()),
       flightFrames: frames, settleFrames,
     };

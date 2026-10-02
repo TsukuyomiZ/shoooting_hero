@@ -26,6 +26,7 @@
     { "id": "cloud_bottle",    "name": "雲霧之瓶",     "rarity": "green",  "desc": "角色可以二段跳（在空中再按一次空白鍵，一樣消耗跳躍體力）", "effects": { "extraJumps": 1 } },
     { "id": "bouncy_bomb",     "name": "蹦蹦炸彈",     "rarity": "green",  "desc": "大砲的砲彈碰到地形可以彈射一次", "effects": { "cannonBounce": 1 } },
     { "id": "caliber_up",      "name": "口徑強化",     "rarity": "green",  "desc": "武器傷害 +20%",            "effects": { "damagePct": 20 } },
+    { "id": "fever_high",      "name": "嗨到最高點",   "rarity": "green",  "desc": "進入狂熱狀態時，武器傷害額外 +50%（Boss 關沒有狂熱）", "effects": { "feverDamagePct": 50 } },
 
     { "id": "war_drum",        "name": "戰鼓",         "rarity": "purple", "desc": "所有武器傷害 +25%",        "effects": { "damagePct": 25 } },
     { "id": "titan_frame",     "name": "巨人骨架",     "rarity": "purple", "desc": "血量上限 +100、受到的傷害 -5%、體型增大 +10%", "effects": { "maxHp": 100, "armorPct": 5, "sizePct": 10 } },
@@ -37,6 +38,9 @@
     { "id": "wish_staff",      "name": "祈願之杖",     "rarity": "purple", "desc": "全部隊友（包括自己）回復最大生命值 50% 的血量", "effects": { "teamHealPct": 50 } },
     { "id": "lone_wolf",       "name": "孤狼傳說",     "rarity": "purple", "desc": "當場上只剩下自己時（沒有活著的隊友），武器傷害 +50%、傷害吸血 +5%", "effects": { "loneDamagePct": 50, "loneLifestealPct": 5 } },
     { "id": "unity",           "name": "團結力量大",   "rarity": "purple", "desc": "場上每有一名活著的隊友，武器傷害 +10%、受到的傷害 -5%（只有自己生效）", "effects": { "allyDamagePct": 10, "allyArmorPct": 5 } },
+    { "id": "all_seeing_eye",  "name": "全知之眼",     "rarity": "purple", "desc": "武器傷害 +20%，瞄準時能看到完整的拋物線與落點，更容易瞄準", "effects": { "damagePct": 20, "fullArc": 1 }, "unique": true },
+    { "id": "whetstone",       "name": "磨刀霍霍",     "rarity": "purple", "desc": "每次射擊沒有命中敵人時，獲得一層「準備」：每層武器傷害 +10%（最多 5 層），擊中敵人後歸零", "effects": { "missDamagePct": 10, "missMaxStacks": 5 }, "unique": true },
+    { "id": "battle_hardened", "name": "越戰越強",     "rarity": "purple", "desc": "每次射擊命中敵人時，獲得一層「狂獵」：每層武器傷害 +10%（最多 10 層），沒有命中敵人就歸零", "effects": { "hitDamagePct": 10, "hitMaxStacks": 10 }, "unique": true },
 
     { "id": "phoenix_heart",   "name": "鳳凰之心",     "rarity": "gold",   "desc": "血量上限 +200 並全回復",   "effects": { "maxHp": 200, "healPct": 100 }, "unique": true },
     { "id": "time_warp",       "name": "時間扭曲",     "rarity": "gold",   "desc": "武器傷害 +15%，回合結束之後再獲得一個額外回合（冷卻 3 回合）", "effects": { "damagePct": 15, "extraTurn": 1 }, "unique": true },

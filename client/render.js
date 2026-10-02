@@ -91,11 +91,26 @@ export class Renderer {
     this.drawProjectiles();
     this.drawEffects();
     ctx.restore();
+    this.drawSlowMo();
     this.drawHUD();
     this.drawBanner();
     this.drawHint();
     if (view.runOver) this.drawRunOverlay();
     else if (view.result) this.drawOverlay();
+  }
+
+  // 慢動作：畫面四周罩一圈淡淡的暗藍色（越慢越深），中間的戰場不蓋
+  drawSlowMo() {
+    const { ctx, view } = this;
+    const S = CONFIG.SLOWMO;
+    if (!S || S.scale >= 1 || view.timeScale >= 1) return;
+    const k = clamp((1 - view.timeScale) / (1 - S.scale), 0, 1);
+    const W = CONFIG.WORLD_W, H = CONFIG.WORLD_H;
+    const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, W * 0.62);
+    g.addColorStop(0, 'rgba(8,32,64,0)');
+    g.addColorStop(1, `rgba(8,32,64,${0.42 * k})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
   }
 
   drawWater() {
@@ -213,7 +228,7 @@ export class Renderer {
     if (e.onVine >= 0 && e.alive) drawVineHands(ctx, e);   // 抓著藤蔓：兩手往上握著
 
     // 血條 + 名字（＋ 你 / AI 標籤）。古樹之口打不壞，不畫血條、改標狀態。
-    // 被中毒鎖住的上限畫成右邊一段灰色（整條 = 原本的上限）；巨蟒的血條比較長，每 10%（掉蛇血的門檻）一道刻度
+    // 被中毒鎖住的上限畫成右邊一段灰色（整條 = 原本的上限）；巨蟒的血條比較長，每 bloodEveryPct%（掉蛇血的門檻）一道刻度
     const snake = e.part === 'snake';
     const bw = snake ? 170 : e.boss ? 90 : 46, bh = snake ? 8 : 6, by = y - e.h - 16;
     if (!e.closeOnHit) {
@@ -250,6 +265,18 @@ export class Renderer {
       ctx.strokeStyle = `rgba(253,230,138,${0.55 + 0.25 * Math.sin(view.time * 4)})`;
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(x, e.cy, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+    if (e.alive && e.slowMo) {   // 慢動作中（空中瞄準）：淡藍色的光環，外面一圈慢慢轉的刻度
+      const r = Math.max(e.h, e.hw * 2) * 0.72 + 9;
+      ctx.strokeStyle = 'rgba(103,232,249,0.6)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, e.cy, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(165,243,252,0.85)';
+      ctx.lineWidth = 3;
+      for (let k = 0; k < 4; k++) {
+        const a0 = view.time * 1.6 + k * Math.PI / 2;
+        ctx.beginPath(); ctx.arc(x, e.cy, r + 4, a0, a0 + 0.45); ctx.stroke();
+      }
     }
 
     // 目前行動者標記（跳動的倒三角）
@@ -339,7 +366,21 @@ export class Renderer {
     if (me.aiming) {
       // 預覽照牌的特性算（哈哈子彈 / 蹦蹦炸彈的彈射、高倍率望遠鏡的穿透），見 shared/weapons.js aimPreview
       const pre = aimPreview(world, me, weapon, me.aimAngle, me.aimPower);
-      if (pre.kind === 'arc') {
+      if (pre.kind === 'arc' && pre.full) {
+        // 全知之眼：整條拋物線（小點）＋落點準星
+        const end = pre.points[pre.points.length - 1];
+        ctx.fillStyle = 'rgba(255,230,80,0.75)';
+        for (const pt of pre.points.slice(0, -1)) { ctx.beginPath(); ctx.arc(pt.x, pt.y, 2.2, 0, Math.PI * 2); ctx.fill(); }
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,230,80,0.95)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(end.x, end.y, 7, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(end.x - 11, end.y); ctx.lineTo(end.x + 11, end.y);
+        ctx.moveTo(end.x, end.y - 11); ctx.lineTo(end.x, end.y + 11);
+        ctx.stroke();
+        ctx.restore();
+      } else if (pre.kind === 'arc') {
         pre.points.forEach((pt, i) => {
           ctx.fillStyle = `rgba(255,230,80,${1 - (i / Math.max(1, pre.points.length)) * 0.7})`;
           ctx.beginPath(); ctx.arc(pt.x, pt.y, 3.2, 0, Math.PI * 2); ctx.fill();
@@ -577,7 +618,8 @@ export class Renderer {
       const hpLabel = me.poisonLock > 0 ? `${me.hp} / ${me.maxHp}（${me.maxHp + me.poisonLock}）` : `${me.hp} / ${me.maxHp}`;
       text(ctx, hpLabel, 176, py + 30, { size: 12, bold: true, align: 'center' });
       text(ctx, '體力', 20, py + 66, { size: 15, bold: true, color: '#9be59b' });
-      drawBar(ctx, 66, py + 52, 220, 18, me.stamina / me.maxStamina, '#43a047', '#0f3a12');
+      // 慢動作時體力條變成淡藍色（正在被慢動作吃掉）
+      drawBar(ctx, 66, py + 52, 220, 18, me.stamina / me.maxStamina, view.slowMo ? '#22d3ee' : '#43a047', '#0f3a12');
       text(ctx, `${Math.round(me.stamina)} / ${me.maxStamina}`, 176, py + 66, { size: 12, bold: true, align: 'center' });
 
       const bx = 366, bw = 250;
@@ -592,15 +634,20 @@ export class Renderer {
       text(ctx, `${me.aimPower}`, bx + bw + 30, py + 31, { size: 18, bold: true, align: 'center' });
       text(ctx, `角度 ${displayAngle(me)}°`, 320, py + 80, { size: 15, bold: true });
       text(ctx, `武器：${CONFIG.WEAPONS[me.weapon].name}`, 450, py + 80, { size: 15, bold: true, color: '#ffe066' });
-      if (!me.onGround && me.alive) text(ctx, me.onVine >= 0 ? '（藤蔓上）' : '（空中）', 600, py + 80, { size: 13, color: me.onVine >= 0 ? '#86efac' : '#aaa' });
+      if (!me.onGround && me.alive) {
+        const where = me.onVine >= 0 ? ['（藤蔓上）', '#86efac'] : view.slowMo ? ['（空中・慢動作）', '#67e8f9'] : ['（空中）', '#aaa'];
+        text(ctx, where[0], 600, py + 80, { size: 13, bold: view.slowMo, color: where[1] });
+      }
       this.drawBuffs(me, 12, py - 30);
     }
     const hints = [
-      match.terrain.vines.length ? 'A / D 移動　空白鍵 跳躍　W / S 抓住、爬藤蔓（耗體力）' : 'A / D 移動　空白鍵 跳躍（動作會消耗體力）',
+      match.terrain.vines.length ? 'A / D 移動　空白鍵 跳躍　W / S 爬藤蔓（掛著也耗體力）' : 'A / D 移動　空白鍵 跳躍（動作會消耗體力）',
       '按住左鍵拖曳瞄準：方向=角度、距離=力量，放開發射',
+      CONFIG.SLOWMO && CONFIG.SLOWMO.scale < 1 ? `跳起來後瞄準會慢動作（每秒耗 ${CONFIG.SLOWMO.cost} 體力）` : null,
       `1 / 2 / 3 切換武器　隊友誤傷 ×0.6　落水扣 ${CONFIG.WATER.damagePct}% 血`,
-    ];
-    hints.forEach((h, i) => text(ctx, h, W - 20, py + 28 + i * 22, { size: 11, align: 'right', color: '#ccc' }));
+    ].filter(Boolean);
+    const gap = hints.length > 3 ? 18 : 22;
+    hints.forEach((h, i) => text(ctx, h, W - 20, py + (hints.length > 3 ? 22 : 28) + i * gap, { size: 11, align: 'right', color: '#ccc' }));
   }
 
   // 底部狀態列上方：自己身上正在生效的裝備效果
@@ -623,6 +670,12 @@ export class Renderer {
     if (me.burn > 0) chips.push([`燃燒 ${me.burn} 層`, '#fb923c']);
     if (me.poison > 0) chips.push([`中毒 ${me.poison} 層`, '#c084fc']);
     if (me.poisonLock > 0) chips.push([`生命鎖 -${me.poisonLock}`, '#9ca3af']);
+    if (m.feverDamagePct > 0) {
+      chips.push(this.view.match.feverAt(this.view.round) > 0 ? [`嗨到最高點 +${m.feverDamagePct}%`, '#f97316'] : ['嗨到最高點（狂熱時）', '#64748b']);
+    }
+    if (m.fullArc > 0) chips.push(['全知之眼', '#a5f3fc']);
+    if (m.missDamagePct > 0) chips.push([`準備 ${me.readyStacks}/${m.missMaxStacks} · +${me.readyStacks * m.missDamagePct}%`, '#fcd34d']);
+    if (m.hitDamagePct > 0) chips.push([`狂獵 ${me.huntStacks}/${m.hitMaxStacks} · +${me.huntStacks * m.hitDamagePct}%`, '#f87171']);
     if (m.stageDamagePct > 0) chips.push([`腎上腺素 +${m.stageDamagePct}%（這一關）`, '#f472b6']);
     // 看場上隊友的牌：沒生效時用灰色標出來
     const allies = this.view.match.alliesAlive(me);

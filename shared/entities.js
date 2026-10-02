@@ -11,6 +11,8 @@ export const DEFAULT_MODS = {
   armorPct: 0, friendlyArmorPct: 0, regenPct: 0, turnTime: 0,
   bombard: 0, teamShield: 0, extraJumps: 0, extraTurn: 0,
   loneDamagePct: 0, loneLifestealPct: 0, allyDamagePct: 0, allyArmorPct: 0,
+  feverDamagePct: 0, fullArc: 0,
+  missDamagePct: 0, missMaxStacks: 0, hitDamagePct: 0, hitMaxStacks: 0,
   stageDamagePct: 0,   // 只在這一關有效的武器傷害加成（腎上腺素），由肉鴿流程每關重新給
 };
 
@@ -71,12 +73,19 @@ export class Entity {
     this.moveDir = 0;            // -1 / 0 / 1
     this.wantJump = false;
     this.airJumpsLeft = this.mods.extraJumps;   // 雲霧之瓶：離地後還能再跳幾次，落地就補滿
+    // 這次離地是自己跳起來的（jump 成功才設，落地 / 抓藤蔓 / 落水 / 校正狀態就清掉）：慢動作只認這個。
+    // 走下坡、走下小台階、被擊退飛起來都不算（那些時候 onGround 也是 false）
+    this.jumped = false;
     this.climbMax = 5;           // 每 1px 水平移動最多能爬的高度
     // 藤蔓（叢林巨蟒）：vineSpeed > 0 才爬得了（玩家）。onVine = 抓著第幾條藤蔓（-1 = 沒有），vineDir = 按著 W(-1) / S(1)
     this.vineSpeed = o.vineSpeed || 0;
+    this.vineHangCost = o.vineHangCost || 0;   // 掛著不動每秒耗多少體力（hangDrain 開著才扣）
     this.onVine = -1;
     this.vineDir = 0;
     this.vineRegrab = 0;
+    // 正在自己的回合操作（客戶端操作自己時才開，不同步）：掛在藤蔓上才會耗體力、體力用完會鬆手。
+    // 回合結束、別人的回合、伺服器的結算都是關著的 → 掛著的人一直掛著
+    this.hangDrain = false;
 
     // 武器欄（最多 EQUIP.maxWeapons 把），weapon 是目前拿在手上的那把
     // 玩家只能拿可裝備的武器；敵人可以用專屬武器（樹妖的長矛）
@@ -107,6 +116,8 @@ export class Entity {
     this.extraTurnCd = 0;        // 時間扭曲：還要再過幾個回合才會再給額外回合（0 = 這回合結束就會給）
     this.turnCount = 0;          // 這一關輪到自己幾次了（狂戰之斧、神佑之石用）
     this.movedThisTurn = 0;      // 這回合移動的距離（甩掉燃燒層數用）
+    this.readyStacks = 0;        // 磨刀霍霍的「準備」層數（射擊沒打中敵人 +1，打中歸零）
+    this.huntStacks = 0;         // 越戰越強的「狂獵」層數（射擊打中敵人 +1，沒打中歸零）
     this.kills = 0;
     this.soulPct = o.soulPct || 0;
     this.healFrac = 0;           // 吸血 / 回血不足 1 點的小數先存著
@@ -225,7 +236,13 @@ export class Entity {
     this.vy = -this.jumpSpeed;
     this.stamina -= this.jumpCost;
     this.onGround = false;
+    this.jumped = true;
     return true;
+  }
+
+  // 正在「自己跳起來」的空中（慢動作的條件）：跳了、還沒落地、沒抓著藤蔓
+  get midJump() {
+    return this.alive && this.jumped && !this.onGround && this.onVine < 0;
   }
 
   update(dt, world) {
@@ -238,7 +255,8 @@ export class Entity {
     if (this.fixed) return;   // 古樹的部位長在樹上、巨蟒的頭不會動，不受重力
 
     // 藤蔓：按住 W / S、身體碰到藤蔓就抓住；抓著的時候不受重力（見 updateVine）
-    if (this.vineRegrab > 0) this.vineRegrab--;
+    // 冷卻照「固定步長的幀數」算：平常 dt = FIXED_DT 每次剛好減 1；慢動作時 dt 比較小、減得比較少，冷卻在遊戲時間裡一樣長
+    if (this.vineRegrab > 0) this.vineRegrab = Math.max(0, this.vineRegrab - dt / CONFIG.FIXED_DT);
     if (this.onVine < 0 && this.vineDir !== 0) this.grabVine(terrain);
     if (this.onVine >= 0 && this.updateVine(dt, terrain)) return;
 
@@ -283,7 +301,7 @@ export class Entity {
       }
     }
     this.onGround = this.vy >= 0 && this.groundBelow(terrain, this.x, this.y);
-    if (this.onGround) this.airJumpsLeft = this.mods.extraJumps;
+    if (this.onGround) { this.airJumpsLeft = this.mods.extraJumps; this.jumped = false; }
 
     // 萬一卡進地形，往上推出
     if (this.collides(terrain, this.x, this.y)) {
@@ -303,9 +321,9 @@ export class Entity {
   // ---- 藤蔓 ----
 
   // 按住 W / S 時身體碰到藤蔓（手在藤蔓的範圍裡）就抓住：x 對齊藤蔓、停在半空，空中的跳躍次數補滿。
-  // 站在橋上搆不到藤蔓的下端，要先跳起來
+  // 站在橋上搆不到藤蔓的下端，要先跳起來。自己的回合沒體力就抓不住（抓了也馬上會鬆手）
   grabVine(terrain) {
-    if (!(this.vineSpeed > 0) || this.vineRegrab > 0) return false;
+    if (!(this.vineSpeed > 0) || this.vineRegrab > 0 || (this.hangDrain && this.stamina <= 0)) return false;
     const vines = terrain.vines;
     for (let i = 0; i < vines.length; i++) {
       const v = vines[i];
@@ -320,13 +338,15 @@ export class Entity {
       this.vy = 0;
       this.onGround = false;
       this.airJumpsLeft = this.mods.extraJumps;
+      this.jumped = false;
       return true;
     }
     return false;
   }
 
   // 抓著藤蔓的這一幀：空白鍵跳開（同一幀按著 A / D 就往那邊跳）；沒按著 W / S 時按 A / D 放手（這一幀接著照一般物理走）——
-  // 按著 W / S 就是「抓緊」，邊走邊跳過來按著 W 也抓得住；W / S 上下爬（跟走路一樣耗體力），沒體力就只能掛著。
+  // 按著 W / S 就是「抓緊」，邊走邊跳過來按著 W 也抓得住；W / S 上下爬（跟走路一樣耗體力）。
+  // 自己的回合（hangDrain）掛著不動也耗體力（vineHangCost），體力用完就鬆手掉下去；不是自己在操作時免費掛著、沒體力也掛得住。
   // 往上爬到手碰到藤蔓上端就停；往下爬時腳踩到地就站上去，手滑過藤蔓下端就掉下去。回傳 true = 還掛著
   updateVine(dt, terrain) {
     const v = terrain.vines[this.onVine];
@@ -336,11 +356,15 @@ export class Entity {
       if (this.jump(terrain)) return false;   // 跳開了，這一幀接著照一般物理飛
     }
     if (this.moveDir !== 0 && this.vineDir === 0) { this.letGoVine(); return false; }
+    if (this.hangDrain && this.stamina <= 0) { this.letGoVine(); return false; }   // 體力用完：手一鬆，這一幀接著往下掉
     this.x = v.x;
     this.vx = 0;
     this.vy = 0;
     this.onGround = false;
-    if (this.vineDir === 0 || this.stamina <= 0) return true;
+    if (this.vineDir === 0 || this.stamina <= 0) {
+      if (this.hangDrain) this.stamina = Math.max(0, this.stamina - this.vineHangCost * dt);
+      return true;
+    }
     this.stamina = Math.max(0, this.stamina - this.moveCost * dt);
     let rem = this.vineSpeed * dt;
     if (this.vineDir < 0) {
@@ -427,6 +451,7 @@ export class Entity {
     this.vy = 0;
     this.onGround = this.groundBelow(terrain, spot.x, spot.y);   // 斜坡上可能還差 1~2px，下一幀自己落地
     this.airJumpsLeft = this.mods.extraJumps;
+    this.jumped = false;
     this.moveDir = 0;      // 走路 / 跳躍被打斷（AI 走路也就此停下）
     this.wantJump = false;
     this.aiming = false;
@@ -461,6 +486,7 @@ export class Entity {
       alive: this.alive, cause: this.deathCause, facing: this.facing, weapon: this.weapon,
       burn: this.burn, shield: this.shield, soul: this.soulPct, turns: this.turnCount, xcd: this.extraTurnCd,
       sx: this.safeX, sy: this.safeY, wf: this.waterFalls, ps: this.poison, lk: this.poisonLock, vn: this.onVine,
+      rd: this.readyStacks, hu: this.huntStacks,
     };
     if (this.closeOnHit) s.closed = this.closedTurns;
     return s;
@@ -483,6 +509,7 @@ export class Entity {
     this.vx = s.vx;
     this.vy = s.vy;
     this.onGround = s.og;
+    this.jumped = false;   // 被打飛不算自己跳的
     this.hp = s.hp;
     this.burn = s.burn;
     this.shield = s.shield;
@@ -512,9 +539,12 @@ export class Entity {
     if (s.ps !== undefined) this.poison = s.ps;
     if (s.lk !== undefined) this.poisonLock = s.lk;
     if (s.vn !== undefined) this.onVine = s.vn;
+    if (s.rd !== undefined) this.readyStacks = s.rd;
+    if (s.hu !== undefined) this.huntStacks = s.hu;
     this.vineRegrab = 0;
     this.vx = 0;
     this.vy = 0;
+    this.jumped = false;
     this.moveDir = 0;
     this.vineDir = 0;
     if (this.alive && !s.alive) {

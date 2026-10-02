@@ -1192,6 +1192,66 @@ test('雲霧之瓶：站在斜坡的像素階梯上、或走下坡時起跳，�
   assert(!lost.length, `double jump lost ${lost.length}x: ` + lost.slice(0, 6).join('; '));
 });
 
+test('慢動作的條件 midJump：只有真的按了跳才算（走下坡 / 走下台階的離地不算），落地就結束；被擊退飛起來、落水重生、校正狀態都不算', () => {
+  // 每張一般地圖：從每個出生點往左、往右一路走（不跳），會有離地的幀（斜坡的像素階梯、走下台階、走下懸崖），但 midJump 一次都不能是 true
+  let airborne = 0, walked = 0;
+  const wrong = [];
+  for (const levelId of levelsInPool('normal')) {
+    for (const dir of [1, -1]) {
+      const m = matchWith({}, { levelId });
+      const p = m.players[0];
+      p.maxStamina = p.stamina = 1e9;
+      p.moveDir = dir;
+      for (let i = 0; i < 600 && p.alive; i++) {
+        m.step();
+        walked++;
+        if (!p.onGround && p.onVine < 0) airborne++;
+        if (p.midJump) { wrong.push(`${levelId} dir ${dir} frame ${i}`); break; }
+      }
+    }
+  }
+  assert(airborne > 0, 'walking never left the ground: the test would prove nothing');
+  assert(!wrong.length, 'walking counted as a jump: ' + wrong.slice(0, 4).join('; '));
+  // 真的跳：起跳那一幀就算，一直到落地
+  const m = matchWith({ extraJumps: 1 });
+  const p = m.players[0];
+  placeAt(m, p, 300);
+  p.stamina = p.maxStamina;
+  assert(p.onGround && !p.midJump, 'standing is not a jump');
+  p.wantJump = true;
+  m.step();
+  assert(p.midJump && p.vy < 0, 'jump starts midJump');
+  let frames = 0;
+  while (!p.onGround && frames++ < 300) { assert(p.midJump, 'still midJump in the air (frame ' + frames + ')'); m.step(); }
+  assert(p.onGround && !p.midJump, 'landing ends midJump');
+  // 空中再跳（雲霧之瓶）也算；體力不夠沒跳起來就不算
+  placeAt(m, p, 300);
+  p.stamina = p.jumpCost - 1;
+  p.wantJump = true;
+  m.step();
+  assert(!p.midJump && p.onGround, 'not enough stamina: no jump, no midJump');
+  // 被擊退往上飛（不是自己跳的）
+  p.stamina = p.maxStamina;
+  p.vy = -350;
+  p.vx = 120;
+  m.step();
+  assert(!p.onGround && !p.midJump, 'knocked into the air is not a jump');
+  m.settle(600);
+  // 跳到一半被校正（回合開始的快照 / 飛行事件）或掉進水裡重生：清掉
+  for (const reset of [(e) => e.applyState(e.toState()), (e) => e.applyEventState(e.toEventState()), (e) => e.fallInWater(m.terrain)]) {
+    placeAt(m, p, 300);
+    p.hp = 5000;
+    p.stamina = p.maxStamina;
+    p.wantJump = true;
+    m.step();
+    assert(p.midJump, 'jumped');
+    reset(p);
+    // 看 jumped 本身：落水重生在斜坡上可能還差 1~2px 才著地，不清掉的話那一下會被當成還在跳
+    assert(!p.midJump && !p.jumped, 'reset clears the jump: ' + reset.toString());
+  }
+  return { walkedFrames: walked, airborneWhileWalking: airborne, jumpFrames: frames };
+});
+
 test('疊很多段跳也不會飛出畫面頂端（頭頂到 y=0 就停），伺服器照樣收得到那個位置', () => {
   const m = matchWith({ extraJumps: 5 });
   const p = m.players[0];
