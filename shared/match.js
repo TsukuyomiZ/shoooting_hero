@@ -3,7 +3,8 @@ import { LEVELS } from './level.js';
 import { Rng } from './rng.js';
 import { Terrain } from './terrain.js';
 import { Entity } from './entities.js';
-import { launchVelocity, advanceProjectile, makeProjectile, hitAction, bounceProjectile, stepReturn, shotTraits } from './weapons.js';
+import { launchVelocity, makeProjectile, hitAction, bounceProjectile, shotTraits } from './weapons.js';
+import { runVolley } from './volley.js';
 import { planShot } from './ai.js';
 import { clamp } from './utils.js';
 import { buildTree, spawnTreant, witherTree, resolveTreeTurn, reopenMouth, planTreeNext } from './tree-boss.js';
@@ -568,8 +569,8 @@ export class Match {
     const specs = projs.map(p => ({ spawn: p.spawn, x: p.x, y: p.y, vx: p.vx, vy: p.vy, ...(p.follow ? { follow: true } : {}) }));
     const before = this.entities.filter(e => e.alive);
     const n0 = this.entities.length;
-    const { events, frames } = this.runVolley(owner, weapon, projs, burn);
-    const settleFrames = this.settle(360);
+    // 飛行 → 沉降（shared/volley.js：跟客戶端重播同一個幀迴圈；撞到東西時呼叫下面的 resolveHit）
+    const { events, flightFrames, settleFrames } = runVolley(this, owner, weapon, projs, burn);
     witherTree(this);   // 這一發打倒了古樹之眼 → 嘴巴與樹妖一起枯萎（也算擊殺）
     // 這一發途中才出現的角色（打到蜂巢飛出來的蜜蜂）被同一發後面的砲彈打死，也算擊殺
     const kills = this.creditKills(owner, [...before, ...this.entities.slice(n0)]);
@@ -582,54 +583,12 @@ export class Match {
       projectiles: specs, events, hit: summarizeHit(events),
       kills, soul: owner.soulPct, ...(isShot ? { hitEnemy } : {}),
       results: this.entities.map(e => e.toState()),
-      flightFrames: frames, settleFrames,
+      flightFrames, settleFrames,
     };
   }
 
-  // 一波飛行物（可能好幾顆、各自在不同幀出發）逐幀模擬到全部結束。
-  // 每一幀先跑角色物理（被前一發炸飛的人會繼續飛），再依序推進每顆飛行物，撞到東西照 hitAction 處理並記成事件。
-  // 客戶端用一樣的順序重播：飛行只跑運動學，撞擊的結果全部照事件套用，所以不會跟伺服器分歧。
-  runVolley(owner, weapon, projs, burn) {
-    const dt = CONFIG.FIXED_DT;
-    const maxFrames = Math.round(CONFIG.TIMING.maxShotSeconds * 60);
-    const events = [];
-    for (const p of projs) p.state = 'pending';
-    let frame = 0;
-    while (frame < maxFrames && projs.some(p => p.state !== 'done')) {
-      frame++;
-      this.step(dt);
-      for (let i = 0; i < projs.length; i++) {
-        const p = projs[i];
-        if (p.state === 'pending' && p.spawn === frame) {
-          p.state = 'flying';
-          if (p.follow && owner.alive) { const mz = owner.muzzle(); p.x = mz.x; p.y = mz.y; }
-          if (p.boomerang) p.path = [{ x: p.x, y: p.y }];
-        }
-        if (p.state === 'returning') {
-          if (stepReturn(p, weapon.returnSpeed || 1, owner.alive ? owner.muzzle() : null, weapon.homingSpeed)) {
-            p.state = 'done';
-            events.push({ f: frame, p: i, type: 'catch', x: p.x, y: p.y });
-          }
-          continue;
-        }
-        if (p.state !== 'flying') continue;
-        const hit = advanceProjectile(this.world, p, dt);
-        if (!hit) {
-          if (p.path) p.path.push({ x: p.x, y: p.y });
-          continue;
-        }
-        events.push(this.resolveHit(owner, weapon, p, i, hit, frame, burn));
-      }
-    }
-    // 超時還沒結束的視為飛出場外
-    projs.forEach((p, i) => {
-      if (p.state === 'flying' || p.state === 'returning') events.push({ f: frame, p: i, type: 'out', x: p.x, y: p.y });
-      p.state = 'done';
-    });
-    return { events, frames: frame };
-  }
-
-  // 一顆飛行物撞到東西：依規則爆炸 / 穿透 / 彈射 / 折返，結果寫成一個事件
+  // 一顆飛行物撞到東西（shared/volley.js 的 runVolley 呼叫）：依規則爆炸 / 穿透 / 彈射 / 折返，結果寫成一個事件。
+  // 飛行物的狀態（結束 / 回程）不在這裡改：runVolley 拿事件套用同一個狀態機（transition），客戶端重播也是那一份
   resolveHit(owner, weapon, p, i, hit, frame, burn) {
     const act = hitAction(p, hit);
     const ev = { f: frame, p: i, type: act === 'end' ? hit.type : act, x: hit.x, y: hit.y };
@@ -639,7 +598,6 @@ export class Match {
     let damages = null;
     switch (act) {
       case 'end':
-        p.state = 'done';
         break;
       case 'bounce':
         bounceProjectile(this.terrain, p, hit);
@@ -652,8 +610,6 @@ export class Match {
         break;
       case 'return':   // 迴力鏢：打到角色就結算傷害，打到地形沒事，接著沿原路飛回去
         if (target) damages = this.applyExplosion(hit.x, hit.y, weapon, owner, target, { directOnly: true, burn });
-        p.state = 'returning';
-        p.retIdx = p.path.length;
         break;
       default: {       // explode
         const r = this.explosionRadius(owner, weapon);
@@ -664,7 +620,6 @@ export class Match {
         damages = this.applyExplosion(hit.x, hit.y, weapon, owner, target, { burn, exclude: p.ignore });
         // 毒液噴灑：同一次噴灑的毒液共用 ignore，打中過的人其他顆就穿過去（每人最多中一次）
         if (target && weapon.shareHits) p.ignore.add(target);
-        p.state = 'done';
       }
     }
     if (damages && damages.length) {

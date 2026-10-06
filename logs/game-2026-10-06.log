@@ -140,3 +140,407 @@
 {"ts":"2026-10-06 10:54:19.197","ev":"conn.open","cid":2,"ip":"172.23.192.18"}
 {"ts":"2026-10-06 10:54:19.202","ev":"player.hello","cid":2,"pid":"x3pX6Yn__OJB","name":"玩家929","ip":"172.23.192.18"}
 {"ts":"2026-10-06 10:54:19.204","ev":"lobby.browse","pid":"x3pX6Yn__OJB","name":"玩家929","on":true}
+{"ts":"2026-10-06 14:28:27.469","ev":"server.start","version":"BETA v1.2","port":8123,"host":"0.0.0.0","node":"v24.12.0","proc":31940}
+{"ts":"2026-10-06 14:28:27.515","ev":"conn.open","cid":1,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:27.518","ev":"player.hello","cid":1,"pid":"ubs37cJynXSt","name":"玩家929","ip":"172.23.192.18","oldToken":true}
+{"ts":"2026-10-06 14:28:27.522","ev":"lobby.browse","pid":"ubs37cJynXSt","name":"玩家929","on":true}
+{"ts":"2026-10-06 14:28:35.795","ev":"conn.open","cid":2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:35.797","ev":"player.hello","cid":2,"pid":"ur-u6FwUIUX9","name":"玩家690","ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:35.800","ev":"lobby.browse","pid":"ur-u6FwUIUX9","name":"玩家690","on":true}
+{"ts":"2026-10-06 14:28:38.925","ev":"conn.close","cid":2,"pid":"ur-u6FwUIUX9","name":"玩家690","code":1005}
+{"ts":"2026-10-06 14:28:38.940","ev":"solo.start","room":"SOLO-88ELNB","version":"BETA v1.2","name":"玩家690","seed":3754875248,"cards":46,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:38.940","ev":"stage.start","room":"SOLO-88ELNB","stage":1,"stageCount":10,"boss":false,"level":"level3","players":[{"pid":"me","name":"玩家690","hp":150,"maxHp":150,"weapons":["cannon","sniper"],"cards":[]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:38.945","ev":"battle.start","room":"SOLO-88ELNB","stage":1,"round":0,"level":"level3","seed":4011855745,"entities":[{"id":"me","name":"玩家690","team":"players","hp":150,"maxHp":150,"x":50,"y":378},{"id":"e1","name":"敵人 A","team":"enemies","hp":45,"maxHp":45,"x":510,"y":566},{"id":"e2","name":"敵人 B","team":"enemies","hp":45,"maxHp":45,"x":860,"y":399.3}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:40.449","ev":"turn.start","room":"SOLO-88ELNB","stage":1,"round":1,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:40.455","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":50,"y":378,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:40.572","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":65.2,"y":378,"facing":1,"stamina":194.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:40.688","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":80.3,"y":377.3,"facing":1,"stamina":189.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:40.805","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":95.5,"y":377.3,"facing":1,"stamina":184.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:40.922","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":110.7,"y":377.3,"facing":1,"stamina":179,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:41.038","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":125.8,"y":378,"facing":1,"stamina":173.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:41.154","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":141,"y":378,"facing":1,"stamina":168.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:41.271","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":156.2,"y":379.5,"facing":1,"stamina":163.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:41.388","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":171.3,"y":380.3,"facing":1,"stamina":158,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:41.505","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":186.5,"y":380.3,"facing":1,"stamina":152.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:41.621","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":201.7,"y":381,"facing":1,"stamina":147.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:41.738","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":216.8,"y":381.3,"facing":1,"stamina":142.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:41.855","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":232,"y":382.5,"facing":1,"stamina":137,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:41.971","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":247.2,"y":383.3,"facing":1,"stamina":131.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:42.088","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":262.3,"y":384,"facing":1,"stamina":126.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:42.205","ev":"move","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","x":273.2,"y":384,"facing":1,"stamina":122.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:43.123","ev":"fire","room":"SOLO-88ELNB","stage":1,"round":1,"pid":"me","name":"玩家690","weapon":"cannon","angle":-32.4,"power":99,"x":273.2,"y":384,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:43.127","ev":"shot","room":"SOLO-88ELNB","stage":1,"round":1,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"entity","frames":18,"kills":[],"changes":[{"id":"e1","name":"敵人 A","hp":[45,15]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:45.439","ev":"turn.end","room":"SOLO-88ELNB","stage":1,"round":1,"actor":"me","pid":"me","name":"玩家690","hp":150,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:45.439","ev":"turn.start","room":"SOLO-88ELNB","stage":1,"round":1,"actor":"e1","name":"敵人 A","team":"enemies","ai":true,"hp":15,"maxHp":45,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:45.440","ev":"ai.turn","room":"SOLO-88ELNB","stage":1,"round":1,"actor":"e1","name":"敵人 A","walk":{"dir":-1,"frames":29},"weapon":"sniper","angle":140.9,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家690","hp":[150,139]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:49.425","ev":"turn.end","room":"SOLO-88ELNB","stage":1,"round":1,"actor":"e1","name":"敵人 A","hp":15,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:49.425","ev":"turn.start","room":"SOLO-88ELNB","stage":1,"round":1,"actor":"e2","name":"敵人 B","team":"enemies","ai":true,"hp":45,"maxHp":45,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:49.471","ev":"ai.turn","room":"SOLO-88ELNB","stage":1,"round":1,"actor":"e2","name":"敵人 B","walk":{"dir":1,"frames":38},"weapon":"cannon","angle":165.5,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家690","hp":[139,118]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:54.491","ev":"turn.end","room":"SOLO-88ELNB","stage":1,"round":1,"actor":"e2","name":"敵人 B","hp":45,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:54.491","ev":"turn.start","room":"SOLO-88ELNB","stage":1,"round":2,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":118,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:54.506","ev":"move","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","x":204.2,"y":381.8,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:54.622","ev":"move","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","x":210.7,"y":381.8,"facing":1,"stamina":197.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:54.877","ev":"weapon","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","weapon":"sniper","ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:55.256","ev":"move","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","x":210.7,"y":375.7,"facing":1,"stamina":167.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:55.372","ev":"move","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","x":210.7,"y":340.1,"facing":1,"stamina":167.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:55.489","ev":"move","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","x":210.7,"y":316.8,"facing":1,"stamina":167.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:55.557","ev":"move","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","x":210.7,"y":308.9,"facing":1,"stamina":167.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:55.557","ev":"slowmo","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","on":true,"stamina":167.8,"x":210.7,"y":308.9,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:55.622","ev":"move","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","x":210.7,"y":305.5,"facing":1,"stamina":163.6,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:55.689","ev":"move","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","x":210.7,"y":304.6,"facing":1,"stamina":160.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:55.789","ev":"move","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","x":210.7,"y":304.4,"facing":1,"stamina":155.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:55.889","ev":"move","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","x":210.7,"y":304.5,"facing":1,"stamina":150.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:55.989","ev":"move","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","x":210.7,"y":304.9,"facing":1,"stamina":145.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:56.083","ev":"move","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","x":210.7,"y":305.8,"facing":1,"stamina":141.1,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:56.083","ev":"slowmo","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","on":false,"stamina":141.1,"x":210.7,"y":305.8,"why":"fire","ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:56.083","ev":"fire","room":"SOLO-88ELNB","stage":1,"round":2,"pid":"me","name":"玩家690","weapon":"sniper","angle":-41.6,"power":100,"x":210.7,"y":305.8,"vy":49,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:56.084","ev":"shot","room":"SOLO-88ELNB","stage":1,"round":2,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"sniper","hit":"entity","frames":10,"kills":["e1"],"changes":[{"id":"e1","name":"敵人 A","hp":[15,0],"died":"hit"}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:57.657","ev":"turn.end","room":"SOLO-88ELNB","stage":1,"round":2,"actor":"me","pid":"me","name":"玩家690","hp":118,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:57.658","ev":"turn.start","room":"SOLO-88ELNB","stage":1,"round":2,"actor":"e2","name":"敵人 B","team":"enemies","ai":true,"hp":45,"maxHp":45,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:28:57.659","ev":"ai.turn","room":"SOLO-88ELNB","stage":1,"round":2,"actor":"e2","name":"敵人 B","walk":{"dir":1,"frames":23},"weapon":"sniper","angle":179.1,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家690","hp":[118,107]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:01.780","ev":"turn.end","room":"SOLO-88ELNB","stage":1,"round":2,"actor":"e2","name":"敵人 B","hp":45,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:01.780","ev":"turn.start","room":"SOLO-88ELNB","stage":1,"round":3,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":107,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:01.789","ev":"move","room":"SOLO-88ELNB","stage":1,"round":3,"pid":"me","name":"玩家690","x":192.8,"y":380.6,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:02.125","ev":"weapon","room":"SOLO-88ELNB","stage":1,"round":3,"pid":"me","name":"玩家690","weapon":"cannon","ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:02.396","ev":"weapon","room":"SOLO-88ELNB","stage":1,"round":3,"pid":"me","name":"玩家690","weapon":"cannon","ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:04.195","ev":"fire","room":"SOLO-88ELNB","stage":1,"round":3,"pid":"me","name":"玩家690","weapon":"cannon","angle":16.7,"power":100,"x":192.8,"y":380.6,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:04.196","ev":"shot","room":"SOLO-88ELNB","stage":1,"round":3,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"entity","frames":54,"kills":[],"changes":[{"id":"e2","name":"敵人 B","hp":[45,15]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:06.718","ev":"turn.end","room":"SOLO-88ELNB","stage":1,"round":3,"actor":"me","pid":"me","name":"玩家690","hp":107,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:06.718","ev":"turn.start","room":"SOLO-88ELNB","stage":1,"round":3,"actor":"e2","name":"敵人 B","team":"enemies","ai":true,"hp":15,"maxHp":45,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:06.742","ev":"ai.turn","room":"SOLO-88ELNB","stage":1,"round":3,"actor":"e2","name":"敵人 B","walk":{"dir":-1,"frames":53},"weapon":"cannon","angle":160.9,"power":83.5,"hit":"terrain","kills":[],"changes":[{"id":"me","name":"玩家690","hp":[107,100]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:11.814","ev":"turn.end","room":"SOLO-88ELNB","stage":1,"round":3,"actor":"e2","name":"敵人 B","hp":15,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:11.814","ev":"turn.start","room":"SOLO-88ELNB","stage":1,"round":4,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":100,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:11.823","ev":"move","room":"SOLO-88ELNB","stage":1,"round":4,"pid":"me","name":"玩家690","x":183.7,"y":380.4,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:12.245","ev":"weapon","room":"SOLO-88ELNB","stage":1,"round":4,"pid":"me","name":"玩家690","weapon":"sniper","ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:13.203","ev":"fire","room":"SOLO-88ELNB","stage":1,"round":4,"pid":"me","name":"玩家690","weapon":"sniper","angle":-0.7,"power":100,"x":183.7,"y":380.4,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:13.204","ev":"shot","room":"SOLO-88ELNB","stage":1,"round":4,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"sniper","hit":"entity","frames":19,"kills":["e2"],"changes":[{"id":"e2","name":"敵人 B","hp":[15,0],"died":"hit"}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:14.737","ev":"turn.end","room":"SOLO-88ELNB","stage":1,"round":4,"actor":"me","pid":"me","name":"玩家690","hp":100,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:14.738","ev":"battle.over","room":"SOLO-88ELNB","stage":1,"round":4,"result":"win","level":"level3","players":[{"pid":"me","name":"玩家690","hp":100,"alive":true,"kills":2}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:17.242","ev":"pick.offer","room":"SOLO-88ELNB","stage":1,"pickTime":30,"players":[{"pid":"me","name":"玩家690","hp":145,"offers":["whetstone","caliber_up","long_legs"]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:26.907","ev":"pick","room":"SOLO-88ELNB","stage":1,"pid":"me","name":"玩家690","card":"caliber_up","ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:26.908","ev":"pick.done","room":"SOLO-88ELNB","stage":1,"players":[{"pid":"me","name":"玩家690","card":"caliber_up","hp":145,"maxHp":150,"weapons":["cannon","sniper"]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:29.409","ev":"stage.start","room":"SOLO-88ELNB","stage":2,"stageCount":10,"boss":false,"level":"brawl","players":[{"pid":"me","name":"玩家690","hp":145,"maxHp":150,"weapons":["cannon","sniper"],"cards":["caliber_up"]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:29.412","ev":"battle.start","room":"SOLO-88ELNB","stage":2,"round":0,"level":"brawl","seed":1948882508,"entities":[{"id":"me","name":"玩家690","team":"players","hp":145,"maxHp":150,"x":50,"y":577},{"id":"e1","name":"狙擊手 A","team":"enemies","kind":"sniper","hp":35,"maxHp":35,"x":781.9,"y":570.3},{"id":"e2","name":"砲兵 B","team":"enemies","kind":"artillery","hp":52,"maxHp":52,"x":865.4,"y":570.3},{"id":"e3","name":"狙擊手 C","team":"enemies","kind":"sniper","hp":35,"maxHp":35,"x":966.7,"y":569.3}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:30.917","ev":"turn.start","room":"SOLO-88ELNB","stage":2,"round":1,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":145,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:30.924","ev":"move","room":"SOLO-88ELNB","stage":2,"round":1,"pid":"me","name":"玩家690","x":50,"y":577,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:33.355","ev":"fire","room":"SOLO-88ELNB","stage":2,"round":1,"pid":"me","name":"玩家690","weapon":"cannon","angle":17.7,"power":100,"x":50,"y":577,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:33.356","ev":"shot","room":"SOLO-88ELNB","stage":2,"round":1,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"entity","frames":51,"kills":["e1"],"changes":[{"id":"e1","name":"狙擊手 A","hp":[35,0],"died":"hit"}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:35.426","ev":"turn.end","room":"SOLO-88ELNB","stage":2,"round":1,"actor":"me","pid":"me","name":"玩家690","hp":145,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:35.426","ev":"turn.start","room":"SOLO-88ELNB","stage":2,"round":1,"actor":"e2","name":"砲兵 B","team":"enemies","ai":true,"hp":52,"maxHp":52,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:35.439","ev":"ai.turn","room":"SOLO-88ELNB","stage":2,"round":1,"actor":"e2","name":"砲兵 B","walk":null,"weapon":"cannon","angle":155,"power":97.2,"hit":"out","kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:39.443","ev":"turn.end","room":"SOLO-88ELNB","stage":2,"round":1,"actor":"e2","name":"砲兵 B","hp":52,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:39.443","ev":"turn.start","room":"SOLO-88ELNB","stage":2,"round":1,"actor":"e3","name":"狙擊手 C","team":"enemies","ai":true,"hp":35,"maxHp":35,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:39.443","ev":"ai.turn","room":"SOLO-88ELNB","stage":2,"round":1,"actor":"e3","name":"狙擊手 C","walk":null,"noShot":true,"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:41.354","ev":"turn.end","room":"SOLO-88ELNB","stage":2,"round":1,"actor":"e3","name":"狙擊手 C","hp":35,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:41.354","ev":"turn.start","room":"SOLO-88ELNB","stage":2,"round":2,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":145,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:41.358","ev":"move","room":"SOLO-88ELNB","stage":2,"round":2,"pid":"me","name":"玩家690","x":50,"y":577,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:43.251","ev":"fire","room":"SOLO-88ELNB","stage":2,"round":2,"pid":"me","name":"玩家690","weapon":"cannon","angle":20.7,"power":100,"x":50,"y":577,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:43.252","ev":"shot","room":"SOLO-88ELNB","stage":2,"round":2,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"entity","frames":59,"kills":[],"changes":[{"id":"e2","name":"砲兵 B","hp":[52,16]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:46.193","ev":"turn.end","room":"SOLO-88ELNB","stage":2,"round":2,"actor":"me","pid":"me","name":"玩家690","hp":145,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:46.194","ev":"turn.start","room":"SOLO-88ELNB","stage":2,"round":2,"actor":"e2","name":"砲兵 B","team":"enemies","ai":true,"hp":16,"maxHp":52,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:46.211","ev":"ai.turn","room":"SOLO-88ELNB","stage":2,"round":2,"actor":"e2","name":"砲兵 B","walk":null,"weapon":"cannon","angle":165,"power":98,"hit":"terrain","kills":[],"changes":[{"id":"me","name":"玩家690","hp":[145,139]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:50.206","ev":"turn.end","room":"SOLO-88ELNB","stage":2,"round":2,"actor":"e2","name":"砲兵 B","hp":16,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:50.206","ev":"turn.start","room":"SOLO-88ELNB","stage":2,"round":2,"actor":"e3","name":"狙擊手 C","team":"enemies","ai":true,"hp":35,"maxHp":35,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:50.206","ev":"ai.turn","room":"SOLO-88ELNB","stage":2,"round":2,"actor":"e3","name":"狙擊手 C","walk":null,"noShot":true,"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:52.111","ev":"turn.end","room":"SOLO-88ELNB","stage":2,"round":2,"actor":"e3","name":"狙擊手 C","hp":35,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:52.111","ev":"turn.start","room":"SOLO-88ELNB","stage":2,"round":3,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":139,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:52.125","ev":"move","room":"SOLO-88ELNB","stage":2,"round":3,"pid":"me","name":"玩家690","x":46.6,"y":577,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:54.387","ev":"fire","room":"SOLO-88ELNB","stage":2,"round":3,"pid":"me","name":"玩家690","weapon":"cannon","angle":21.5,"power":100,"x":46.6,"y":577,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:54.387","ev":"shot","room":"SOLO-88ELNB","stage":2,"round":3,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"entity","frames":65,"kills":["e3"],"changes":[{"id":"e3","name":"狙擊手 C","hp":[35,0],"died":"hit"}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:56.694","ev":"turn.end","room":"SOLO-88ELNB","stage":2,"round":3,"actor":"me","pid":"me","name":"玩家690","hp":139,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:56.694","ev":"turn.start","room":"SOLO-88ELNB","stage":2,"round":3,"actor":"e2","name":"砲兵 B","team":"enemies","ai":true,"hp":16,"maxHp":52,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:29:56.706","ev":"ai.turn","room":"SOLO-88ELNB","stage":2,"round":3,"actor":"e2","name":"砲兵 B","walk":null,"weapon":"cannon","angle":164.5,"power":80.6,"hit":"terrain","kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:00.327","ev":"turn.end","room":"SOLO-88ELNB","stage":2,"round":3,"actor":"e2","name":"砲兵 B","hp":16,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:00.327","ev":"turn.start","room":"SOLO-88ELNB","stage":2,"round":4,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":139,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:00.343","ev":"move","room":"SOLO-88ELNB","stage":2,"round":4,"pid":"me","name":"玩家690","x":46.6,"y":577,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:00.757","ev":"weapon","room":"SOLO-88ELNB","stage":2,"round":4,"pid":"me","name":"玩家690","weapon":"sniper","ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:01.299","ev":"fire","room":"SOLO-88ELNB","stage":2,"round":4,"pid":"me","name":"玩家690","weapon":"sniper","angle":1.1,"power":100,"x":46.6,"y":577,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:01.299","ev":"shot","room":"SOLO-88ELNB","stage":2,"round":4,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"sniper","hit":"entity","frames":20,"kills":["e2"],"changes":[{"id":"e2","name":"砲兵 B","hp":[16,0],"died":"hit"}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:02.852","ev":"turn.end","room":"SOLO-88ELNB","stage":2,"round":4,"actor":"me","pid":"me","name":"玩家690","hp":139,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:02.853","ev":"battle.over","room":"SOLO-88ELNB","stage":2,"round":4,"result":"win","level":"brawl","players":[{"pid":"me","name":"玩家690","hp":139,"alive":true,"kills":3}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:05.361","ev":"pick.offer","room":"SOLO-88ELNB","stage":2,"pickTime":30,"players":[{"pid":"me","name":"玩家690","hp":150,"offers":["adrenaline","haha_bullet","heavy_shell"]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:08.107","ev":"pick","room":"SOLO-88ELNB","stage":2,"pid":"me","name":"玩家690","card":"heavy_shell","ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:08.107","ev":"pick.done","room":"SOLO-88ELNB","stage":2,"players":[{"pid":"me","name":"玩家690","card":"heavy_shell","hp":150,"maxHp":150,"weapons":["cannon","sniper"]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:10.609","ev":"stage.start","room":"SOLO-88ELNB","stage":3,"stageCount":10,"boss":false,"level":"beehive","players":[{"pid":"me","name":"玩家690","hp":150,"maxHp":150,"weapons":["cannon","sniper"],"cards":["caliber_up","heavy_shell"]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:10.620","ev":"battle.start","room":"SOLO-88ELNB","stage":3,"round":0,"level":"beehive","seed":3173846264,"entities":[{"id":"me","name":"玩家690","team":"players","hp":150,"maxHp":150,"x":60,"y":578},{"id":"e1","name":"狙擊手 A","team":"enemies","kind":"sniper","hp":39,"maxHp":39,"x":735,"y":244},{"id":"e2","name":"狙擊手 B","team":"enemies","kind":"sniper","hp":39,"maxHp":39,"x":815,"y":244},{"id":"hive","name":"蜂巢","team":"enemies","kind":"hive","hp":5,"maxHp":5,"x":468,"y":288}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:12.126","ev":"turn.start","room":"SOLO-88ELNB","stage":3,"round":1,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:12.128","ev":"move","room":"SOLO-88ELNB","stage":3,"round":1,"pid":"me","name":"玩家690","x":60,"y":578,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:12.236","ev":"weapon","room":"SOLO-88ELNB","stage":3,"round":1,"pid":"me","name":"玩家690","weapon":"cannon","ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:15.587","ev":"fire","room":"SOLO-88ELNB","stage":3,"round":1,"pid":"me","name":"玩家690","weapon":"cannon","angle":72,"power":100,"x":60,"y":578,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:15.589","ev":"shot","room":"SOLO-88ELNB","stage":3,"round":1,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"entity","frames":143,"kills":["e1"],"changes":[{"id":"e1","name":"狙擊手 A","hp":[39,0],"died":"hit"}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:19.191","ev":"turn.end","room":"SOLO-88ELNB","stage":3,"round":1,"actor":"me","pid":"me","name":"玩家690","hp":150,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:19.191","ev":"turn.start","room":"SOLO-88ELNB","stage":3,"round":1,"actor":"e2","name":"狙擊手 B","team":"enemies","ai":true,"hp":39,"maxHp":39,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:19.192","ev":"ai.turn","room":"SOLO-88ELNB","stage":3,"round":1,"actor":"e2","name":"狙擊手 B","walk":null,"weapon":"sniper","angle":-158.8,"power":100,"hit":"out","kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:22.412","ev":"turn.end","room":"SOLO-88ELNB","stage":3,"round":1,"actor":"e2","name":"狙擊手 B","hp":39,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:22.412","ev":"turn.start","room":"SOLO-88ELNB","stage":3,"round":2,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:22.427","ev":"move","room":"SOLO-88ELNB","stage":3,"round":2,"pid":"me","name":"玩家690","x":60,"y":578,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:24.299","ev":"fire","room":"SOLO-88ELNB","stage":3,"round":2,"pid":"me","name":"玩家690","weapon":"cannon","angle":41.8,"power":100,"x":60,"y":578,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:24.299","ev":"shot","room":"SOLO-88ELNB","stage":3,"round":2,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"terrain","frames":72,"kills":[],"changes":[{"id":"e2","name":"狙擊手 B","hp":[39,26]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:27.134","ev":"turn.end","room":"SOLO-88ELNB","stage":3,"round":2,"actor":"me","pid":"me","name":"玩家690","hp":150,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:27.134","ev":"turn.start","room":"SOLO-88ELNB","stage":3,"round":2,"actor":"e2","name":"狙擊手 B","team":"enemies","ai":true,"hp":26,"maxHp":39,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:27.134","ev":"ai.turn","room":"SOLO-88ELNB","stage":3,"round":2,"actor":"e2","name":"狙擊手 B","walk":null,"weapon":"sniper","angle":-153.7,"power":100,"hit":"terrain","kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:30.290","ev":"turn.end","room":"SOLO-88ELNB","stage":3,"round":2,"actor":"e2","name":"狙擊手 B","hp":26,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:30.290","ev":"turn.start","room":"SOLO-88ELNB","stage":3,"round":3,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:30.295","ev":"move","room":"SOLO-88ELNB","stage":3,"round":3,"pid":"me","name":"玩家690","x":60,"y":578,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:32.435","ev":"fire","room":"SOLO-88ELNB","stage":3,"round":3,"pid":"me","name":"玩家690","weapon":"cannon","angle":59.3,"power":100,"x":60,"y":578,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:32.435","ev":"shot","room":"SOLO-88ELNB","stage":3,"round":3,"hitEnemy":false,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"terrain","frames":105,"kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:35.404","ev":"turn.end","room":"SOLO-88ELNB","stage":3,"round":3,"actor":"me","pid":"me","name":"玩家690","hp":150,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:35.404","ev":"turn.start","room":"SOLO-88ELNB","stage":3,"round":3,"actor":"e2","name":"狙擊手 B","team":"enemies","ai":true,"hp":26,"maxHp":39,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:35.404","ev":"ai.turn","room":"SOLO-88ELNB","stage":3,"round":3,"actor":"e2","name":"狙擊手 B","walk":null,"weapon":"sniper","angle":-157.9,"power":100,"hit":"out","kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:38.626","ev":"turn.end","room":"SOLO-88ELNB","stage":3,"round":3,"actor":"e2","name":"狙擊手 B","hp":26,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:38.626","ev":"turn.start","room":"SOLO-88ELNB","stage":3,"round":4,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:38.628","ev":"move","room":"SOLO-88ELNB","stage":3,"round":4,"pid":"me","name":"玩家690","x":60,"y":578,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:38.819","ev":"fire","room":"SOLO-88ELNB","stage":3,"round":4,"pid":"me","name":"玩家690","weapon":"cannon","angle":59.4,"power":82,"x":60,"y":578,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:38.819","ev":"shot","room":"SOLO-88ELNB","stage":3,"round":4,"hitEnemy":false,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"terrain","frames":119,"kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:42.028","ev":"turn.end","room":"SOLO-88ELNB","stage":3,"round":4,"actor":"me","pid":"me","name":"玩家690","hp":150,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:42.028","ev":"turn.start","room":"SOLO-88ELNB","stage":3,"round":4,"actor":"e2","name":"狙擊手 B","team":"enemies","ai":true,"hp":26,"maxHp":39,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:42.028","ev":"ai.turn","room":"SOLO-88ELNB","stage":3,"round":4,"actor":"e2","name":"狙擊手 B","walk":null,"weapon":"sniper","angle":-158,"power":100,"hit":"out","kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:45.246","ev":"turn.end","room":"SOLO-88ELNB","stage":3,"round":4,"actor":"e2","name":"狙擊手 B","hp":26,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:45.246","ev":"turn.start","room":"SOLO-88ELNB","stage":3,"round":5,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:45.262","ev":"move","room":"SOLO-88ELNB","stage":3,"round":5,"pid":"me","name":"玩家690","x":60,"y":578,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:45.539","ev":"fire","room":"SOLO-88ELNB","stage":3,"round":5,"pid":"me","name":"玩家690","weapon":"cannon","angle":53.9,"power":88,"x":60,"y":578,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:45.539","ev":"shot","room":"SOLO-88ELNB","stage":3,"round":5,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"entity","frames":91,"kills":["e2"],"changes":[{"id":"e2","name":"狙擊手 B","hp":[26,0],"died":"hit"}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:48.276","ev":"turn.end","room":"SOLO-88ELNB","stage":3,"round":5,"actor":"me","pid":"me","name":"玩家690","hp":150,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:48.276","ev":"battle.over","room":"SOLO-88ELNB","stage":3,"round":5,"result":"win","level":"beehive","players":[{"pid":"me","name":"玩家690","hp":150,"alive":true,"kills":2}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:50.780","ev":"pick.offer","room":"SOLO-88ELNB","stage":3,"pickTime":30,"players":[{"pid":"me","name":"玩家690","hp":150,"offers":["bouncy_bomb","war_drum","adrenaline"]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:52.027","ev":"pick","room":"SOLO-88ELNB","stage":3,"pid":"me","name":"玩家690","card":"war_drum","ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:52.027","ev":"pick.done","room":"SOLO-88ELNB","stage":3,"players":[{"pid":"me","name":"玩家690","card":"war_drum","hp":150,"maxHp":150,"weapons":["cannon","sniper"]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:54.531","ev":"stage.start","room":"SOLO-88ELNB","stage":4,"stageCount":10,"boss":false,"level":"level2","players":[{"pid":"me","name":"玩家690","hp":150,"maxHp":150,"weapons":["cannon","sniper"],"cards":["caliber_up","heavy_shell","war_drum"]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:54.532","ev":"battle.start","room":"SOLO-88ELNB","stage":4,"round":0,"level":"level2","seed":2005993863,"entities":[{"id":"me","name":"玩家690","team":"players","hp":150,"maxHp":150,"x":50,"y":468},{"id":"e1","name":"敵人 A","team":"enemies","hp":65,"maxHp":65,"x":400,"y":395},{"id":"e2","name":"敵人 B","team":"enemies","hp":65,"maxHp":65,"x":610,"y":455},{"id":"e3","name":"敵人 C","team":"enemies","hp":65,"maxHp":65,"x":900,"y":465.8}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:56.034","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":1,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:56.046","ev":"move","room":"SOLO-88ELNB","stage":4,"round":1,"pid":"me","name":"玩家690","x":50,"y":468,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:57.635","ev":"fire","room":"SOLO-88ELNB","stage":4,"round":1,"pid":"me","name":"玩家690","weapon":"cannon","angle":22.6,"power":100,"x":50,"y":468,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:30:57.635","ev":"shot","room":"SOLO-88ELNB","stage":4,"round":1,"hitEnemy":false,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"out","frames":77,"kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:00.147","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":1,"actor":"me","pid":"me","name":"玩家690","hp":150,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:00.147","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":1,"actor":"e1","name":"敵人 A","team":"enemies","ai":true,"hp":65,"maxHp":65,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:00.154","ev":"ai.turn","room":"SOLO-88ELNB","stage":4,"round":1,"actor":"e1","name":"敵人 A","walk":null,"weapon":"cannon","angle":161.3,"power":37.5,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家690","hp":[150,129]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:04.497","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":1,"actor":"e1","name":"敵人 A","hp":65,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:04.498","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":1,"actor":"e2","name":"敵人 B","team":"enemies","ai":true,"hp":65,"maxHp":65,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:04.507","ev":"ai.turn","room":"SOLO-88ELNB","stage":4,"round":1,"actor":"e2","name":"敵人 B","walk":null,"weapon":"cannon","angle":149.7,"power":53.3,"hit":"entity","kills":[],"changes":[{"id":"e1","name":"敵人 A","hp":[65,0],"died":"water"}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:09.064","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":1,"actor":"e2","name":"敵人 B","hp":65,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:09.064","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":1,"actor":"e3","name":"敵人 C","team":"enemies","ai":true,"hp":65,"maxHp":65,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:09.073","ev":"ai.turn","room":"SOLO-88ELNB","stage":4,"round":1,"actor":"e3","name":"敵人 C","walk":null,"weapon":"cannon","angle":162.7,"power":100,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家690","hp":[129,108]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:13.798","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":1,"actor":"e3","name":"敵人 C","hp":65,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:13.798","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":2,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":108,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:13.813","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":12,"y":469.6,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:14.297","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":14.1,"y":468.6,"facing":1,"stamina":199.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:14.397","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":27.1,"y":469.1,"facing":1,"stamina":194.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:14.497","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":40.1,"y":472.4,"facing":1,"stamina":190.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:14.597","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":53.1,"y":471.6,"facing":1,"stamina":185.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:14.697","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":66.1,"y":471.6,"facing":1,"stamina":181.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:14.797","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":79.1,"y":479.9,"facing":1,"stamina":176.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:14.897","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":92.1,"y":497.1,"facing":1,"stamina":172.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:14.997","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":105.1,"y":497.6,"facing":1,"stamina":167.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:15.097","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":118.1,"y":488.4,"facing":1,"stamina":163.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:15.197","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":131.1,"y":462.1,"facing":1,"stamina":128.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:15.297","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":144.1,"y":430.8,"facing":1,"stamina":124.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:15.397","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":157.1,"y":408.6,"facing":1,"stamina":119.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:15.497","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":163.6,"y":395.3,"facing":1,"stamina":117.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:15.597","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":163.6,"y":391.1,"facing":1,"stamina":117.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:15.697","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":163.6,"y":395.8,"facing":1,"stamina":117.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:15.797","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":163.6,"y":409.6,"facing":1,"stamina":117.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:15.897","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":163.6,"y":432.3,"facing":1,"stamina":117.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:15.997","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":174.5,"y":464.1,"facing":1,"stamina":113.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:16.097","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":187.5,"y":469.1,"facing":1,"stamina":109.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:16.198","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":200.5,"y":470.6,"facing":1,"stamina":104.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:16.298","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":213.5,"y":470.8,"facing":1,"stamina":100.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:16.397","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":226.5,"y":471.3,"facing":1,"stamina":95.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:16.497","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":239.5,"y":472.1,"facing":1,"stamina":91.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:16.597","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":252.5,"y":460.4,"facing":1,"stamina":56.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:16.697","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":265.5,"y":430.6,"facing":1,"stamina":52.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:16.797","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":278.5,"y":409.9,"facing":1,"stamina":47.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:16.897","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":291.5,"y":398.1,"facing":1,"stamina":43.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:16.997","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":304.5,"y":395.4,"facing":1,"stamina":38.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:17.097","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":317.5,"y":401.6,"facing":1,"stamina":34.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:17.197","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":330.5,"y":416.9,"facing":1,"stamina":29.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:17.297","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":341.3,"y":441.1,"facing":1,"stamina":25.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:17.397","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":341.3,"y":474.4,"facing":1,"stamina":20.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:17.497","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":341.3,"y":516.6,"facing":1,"stamina":16.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:17.597","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":341.3,"y":567.9,"facing":1,"stamina":11.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:17.697","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":342.3,"y":628.1,"facing":1,"stamina":7.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:17.715","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":342.3,"y":650.2,"facing":1,"stamina":5.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:17.715","ev":"water","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":342.3,"dmg":45,"died":false,"hp":63,"respawn":[246,472.1],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:17.798","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":246,"y":472.1,"facing":1,"stamina":5.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:18.631","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":243.8,"y":472.1,"facing":-1,"stamina":5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:18.730","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":230.8,"y":471.3,"facing":-1,"stamina":0.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:18.831","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":228.6,"y":471.3,"facing":-1,"stamina":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:18.931","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":228.6,"y":471.3,"facing":1,"stamina":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:19.147","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":228.6,"y":471.3,"facing":-1,"stamina":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:19.364","ev":"move","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","x":228.6,"y":471.3,"facing":1,"stamina":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:23.187","ev":"fire","room":"SOLO-88ELNB","stage":4,"round":2,"pid":"me","name":"玩家690","weapon":"cannon","angle":65.3,"power":30,"x":228.6,"y":471.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:23.187","ev":"shot","room":"SOLO-88ELNB","stage":4,"round":2,"hitEnemy":false,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"water","frames":104,"kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:26.149","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":2,"actor":"me","pid":"me","name":"玩家690","hp":63,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:26.149","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":2,"actor":"e2","name":"敵人 B","team":"enemies","ai":true,"hp":65,"maxHp":65,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:26.157","ev":"ai.turn","room":"SOLO-88ELNB","stage":4,"round":2,"actor":"e2","name":"敵人 B","walk":{"dir":1,"frames":15},"weapon":"cannon","angle":158.5,"power":40.8,"hit":"terrain","kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:29.626","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":2,"actor":"e2","name":"敵人 B","hp":65,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:29.626","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":2,"actor":"e3","name":"敵人 C","team":"enemies","ai":true,"hp":65,"maxHp":65,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:29.639","ev":"ai.turn","room":"SOLO-88ELNB","stage":4,"round":2,"actor":"e3","name":"敵人 C","walk":{"dir":-1,"frames":54},"weapon":"cannon","angle":150.1,"power":65.8,"hit":"terrain","kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:34.594","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":2,"actor":"e3","name":"敵人 C","hp":65,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:34.594","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":3,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":63,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:34.598","ev":"move","room":"SOLO-88ELNB","stage":4,"round":3,"pid":"me","name":"玩家690","x":228.6,"y":471.3,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:36.018","ev":"fire","room":"SOLO-88ELNB","stage":4,"round":3,"pid":"me","name":"玩家690","weapon":"cannon","angle":42.1,"power":38,"x":228.6,"y":471.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:36.019","ev":"shot","room":"SOLO-88ELNB","stage":4,"round":3,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"entity","frames":65,"kills":["e2"],"changes":[{"id":"e2","name":"敵人 B","hp":[65,0],"died":"water"}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:39.271","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":3,"actor":"me","pid":"me","name":"玩家690","hp":63,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:39.271","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":3,"actor":"e3","name":"敵人 C","team":"enemies","ai":true,"hp":65,"maxHp":65,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:39.278","ev":"ai.turn","room":"SOLO-88ELNB","stage":4,"round":3,"actor":"e3","name":"敵人 C","walk":{"dir":1,"frames":27},"weapon":"cannon","angle":150.7,"power":70.1,"hit":"terrain","kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:43.882","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":3,"actor":"e3","name":"敵人 C","hp":65,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:43.882","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":4,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":63,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:43.899","ev":"move","room":"SOLO-88ELNB","stage":4,"round":4,"pid":"me","name":"玩家690","x":228.6,"y":471.3,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:44.347","ev":"fire","room":"SOLO-88ELNB","stage":4,"round":4,"pid":"me","name":"玩家690","weapon":"cannon","angle":38.4,"power":68,"x":228.6,"y":471.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:44.347","ev":"shot","room":"SOLO-88ELNB","stage":4,"round":4,"hitEnemy":false,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"terrain","frames":88,"kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:47.034","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":4,"actor":"me","pid":"me","name":"玩家690","hp":63,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:47.034","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":4,"actor":"e3","name":"敵人 C","team":"enemies","ai":true,"hp":65,"maxHp":65,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:47.051","ev":"ai.turn","room":"SOLO-88ELNB","stage":4,"round":4,"actor":"e3","name":"敵人 C","walk":{"dir":-1,"frames":32},"weapon":"cannon","angle":154.5,"power":50.8,"hit":"terrain","kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:51.135","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":4,"actor":"e3","name":"敵人 C","hp":65,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:51.135","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":5,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":63,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:51.149","ev":"move","room":"SOLO-88ELNB","stage":4,"round":5,"pid":"me","name":"玩家690","x":228.6,"y":471.3,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:53.714","ev":"fire","room":"SOLO-88ELNB","stage":4,"round":5,"pid":"me","name":"玩家690","weapon":"cannon","angle":43.6,"power":52,"x":228.6,"y":471.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:53.715","ev":"shot","room":"SOLO-88ELNB","stage":4,"round":5,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"entity","frames":80,"kills":[],"changes":[{"id":"e3","name":"敵人 C","hp":[65,15]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:56.868","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":5,"actor":"me","pid":"me","name":"玩家690","hp":63,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:56.868","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":5,"actor":"e3","name":"敵人 C","team":"enemies","ai":true,"hp":15,"maxHp":65,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:31:56.885","ev":"ai.turn","room":"SOLO-88ELNB","stage":4,"round":5,"actor":"e3","name":"敵人 C","walk":null,"weapon":"cannon","angle":140.3,"power":63.9,"hit":"out","kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:01.425","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":5,"actor":"e3","name":"敵人 C","hp":15,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:01.426","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":6,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":63,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:01.433","ev":"move","room":"SOLO-88ELNB","stage":4,"round":6,"pid":"me","name":"玩家690","x":228.6,"y":471.3,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:04.579","ev":"fire","room":"SOLO-88ELNB","stage":4,"round":6,"pid":"me","name":"玩家690","weapon":"cannon","angle":47.8,"power":42,"x":228.6,"y":471.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:04.579","ev":"shot","room":"SOLO-88ELNB","stage":4,"round":6,"hitEnemy":false,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"terrain","frames":92,"kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:07.332","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":6,"actor":"me","pid":"me","name":"玩家690","hp":63,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:07.332","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":6,"actor":"e3","name":"敵人 C","team":"enemies","ai":true,"hp":15,"maxHp":65,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:07.349","ev":"ai.turn","room":"SOLO-88ELNB","stage":4,"round":6,"actor":"e3","name":"敵人 C","walk":{"dir":-1,"frames":1},"weapon":"cannon","angle":141.1,"power":51.5,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家690","hp":[63,42]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:12.134","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":6,"actor":"e3","name":"敵人 C","hp":15,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:12.134","ev":"turn.start","room":"SOLO-88ELNB","stage":4,"round":7,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":42,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:12.150","ev":"move","room":"SOLO-88ELNB","stage":4,"round":7,"pid":"me","name":"玩家690","x":174.5,"y":469.3,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:13.570","ev":"fire","room":"SOLO-88ELNB","stage":4,"round":7,"pid":"me","name":"玩家690","weapon":"cannon","angle":36.1,"power":60,"x":174.5,"y":469.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:13.571","ev":"shot","room":"SOLO-88ELNB","stage":4,"round":7,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"terrain","frames":79,"kills":["e3"],"changes":[{"id":"e3","name":"敵人 C","hp":[15,0],"died":"hit"}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:16.106","ev":"turn.end","room":"SOLO-88ELNB","stage":4,"round":7,"actor":"me","pid":"me","name":"玩家690","hp":42,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:16.106","ev":"battle.over","room":"SOLO-88ELNB","stage":4,"round":7,"result":"win","level":"level2","players":[{"pid":"me","name":"玩家690","hp":42,"alive":true,"kills":2}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:18.616","ev":"pick.offer","room":"SOLO-88ELNB","stage":4,"pickTime":30,"players":[{"pid":"me","name":"玩家690","hp":87,"offers":["strong_head","blood_claw","boomerang"]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:22.458","ev":"pick","room":"SOLO-88ELNB","stage":4,"pid":"me","name":"玩家690","card":"blood_claw","ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:22.459","ev":"pick.done","room":"SOLO-88ELNB","stage":4,"players":[{"pid":"me","name":"玩家690","card":"blood_claw","hp":87,"maxHp":150,"weapons":["cannon","sniper"]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:24.968","ev":"stage.start","room":"SOLO-88ELNB","stage":5,"stageCount":10,"boss":true,"level":"jungleSerpent","players":[{"pid":"me","name":"玩家690","hp":87,"maxHp":150,"weapons":["cannon","sniper"],"cards":["caliber_up","heavy_shell","war_drum","blood_claw"]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:24.969","ev":"battle.start","room":"SOLO-88ELNB","stage":5,"round":0,"level":"jungleSerpent","seed":2792585508,"entities":[{"id":"me","name":"玩家690","team":"players","hp":87,"maxHp":150,"x":60,"y":543},{"id":"snake","name":"叢林巨蟒","team":"enemies","part":"snake","hp":400,"maxHp":400,"x":875,"y":646}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:26.471","ev":"turn.start","room":"SOLO-88ELNB","stage":5,"round":1,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":87,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:26.485","ev":"move","room":"SOLO-88ELNB","stage":5,"round":1,"pid":"me","name":"玩家690","x":60,"y":543,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:26.584","ev":"move","room":"SOLO-88ELNB","stage":5,"round":1,"pid":"me","name":"玩家690","x":70.8,"y":543,"facing":1,"stamina":196.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:28.243","ev":"fire","room":"SOLO-88ELNB","stage":5,"round":1,"pid":"me","name":"玩家690","weapon":"cannon","angle":18.7,"power":100,"x":70.8,"y":543,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:28.243","ev":"shot","room":"SOLO-88ELNB","stage":5,"round":1,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"entity","frames":40,"kills":[],"changes":[{"id":"me","name":"玩家690","hp":[87,89]},{"id":"snake","name":"叢林巨蟒","hp":[400,350]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:30.135","ev":"turn.end","room":"SOLO-88ELNB","stage":5,"round":1,"actor":"me","pid":"me","name":"玩家690","hp":89,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:30.135","ev":"turn.start","room":"SOLO-88ELNB","stage":5,"round":1,"actor":"snake","name":"叢林巨蟒","team":"enemies","ai":true,"hp":350,"maxHp":400,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:30.137","ev":"ai.turn","room":"SOLO-88ELNB","stage":5,"round":1,"actor":"snake","name":"叢林巨蟒","boss":[{"action":"bite","targetId":"me"}],"next":"charge","changes":[{"id":"me","name":"玩家690","hp":[89,78]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:34.020","ev":"turn.end","room":"SOLO-88ELNB","stage":5,"round":1,"actor":"snake","name":"叢林巨蟒","hp":350,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:34.020","ev":"turn.start","room":"SOLO-88ELNB","stage":5,"round":2,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":63,"maxHp":135,"turnTime":30,"fx":[{"type":"poison","id":"me","stacks":10,"dmg":15,"lock":15,"died":false,"left":10}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:34.035","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":57.1,"y":543.1,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:34.635","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":59.2,"y":543.1,"facing":1,"stamina":199.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:34.735","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":72.2,"y":543.1,"facing":1,"stamina":194.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:34.835","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":85.2,"y":543.1,"facing":1,"stamina":190.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:34.935","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":98.2,"y":525.6,"facing":1,"stamina":155.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:35.035","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":111.2,"y":497.3,"facing":1,"stamina":151.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:35.135","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":124.2,"y":478.1,"facing":1,"stamina":146.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:35.235","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":130.7,"y":467.8,"facing":1,"stamina":144.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:35.335","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":130.7,"y":466.6,"facing":1,"stamina":144.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:35.435","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":130.7,"y":474.3,"facing":1,"stamina":144.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:35.535","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":130.7,"y":491.1,"facing":1,"stamina":144.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:35.635","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":130.7,"y":516.8,"facing":1,"stamina":144.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:35.735","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":130.7,"y":544,"facing":1,"stamina":144.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:36.152","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":130.7,"y":537.9,"facing":1,"stamina":114.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:36.252","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":130.7,"y":506.6,"facing":1,"stamina":114.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:36.352","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":137.2,"y":484.4,"facing":1,"stamina":112.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:36.452","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":150.2,"y":471.1,"facing":1,"stamina":107.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:36.552","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":150,"y":461.5,"facing":1,"stamina":103.3,"vine":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:36.652","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":150,"y":451.5,"facing":1,"stamina":98.8,"vine":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:36.752","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":150,"y":441.5,"facing":1,"stamina":94.3,"vine":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:36.852","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":150,"y":431.5,"facing":1,"stamina":89.8,"vine":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:36.952","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":150,"y":421.5,"facing":1,"stamina":85.3,"vine":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:37.052","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":150,"y":411.5,"facing":1,"stamina":80.8,"vine":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:37.152","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":150,"y":401.5,"facing":1,"stamina":76.3,"vine":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:37.252","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":150,"y":391.5,"facing":1,"stamina":71.8,"vine":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:37.351","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":150,"y":381.5,"facing":1,"stamina":67.3,"vine":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:37.452","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":150,"y":371.5,"facing":1,"stamina":62.8,"vine":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:37.551","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":150,"y":361.5,"facing":1,"stamina":58.3,"vine":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:37.652","ev":"move","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","x":150,"y":356.5,"facing":1,"stamina":55,"vine":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:38.170","ev":"fire","room":"SOLO-88ELNB","stage":5,"round":2,"pid":"me","name":"玩家690","weapon":"cannon","angle":-9.2,"power":100,"x":150,"y":356.5,"vine":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:38.170","ev":"shot","room":"SOLO-88ELNB","stage":5,"round":2,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"entity","frames":32,"kills":[],"changes":[{"id":"me","name":"玩家690","hp":[63,66]},{"id":"snake","name":"叢林巨蟒","hp":[350,300]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:39.930","ev":"turn.end","room":"SOLO-88ELNB","stage":5,"round":2,"actor":"me","pid":"me","name":"玩家690","hp":66,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:39.930","ev":"turn.start","room":"SOLO-88ELNB","stage":5,"round":2,"actor":"snake","name":"叢林巨蟒","team":"enemies","ai":true,"hp":300,"maxHp":400,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:39.931","ev":"ai.turn","room":"SOLO-88ELNB","stage":5,"round":2,"actor":"snake","name":"叢林巨蟒","boss":[{"action":"charge"}],"next":"charge","changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:43.687","ev":"turn.end","room":"SOLO-88ELNB","stage":5,"round":2,"actor":"snake","name":"叢林巨蟒","hp":300,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:43.687","ev":"turn.start","room":"SOLO-88ELNB","stage":5,"round":3,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":52,"maxHp":121,"turnTime":30,"fx":[{"type":"poison","id":"me","stacks":10,"dmg":14,"lock":14,"died":false,"left":10}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:43.702","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":150,"y":356.5,"facing":1,"stamina":200,"vine":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:44.419","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":152.2,"y":356.7,"facing":1,"stamina":185.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:44.519","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":165.2,"y":363.5,"facing":1,"stamina":180.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:44.619","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":178.2,"y":379.2,"facing":1,"stamina":176.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:44.719","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":191.2,"y":404,"facing":1,"stamina":171.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:44.819","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":204.2,"y":437.7,"facing":1,"stamina":167.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:44.919","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":217.2,"y":480.5,"facing":1,"stamina":162.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:45.019","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":230.2,"y":532.2,"facing":1,"stamina":158.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:45.119","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":243.2,"y":543.7,"facing":1,"stamina":153.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:45.219","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":256.2,"y":543.7,"facing":1,"stamina":149.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:45.319","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":269.2,"y":543.7,"facing":1,"stamina":144.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:45.419","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":282.2,"y":543.7,"facing":1,"stamina":140.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:45.519","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":295.2,"y":543.7,"facing":1,"stamina":135.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:45.619","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":308.2,"y":543.7,"facing":1,"stamina":131.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:45.719","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":321.2,"y":543.7,"facing":1,"stamina":126.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:45.819","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":334.2,"y":543.7,"facing":1,"stamina":122.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:45.919","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":347.2,"y":543.7,"facing":1,"stamina":117.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:46.019","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":360.2,"y":543.7,"facing":1,"stamina":113.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:46.119","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":373.2,"y":543.7,"facing":1,"stamina":108.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:46.219","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":386.2,"y":543.7,"facing":1,"stamina":104.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:46.319","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":399.2,"y":543.7,"facing":1,"stamina":99.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:46.419","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":412.2,"y":543.7,"facing":1,"stamina":95.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:46.519","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":425.2,"y":543.7,"facing":1,"stamina":90.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:46.619","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":438.2,"y":543.7,"facing":1,"stamina":86.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:46.719","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":451.2,"y":543.7,"facing":1,"stamina":81.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:46.769","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":459.8,"y":543.7,"facing":1,"stamina":78.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:46.769","ev":"pickup","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","type":"snakeBlood","item":"a1","cured":10,"unlocked":29,"heal":15,"hp":67,"maxHp":150,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:46.869","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":464.2,"y":543.7,"facing":-1,"stamina":75.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:46.969","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":451.2,"y":543.7,"facing":-1,"stamina":71.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:47.069","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":438.2,"y":543.7,"facing":-1,"stamina":66.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:47.169","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":425.2,"y":537.6,"facing":-1,"stamina":32.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:47.269","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":412.2,"y":506.4,"facing":-1,"stamina":27.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:47.369","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":399.2,"y":484.1,"facing":-1,"stamina":23.2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:47.469","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":386.2,"y":470.9,"facing":-1,"stamina":18.7,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:47.569","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":372,"y":461.2,"facing":-1,"stamina":14.2,"vine":1,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:47.669","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":372,"y":451.2,"facing":-1,"stamina":9.7,"vine":1,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:47.769","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":372,"y":441.2,"facing":-1,"stamina":5.2,"vine":1,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:47.869","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":372,"y":431.2,"facing":-1,"stamina":0.7,"vine":1,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:47.969","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":372,"y":433.3,"facing":1,"stamina":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:48.069","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":372,"y":446.1,"facing":1,"stamina":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:48.169","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":372,"y":467.8,"facing":1,"stamina":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:48.269","ev":"move","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","x":372,"y":498.6,"facing":1,"stamina":0,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:48.330","ev":"fire","room":"SOLO-88ELNB","stage":5,"round":3,"pid":"me","name":"玩家690","weapon":"cannon","angle":2.7,"power":100,"x":372,"y":524.1,"vy":405,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:48.331","ev":"shot","room":"SOLO-88ELNB","stage":5,"round":3,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"entity","frames":16,"kills":[],"changes":[{"id":"me","name":"玩家690","hp":[67,69]},{"id":"snake","name":"叢林巨蟒","hp":[300,250]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:49.820","ev":"turn.end","room":"SOLO-88ELNB","stage":5,"round":3,"actor":"me","pid":"me","name":"玩家690","hp":69,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:49.820","ev":"turn.start","room":"SOLO-88ELNB","stage":5,"round":3,"actor":"snake","name":"叢林巨蟒","team":"enemies","ai":true,"hp":250,"maxHp":400,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:49.820","ev":"ai.turn","room":"SOLO-88ELNB","stage":5,"round":3,"actor":"snake","name":"叢林巨蟒","boss":[{"action":"charge"}],"next":"bite","changes":[{"id":"me","name":"玩家690","hp":[69,48]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:53.588","ev":"turn.end","room":"SOLO-88ELNB","stage":5,"round":3,"actor":"snake","name":"叢林巨蟒","hp":250,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:53.588","ev":"turn.start","room":"SOLO-88ELNB","stage":5,"round":4,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":43,"maxHp":145,"turnTime":30,"fx":[{"type":"poison","id":"me","stacks":3,"dmg":5,"lock":5,"died":false,"left":3}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:53.603","ev":"move","room":"SOLO-88ELNB","stage":5,"round":4,"pid":"me","name":"玩家690","x":349.2,"y":543,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:54.674","ev":"fire","room":"SOLO-88ELNB","stage":5,"round":4,"pid":"me","name":"玩家690","weapon":"cannon","angle":13.7,"power":100,"x":349.2,"y":543,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:54.675","ev":"shot","room":"SOLO-88ELNB","stage":5,"round":4,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"entity","frames":19,"kills":[],"changes":[{"id":"me","name":"玩家690","hp":[43,46]},{"id":"snake","name":"叢林巨蟒","hp":[250,200]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:56.212","ev":"turn.end","room":"SOLO-88ELNB","stage":5,"round":4,"actor":"me","pid":"me","name":"玩家690","hp":46,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:56.212","ev":"turn.start","room":"SOLO-88ELNB","stage":5,"round":4,"actor":"snake","name":"叢林巨蟒","team":"enemies","ai":true,"hp":200,"maxHp":400,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:56.213","ev":"ai.turn","room":"SOLO-88ELNB","stage":5,"round":4,"actor":"snake","name":"叢林巨蟒","boss":[{"action":"bite","targetId":"me"}],"next":"quake","changes":[{"id":"me","name":"玩家690","hp":[46,35]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:59.905","ev":"turn.end","room":"SOLO-88ELNB","stage":5,"round":4,"actor":"snake","name":"叢林巨蟒","hp":200,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:59.905","ev":"turn.start","room":"SOLO-88ELNB","stage":5,"round":5,"actor":"me","pid":"me","name":"玩家690","team":"players","ai":false,"hp":16,"maxHp":126,"turnTime":30,"fx":[{"type":"poison","id":"me","stacks":13,"dmg":19,"lock":19,"died":false,"left":13}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:32:59.920","ev":"move","room":"SOLO-88ELNB","stage":5,"round":5,"pid":"me","name":"玩家690","x":335.5,"y":543,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:00.353","ev":"move","room":"SOLO-88ELNB","stage":5,"round":5,"pid":"me","name":"玩家690","x":337.7,"y":543,"facing":1,"stamina":199.3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:00.470","ev":"move","room":"SOLO-88ELNB","stage":5,"round":5,"pid":"me","name":"玩家690","x":352.8,"y":543,"facing":1,"stamina":194,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:00.587","ev":"move","room":"SOLO-88ELNB","stage":5,"round":5,"pid":"me","name":"玩家690","x":368,"y":543,"facing":1,"stamina":188.8,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:00.703","ev":"move","room":"SOLO-88ELNB","stage":5,"round":5,"pid":"me","name":"玩家690","x":383.2,"y":543,"facing":1,"stamina":183.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:00.720","ev":"move","room":"SOLO-88ELNB","stage":5,"round":5,"pid":"me","name":"玩家690","x":387.5,"y":543,"facing":1,"stamina":182,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:00.720","ev":"pickup","room":"SOLO-88ELNB","stage":5,"round":5,"pid":"me","name":"玩家690","type":"snakeBlood","item":"a2","cured":13,"unlocked":24,"heal":15,"hp":31,"maxHp":150,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:00.837","ev":"move","room":"SOLO-88ELNB","stage":5,"round":5,"pid":"me","name":"玩家690","x":400.5,"y":543,"facing":1,"stamina":177.5,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:01.794","ev":"fire","room":"SOLO-88ELNB","stage":5,"round":5,"pid":"me","name":"玩家690","weapon":"cannon","angle":10.4,"power":100,"x":400.5,"y":543,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:01.794","ev":"shot","room":"SOLO-88ELNB","stage":5,"round":5,"hitEnemy":true,"kind":"weapon","pid":"me","name":"玩家690","weapon":"cannon","hit":"entity","frames":14,"kills":[],"changes":[{"id":"me","name":"玩家690","hp":[31,33]},{"id":"snake","name":"叢林巨蟒","hp":[200,150]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:03.255","ev":"turn.end","room":"SOLO-88ELNB","stage":5,"round":5,"actor":"me","pid":"me","name":"玩家690","hp":33,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:03.255","ev":"turn.start","room":"SOLO-88ELNB","stage":5,"round":5,"actor":"snake","name":"叢林巨蟒","team":"enemies","ai":true,"hp":150,"maxHp":400,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:03.255","ev":"ai.turn","room":"SOLO-88ELNB","stage":5,"round":5,"actor":"snake","name":"叢林巨蟒","boss":[{"action":"quake"}],"next":"charge","changes":[{"id":"me","name":"玩家690","hp":[33,0],"died":"hit"}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:06.743","ev":"turn.end","room":"SOLO-88ELNB","stage":5,"round":5,"actor":"snake","name":"叢林巨蟒","hp":150,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:06.743","ev":"battle.over","room":"SOLO-88ELNB","stage":5,"round":5,"result":"lose","level":"jungleSerpent","players":[{"pid":"me","name":"玩家690","hp":0,"alive":false,"kills":0}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:06.744","ev":"run.over","room":"SOLO-88ELNB","result":"lose","stage":5,"stageCount":10,"players":[{"pid":"me","name":"玩家690","hp":0,"cards":["caliber_up","heavy_shell","war_drum","blood_claw"],"weapons":["cannon","sniper"],"dealt":655,"taken":293,"shots":25,"hits":19}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:13.644","ev":"solo.end","room":"SOLO-88ELNB","reason":"pagehide","stage":5,"runPhase":"over","round":5,"result":"lose","ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:13.833","ev":"conn.open","cid":3,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:13.836","ev":"player.hello","cid":3,"pid":"-wCdgRfIw9pU","name":"玩家470","ip":"172.23.192.18"}
+{"ts":"2026-10-06 14:33:13.841","ev":"lobby.browse","pid":"-wCdgRfIw9pU","name":"玩家470","on":true}
+{"ts":"2026-10-06 14:42:30.026","ev":"conn.close","cid":3,"pid":"-wCdgRfIw9pU","name":"玩家470","code":1001}
+{"ts":"2026-10-06 14:42:32.952","ev":"conn.close","cid":1,"pid":"ubs37cJynXSt","name":"玩家929","code":1001}

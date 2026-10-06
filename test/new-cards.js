@@ -7,8 +7,9 @@ import { Match } from '../shared/match.js';
 import { Run } from '../shared/run.js';
 import { Rng } from '../shared/rng.js';
 import { planShot } from '../shared/ai.js';
+import { replayChecked } from './replay-check.js';
 import { validateCards, drawOffers, baseStats, derivePlayerStats } from '../shared/cards.js';
-import { advanceProjectile, makeProjectile, simulateShot, shotTraits, stepReturn, aimPreview } from '../shared/weapons.js';
+import { makeProjectile, simulateShot, shotTraits, aimPreview } from '../shared/weapons.js';
 
 // 這裡的測試照武器原本傷害算敵人的攻擊；敵人傷害倍率（ENEMY.damageMult / damageMultLate）在 headless.js 另有專門測試
 CONFIG.ENEMY.damageMult = 1;
@@ -86,57 +87,13 @@ function toPickPhase(io, run, offersById) {
 }
 const toBattle = (io, run, stage) => assert(advanceUntil(io, () => run.phase === 'battle' && run.stage === stage), 'stage ' + stage + ' should start');
 
-// 照 client/game-view.js 的 shotScript 在另一份 Match 上重播（同 test/headless.js）
-function replayLikeClient(cm, shot) {
-  const weapon = CONFIG.WEAPONS[shot.weapon];
-  if (shot.kind !== 'bombard') {
-    const a = cm.byId(shot.actorId);
-    a.x = shot.actor.x; a.y = shot.actor.y; a.vx = 0; a.vy = shot.actor.vy || 0;
-    if (shot.actor.sx !== undefined) { a.safeX = shot.actor.sx; a.safeY = shot.actor.sy; }
-    if (shot.actor.hp !== undefined) a.hp = shot.actor.hp;
-  }
-  const projs = shot.projectiles.map((s, i) => ({ i, x: s.x, y: s.y, vx: s.vx, vy: s.vy, gravity: weapon.gravity, age: 0, spawn: s.spawn, follow: !!s.follow, state: 'pending', path: null, retIdx: 0 }));
-  for (let f = 1; f <= shot.flightFrames; f++) {
-    cm.step();
-    const evs = shot.events.filter(ev => ev.f === f);
-    for (const p of projs) {
-      if (p.state === 'pending' && p.spawn === f) {
-        p.state = 'flying';
-        const a = cm.byId(shot.actorId);
-        if (p.follow && a && a.alive) { const mz = a.muzzle(); p.x = mz.x; p.y = mz.y; }
-        if (weapon.boomerang) p.path = [{ x: p.x, y: p.y }];
-      }
-      if (p.state === 'returning') {
-        const a = cm.byId(shot.actorId);
-        stepReturn(p, weapon.returnSpeed || 1, a && a.alive ? a.muzzle() : null, weapon.homingSpeed);
-      } else if (p.state === 'flying') advanceProjectile(null, p, CONFIG.FIXED_DT);
-      else continue;
-      const mine = evs.filter(ev => ev.p === p.i);
-      if (mine.length && mine[0].type !== 'catch' && p.state === 'flying') {
-        const reach = Math.hypot(p.vx, p.vy) * CONFIG.FIXED_DT + 2;
-        const off = Math.hypot(p.x - mine[0].x, p.y - mine[0].y);
-        assert(off <= reach, `client projectile #${p.i} is ${off.toFixed(1)}px from the server event at f${f} (max ${reach.toFixed(1)})`);
-      }
-      for (const ev of mine) {
-        p.x = ev.x; p.y = ev.y;
-        if (ev.vx !== undefined) { p.vx = ev.vx; p.vy = ev.vy; }
-        if (ev.type === 'return') { p.state = 'returning'; p.retIdx = p.path.length; }
-        else if (ev.type !== 'bounce' && ev.type !== 'pierce') p.state = 'done';
-        if (ev.carve) cm.terrain.carve(ev.carve.x, ev.carve.y, ev.carve.r);
-        for (const s of ev.ents || []) cm.byId(s.id).applyEventState(s);
-      }
-      if (!mine.length && p.state === 'flying' && p.path) p.path.push({ x: p.x, y: p.y });
-    }
-  }
-  for (let n = 0; n < shot.settleFrames + 60; n++) { cm.step(); if (cm.isSettled()) break; }
-}
 // 伺服器結算一發、客戶端照事件重播，所有角色的結果要一樣
 function assertReplayMatches(m, players, fire, label) {
   const cm = new Match({ levelId: m.levelId, players: mkPlayers(players), seed: m.seed, carry: m.carry });
   cm.applySnapshot(m.snapshot());
   for (const e of m.entities) { const c = cm.byId(e.id); c.maxHp = e.maxHp; c.links = e.links.slice(); }
   const shot = JSON.parse(JSON.stringify(fire(m)));
-  replayLikeClient(cm, shot);
+  replayChecked(cm, shot, label);
   for (const s of shot.results) {
     const e = cm.byId(s.id);
     assert(e.x === s.x && e.y === s.y && e.hp === s.hp && e.alive === s.alive, `${label}: ${s.id} client ${e.x},${e.y},${e.hp},${e.alive} vs server ${s.x},${s.y},${s.hp},${s.alive}`);

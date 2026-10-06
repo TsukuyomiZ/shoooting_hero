@@ -6,7 +6,8 @@ import { Match } from '../shared/match.js';
 import { Referee } from '../shared/referee.js';
 import { Rng } from '../shared/rng.js';
 import { planShot, hasLineOfSight } from '../shared/ai.js';
-import { advanceProjectile, isEquippable } from '../shared/weapons.js';
+import { isEquippable } from '../shared/weapons.js';
+import { replayChecked } from './replay-check.js';
 import { validateCards } from '../shared/cards.js';
 import { planeOf, planeCounts, chooseTreeAction, rollTreeAction, planTreeNext, resolveTreeTurn, spawnTreant, trunkLane } from '../shared/tree-boss.js';
 import { treeTurnScript, drawTreeScene } from '../client/tree-boss-view.js';
@@ -94,27 +95,6 @@ function forcedStep(m, action) {
   return force(action, () => { planTreeNext(m, m.byId('eye')); return firstStep(m, m.byId('eye')); });
 }
 
-// 照 client/game-view.js 的 shotScript 重播（古樹的招式都是直線、穿透、不挖地）：
-// 飛行只跑運動學，事件那一幀校正到伺服器的撞擊點（撞擊發生在幀中間的子步），角色狀態照事件套用
-function replayLikeClient(cm, shot) {
-  const weapon = CONFIG.WEAPONS[shot.weapon];
-  const projs = shot.projectiles.map((s, i) => ({ i, x: s.x, y: s.y, vx: s.vx, vy: s.vy, gravity: weapon.gravity, age: 0, spawn: s.spawn, state: 'pending' }));
-  for (let f = 1; f <= shot.flightFrames; f++) {
-    cm.step();
-    const evs = shot.events.filter(ev => ev.f === f);
-    for (const p of projs) {
-      if (p.state === 'pending' && p.spawn === f) p.state = 'flying';
-      if (p.state !== 'flying') continue;
-      advanceProjectile(null, p, CONFIG.FIXED_DT);
-      for (const ev of evs.filter(ev => ev.p === p.i)) {
-        p.x = ev.x; p.y = ev.y;
-        if (ev.type !== 'pierce') p.state = 'done';
-        for (const s of ev.ents || []) cm.byId(s.id).applyEventState(s);
-      }
-    }
-  }
-  for (let n = 0; n < shot.settleFrames + 60; n++) { cm.step(); if (cm.isSettled()) break; }
-}
 
 test('地圖：樹皮炸不掉、土炸得掉；角色走不過 maxX、碰不到樹幹；眼睛與嘴巴固定在樹上、半露在樹幹表面', () => {
   const m = garden(4);
@@ -427,7 +407,7 @@ test('古樹之口（多人）：打不壞；被攻擊到（直擊或爆炸波�
   const cm = new Match({ levelId: 'treeGarden', players: mkPlayers(2), seed: m.seed, stage: 6 });
   cm.applySnapshot(before);
   assert(cm.byId('mouth').closedTurns === 0, 'client starts with an open mouth');
-  replayLikeClient(cm, shot);   // 只套事件（applyEventState），還沒套最後的 results
+  replayChecked(cm, shot, 'mouth');   // 只套事件（applyEventState），還沒套最後的 results
   assert(cm.byId('mouth').closedTurns === 1, 'client closes the mouth from the hit event');
   // 重連：新的客戶端從快照拿到閉著的嘴巴
   const c = new Match({ levelId: 'treeGarden', players: mkPlayers(2), seed: m.seed, stage: 6 });
@@ -633,7 +613,7 @@ test('客戶端照事件重播古樹撞擊 / 飛散落葉，結果跟伺服器�
     for (const e of cm.players) { e.maxHp = 60; }
     cm.applySnapshot(snap);
     const shot = JSON.parse(JSON.stringify(b.shot));
-    replayLikeClient(cm, shot);
+    replayChecked(cm, shot, want);
     for (const s of shot.results) {
       const e = cm.byId(s.id);
       assert(e.x === s.x && e.y === s.y && e.hp === s.hp && e.alive === s.alive, `${want}: ${s.id} client ${e.x},${e.y},${e.hp},${e.alive} vs server ${s.x},${s.y},${s.hp},${s.alive}`);
@@ -657,7 +637,7 @@ test('客戶端照事件重播古樹撞擊 / 飛散落葉，結果跟伺服器�
     assert(e.x === srv.x && e.y === srv.y && e.hp === srv.hp && e.maxHp === s.byId(e.id).maxHp, `client-built ${e.id} matches the server`);
   }
   c.applyEntities(steps[0].still.results);
-  replayLikeClient(c, steps[1].shot);
+  replayChecked(c, steps[1].shot, 'follow-up');
   for (const r of steps[1].shot.results) {
     const e = c.byId(r.id);
     assert(e && e.x === r.x && e.y === r.y && e.hp === r.hp && e.alive === r.alive, `follow-up ${steps[1].action}: ${r.id} client ${e && e.x},${e && e.y},${e && e.hp} vs server ${r.x},${r.y},${r.hp}`);

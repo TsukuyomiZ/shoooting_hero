@@ -9,7 +9,7 @@ import { Match } from '../shared/match.js';
 import { Referee } from '../shared/referee.js';
 import { Rng } from '../shared/rng.js';
 import { planShot } from '../shared/ai.js';
-import { advanceProjectile } from '../shared/weapons.js';
+import { replayChecked } from './replay-check.js';
 import { VINE_HAND } from '../shared/entities.js';
 import { chargeLane, resolveSnakeTurn, rollSnakeAction, planSnakeNext, nearestPlayer, poisonTick, snakeDrops, pickupAlong } from '../shared/snake-boss.js';
 import { snakeTurnScript, drawSnakeScene } from '../client/snake-boss-view.js';
@@ -95,38 +95,6 @@ function forced(m, action) {
 }
 const stepN = (m, n) => { for (let i = 0; i < n; i++) m.step(); };
 
-// 照 client/game-view.js 的 shotScript 重播：飛行只跑運動學，事件那一幀校正飛行物、套用角色的事件狀態，最後等大家落地
-function replayLikeClient(cm, shot) {
-  const weapon = CONFIG.WEAPONS[shot.weapon];
-  const actor = cm.byId(shot.actorId);
-  if (actor && shot.kind === 'weapon') {
-    actor.x = shot.actor.x; actor.y = shot.actor.y; actor.vx = 0; actor.vy = shot.actor.vy || 0;
-    if (shot.actor.sx !== undefined) { actor.safeX = shot.actor.sx; actor.safeY = shot.actor.sy; }
-    if (shot.actor.hp !== undefined) actor.hp = shot.actor.hp;
-    if (shot.actor.vn !== undefined) actor.onVine = shot.actor.vn;
-    actor.moveDir = 0; actor.vineDir = 0;
-  }
-  const projs = shot.projectiles.map((s, i) => ({ i, x: s.x, y: s.y, vx: s.vx, vy: s.vy, gravity: weapon.gravity, age: 0, spawn: s.spawn, follow: !!s.follow, state: 'pending' }));
-  for (let f = 1; f <= shot.flightFrames; f++) {
-    cm.step();
-    const evs = shot.events.filter(ev => ev.f === f);
-    for (const p of projs) {
-      if (p.state === 'pending' && p.spawn === f) {
-        p.state = 'flying';
-        if (p.follow && actor && actor.alive) { const mz = actor.muzzle(); p.x = mz.x; p.y = mz.y; }
-      }
-      if (p.state !== 'flying') continue;
-      advanceProjectile(null, p, CONFIG.FIXED_DT);
-      for (const ev of evs.filter(ev => ev.p === p.i)) {
-        p.x = ev.x; p.y = ev.y;
-        if (ev.vx !== undefined) { p.vx = ev.vx; p.vy = ev.vy; }
-        if (ev.type !== 'pierce' && ev.type !== 'bounce') p.state = 'done';
-        for (const s of ev.ents || []) cm.byId(s.id).applyEventState(s);
-      }
-    }
-  }
-  for (let n = 0; n < shot.settleFrames + 60; n++) { cm.step(); if (cm.isSettled()) break; }
-}
 
 function recordingCtx() {
   const calls = [];
@@ -346,7 +314,7 @@ test('掛在藤蔓上開火：shot.actor 帶 vn，射手照樣掛著；客戶端
   const cm = new Match({ levelId: 'jungleSerpent', players: mkPlayers(1), seed: m.seed, stage: 5 });
   cm.applySnapshot(before);
   for (const e of cm.players) { e.maxHp = m.byId(e.id).maxHp; }
-  replayLikeClient(cm, JSON.parse(JSON.stringify(shot)));
+  replayChecked(cm, JSON.parse(JSON.stringify(shot)), 'vine shot');
   for (const s of shot.results) {
     const e = cm.byId(s.id);
     assert(e.x === s.x && e.y === s.y && e.hp === s.hp && e.onVine === s.vn, `${s.id}: client ${e.x},${e.y},${e.hp},${e.onVine} vs server ${s.x},${s.y},${s.hp},${s.vn}`);
@@ -647,7 +615,7 @@ test('客戶端照事件重播四種招式（擊退、落水、被撞下藤蔓�
     const b = JSON.parse(JSON.stringify(forced(m, action)));
     const cm = new Match({ levelId: 'jungleSerpent', players: mkPlayers(4), seed: m.seed, stage: 5 });
     cm.applySnapshot(snap);
-    replayLikeClient(cm, b.shot);
+    replayChecked(cm, b.shot, action);
     for (const s of b.shot.results) {
       const e = cm.byId(s.id);
       const same = e.x === s.x && e.y === s.y && e.hp === s.hp && e.alive === s.alive && e.onVine === s.vn && e.poison === s.ps && e.waterFalls === s.wf;

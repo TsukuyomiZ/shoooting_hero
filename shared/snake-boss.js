@@ -194,6 +194,20 @@ export function poisonTick(e) {
 
 // ---- 蛇血 ----
 
+// 把掉出來的蛇血（事件 / 回合結束效果帶來的 drops）加進場上：已經有同 id 的就跳過。回傳這次新加的
+// （複製出來的物件，不會改到 drops 本身；畫面可以在上面加自己的欄位，例如拋物線動畫）。
+// 客戶端重播（shared/volley.js）與 client/snake-boss-view.js 的 addDrops 都用這個
+export function takeDrops(match, drops) {
+  const made = [];
+  for (const d of drops || []) {
+    if (match.items.some(it => it.id === d.id)) continue;
+    const it = { ...d };
+    match.items.push(it);
+    made.push(it);
+  }
+  return made;
+}
+
 // 巨蟒受到的傷害每跨過一個 bloodEveryPct% 的門檻就掉一瓶蛇血（一下打很多可能一次掉好幾瓶）。
 // 巨蟒倒下就不掉了（已經過關）。新掉的蛇血加進 match.items 並回傳（給事件 / fx 帶給客戶端）
 export function snakeDrops(match) {

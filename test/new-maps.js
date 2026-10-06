@@ -9,7 +9,8 @@ import { LEVELS, levelsInPool } from '../shared/level.js';
 import { Match } from '../shared/match.js';
 import { Referee } from '../shared/referee.js';
 import { planShot, hasLineOfSight, lineBlocker } from '../shared/ai.js';
-import { advanceProjectile } from '../shared/weapons.js';
+import { replayChecked } from './replay-check.js';
+import { replayVolley } from '../shared/volley.js';
 import { spawnBee } from '../shared/hive.js';
 import { Rng } from '../shared/rng.js';
 import { PLATFORM, SOIL } from '../shared/terrain.js';
@@ -98,32 +99,6 @@ const bees = (m) => m.entities.filter(e => e.kind === 'bee');
 const standsOn = (t, e, value) => [e.x - e.hw + 3, e.x, e.x + e.hw - 3].some(x => [1, 2, 3].some(k => t.at(x, e.y + k) === value));
 const hiveHp = (m) => m.byId('hive').hp;
 
-// 照 client/game-view.js 的 shotScript 在另一份 Match 上重播：每幀先跑角色物理，再推進飛行物（只跑運動學）、照事件套用；
-// 事件帶 bees（打到蜂巢飛出來的蜜蜂）就照出生資料建出來（同 addBees）
-function replayLikeClient(cm, shot) {
-  const weapon = CONFIG.WEAPONS[shot.weapon];
-  const projs = shot.projectiles.map((s, i) => ({ i, x: s.x, y: s.y, vx: s.vx, vy: s.vy, gravity: weapon.gravity, age: 0, spawn: s.spawn, follow: !!s.follow, state: 'pending' }));
-  const actor = cm.byId(shot.actorId);
-  for (let f = 1; f <= shot.flightFrames; f++) {
-    cm.step();
-    const evs = shot.events.filter(ev => ev.f === f);
-    for (const p of projs) {
-      if (p.state === 'pending' && p.spawn === f) {
-        p.state = 'flying';
-        if (p.follow && actor && actor.alive) { const mz = actor.muzzle(); p.x = mz.x; p.y = mz.y; }
-      }
-      if (p.state !== 'flying') continue;
-      advanceProjectile(null, p, CONFIG.FIXED_DT);
-      for (const ev of evs.filter(ev => ev.p === p.i)) {
-        p.x = ev.x; p.y = ev.y;
-        if (ev.type !== 'pierce') p.state = 'done';
-        for (const s of ev.ents || []) cm.byId(s.id).applyEventState(s);
-        for (const spec of ev.bees || []) if (!cm.byId(spec.id)) spawnBee(cm, spec);
-      }
-    }
-  }
-  for (let n = 0; n < shot.settleFrames + 60; n++) { cm.step(); if (cm.isSettled()) break; }
-}
 // 重播後（還沒套伺服器結果之前）每個角色都跟伺服器的結果一樣。蜜蜂螫完停的位置、螫完力竭死掉只靠結果校正（不在飛行事件裡），不比
 function assertReplayMatches(cm, shot, label) {
   for (const r of shot.results) {
@@ -556,7 +531,7 @@ test('客戶端照事件重播（只跑運動學）跟伺服器一致：打到�
   cm.applySnapshot(JSON.parse(JSON.stringify(sm.snapshot())));
   const p = sm.players[0];
   const shot = JSON.parse(JSON.stringify(sm.resolveShot(p, 'sniper', exactAngle(p, sm.byId('hive')), 100)));
-  replayLikeClient(cm, shot);
+  replayChecked(cm, shot, 'sniper→hive');
   assertReplayMatches(cm, shot, 'sniper→hive');
   assert(cm.byId('b1') && cm.byId('hive').hp === 4, 'client spawned the bee from the event');
   cm.applyEntities(shot.results);
@@ -566,7 +541,7 @@ test('客戶端照事件重播（只跑運動學）跟伺服器一致：打到�
   placeOn(sm, q, sm.byId('hive').x, 560);
   cm.applySnapshot(JSON.parse(JSON.stringify(sm.snapshot())));
   const shot2 = JSON.parse(JSON.stringify(sm.resolveShot(q, 'plasma', 90, 80)));
-  replayLikeClient(cm, shot2);
+  replayChecked(cm, shot2, 'plasma→hive');
   assertReplayMatches(cm, shot2, 'plasma→hive');
   cm.applyEntities(shot2.results);
   assert(bees(cm).length === bees(sm).length && bees(sm).length >= 3 && cm.byId('hive').hp === sm.byId('hive').hp,
@@ -577,7 +552,7 @@ test('客戶端照事件重播（只跑運動學）跟伺服器一致：打到�
   cm.applyEntities(wait.boss.steps[0].still.results);
   const sting = JSON.parse(JSON.stringify(sm.planAiTurn(b))).boss.steps[0];
   assert(sting.action === 'sting', 'stings');
-  replayLikeClient(cm, sting.shot);
+  replayChecked(cm, sting.shot, 'sting');
   assertReplayMatches(cm, sting.shot, 'sting');
   cm.applyEntities(sting.shot.results);
   const cb = cm.byId('b1');
@@ -773,13 +748,15 @@ test('客戶端：蜜蜂的回合腳本（待機套用結果；衝刺時角色�
   const view = {
     match: cm, time: 0, projectiles: [], particles: [], shake: 0, banner: null,
     showBanner(t) { this.banner = t; }, spawnParticles() {}, floatText(e, t) { floats.push([e.id, t]); },
-    // 假的 shotScript：飛行物飛 flightFrames 幀 → 消失 → 等落地 → 套伺服器結果（跟 game-view.js 的順序一樣）
-    *shotScript(shot) {
-      const proj = { weapon: CONFIG.WEAPONS[shot.weapon] };
-      this.projectiles.push(proj);
-      for (let f = 0; f < shot.flightFrames; f++) yield { frames: 1 };
-      this.projectiles = this.projectiles.filter(x => x !== proj);
-      yield { frames: 20 };
+    // shotScript：真的照事件重播（shared/volley.js，跟 game-view.js 同一份；畫面掛勾都不給）→ 套伺服器結果 → 等 24 幀（跟 game-view.js 的順序一樣）。
+    // 這裡沒有人代步進：模組在每次 next() 自己跑 match.step
+    *shotScript(shot, extra = {}) {
+      const run = replayVolley(cm, shot);
+      if (!run) return;
+      this.projectiles = run.live;
+      yield* run.frames(extra);
+      this.projectiles = [];
+      assert(!run.drift.length, 'sting replay drift: ' + run.drift.join('; '));
       cm.applyEntities(shot.results);
       yield { frames: 24 };
     },

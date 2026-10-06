@@ -1,5 +1,5 @@
 import { CONFIG } from '../shared/config.js';
-import { BEE_ACTION_NAMES, spawnBee } from '../shared/hive.js';
+import { BEE_ACTION_NAMES, hatchBees } from '../shared/hive.js';
 import { text } from './draw.js';
 import { sfx } from './sfx.js';
 
@@ -42,21 +42,19 @@ function* beeStepScript(view, bee, b) {
   if (b.shot) {
     // 衝出去的那段：飛行物畫成蜜蜂，角色本身先不畫（charging）。飛行物一消失（螫到人）就把蜜蜂放到伺服器算好的停留位置、畫回來，
     // 不用等 shotScript 後面的落地等待（那段要等被擊退的人站穩，蜜蜂會憑空消失快一秒）。蜜蜂固定在空中、客戶端不做碰撞，提早放過去不影響重播
+    // 每個飛行幀結束（濾掉結束的飛行物之後）看一次：重播模組的 frame 掛勾，不用自己一步一步推 shotScript
     const own = bee ? b.shot.results.find(s => s.id === bee.id) : null;
-    const flying = () => view.projectiles.some(p => p.weapon.id === 'beeSting');
     let seen = false;
-    const it = view.shotScript(b.shot);
-    try {
-      for (let r = it.next(); !r.done; r = it.next()) {
-        if (bee) {
-          if (flying()) { seen = true; bee.charging = true; }
-          else if (seen && bee.charging) {
-            bee.charging = false;
-            if (own) { bee.x = own.x; bee.y = own.y; bee.facing = own.facing; }
-          }
-        }
-        yield r.value;
+    const frame = (live) => {
+      if (!bee) return;
+      if (live.some(p => p.weapon.id === 'beeSting')) { seen = true; bee.charging = true; }
+      else if (seen && bee.charging) {
+        bee.charging = false;
+        if (own) { bee.x = own.x; bee.y = own.y; bee.facing = own.facing; }
       }
+    };
+    try {
+      yield* view.shotScript(b.shot, { frame });
     } finally {
       if (bee) bee.charging = false;
     }
@@ -67,20 +65,21 @@ function* beeStepScript(view, bee, b) {
   }
 }
 
-// 打到蜂巢、飛出蜜蜂（開火事件帶來的 bees = 出生資料）：照資料建出來（跟伺服器一模一樣），從蜂巢口噴出一點蜂蜜色的粒子
+// 打到蜂巢、飛出蜜蜂（開火事件帶來的 bees = 出生資料）：照資料建出來（跟伺服器一模一樣，已經有的跳過），再播出來
 export function addBees(view, specs) {
-  const match = view.match;
-  if (!match || !specs) return;
-  const hive = match.byId('hive');
-  let added = 0;
-  for (const s of specs) {
-    if (match.byId(s.id)) continue;   // 已經有了（重連時快照先建過）
-    const e = spawnBee(match, s);
-    added++;
+  if (!view.match || !specs) return;
+  showBees(view, hatchBees(view.match, specs));
+}
+
+// 剛飛出來的蜜蜂（已經建好的角色；重播時由 shared/volley.js 建）：從蜂巢口噴出一點蜂蜜色的粒子、飄字、嗡嗡聲
+export function showBees(view, bees) {
+  if (!bees || !bees.length) return;
+  const hive = view.match.byId('hive');
+  for (const e of bees) {
     if (hive) view.spawnParticles(hive.x, hive.y - 6, 10, { speed: 90, life: 0.5, size: 3, color: HONEY, gravity: 200 });
     view.floatText(e, '蜜蜂飛出來了！', '#fde047', 15);
   }
-  if (added) sfx.play('buzz', { x: hive ? hive.x : 500 });
+  sfx.play('buzz', { x: hive ? hive.x : 500 });
 }
 
 // 蜂巢 / 蜜蜂倒下：回傳 true 表示處理過了（不要再顯示一般的「被擊倒」橫幅）

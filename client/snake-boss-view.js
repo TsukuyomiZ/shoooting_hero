@@ -1,5 +1,5 @@
 import { CONFIG } from '../shared/config.js';
-import { SNAKE_ACTION_NAMES, chargeLane } from '../shared/snake-boss.js';
+import { SNAKE_ACTION_NAMES, chargeLane, takeDrops } from '../shared/snake-boss.js';
 import { VINE_HAND } from '../shared/entities.js';
 import { clamp } from '../shared/utils.js';
 import { text } from './draw.js';
@@ -68,15 +68,21 @@ export function onSnakeDeath(view, e) {
   return true;
 }
 
-// 蛇血從巨蟒嘴裡掉出來（事件 / 回合結束效果帶來的 drops）：加進場上，畫面上用 0.7 秒的拋物線飛到落點
+// 蛇血從巨蟒嘴裡掉出來（回合結束效果帶來的 drops）：加進場上（已經有的跳過），再播出來
 export function addDrops(view, drops) {
+  if (!view.match || !drops) return;
+  showDrops(view, drops, takeDrops(view.match, drops));
+}
+
+// 掉出來的蛇血的畫面：items = 這次新加進場上的（重播時由 shared/volley.js 加），用 0.7 秒的拋物線飛到落點；
+// 好幾瓶時照 drops 裡的順序一瓶一瓶飛出來
+export function showDrops(view, drops, items) {
   const match = view.match;
-  if (!match || !drops) return;
   const from = match.snake ? match.snake.def.mouth : { x: 600, y: 500 };
-  drops.forEach((d, k) => {
-    if (match.items.some(it => it.id === d.id)) return;
-    match.items.push({ ...d, anim: { x: from.x, y: from.y - 20, t0: view.time + k * 0.12 } });
-  });
+  for (const it of items) {
+    const k = Math.max(0, drops.findIndex(d => d.id === it.id));
+    it.anim = { x: from.x, y: from.y - 20, t0: view.time + k * 0.12 };
+  }
   view.floatText(match.byId('snake') || { cx: from.x, y: from.y, h: 0, id: 'snake' }, drops.length > 1 ? `掉出蛇血 ×${drops.length}` : '掉出蛇血', '#f87171', 16);
 }
 

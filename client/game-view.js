@@ -1,12 +1,12 @@
 import { CONFIG } from '../shared/config.js';
 import { Match } from '../shared/match.js';
-import { advanceProjectile, stepReturn } from '../shared/weapons.js';
+import { replayVolley } from '../shared/volley.js';
 import { clamp, lerpAngle } from '../shared/utils.js';
 import { Renderer } from './render.js';
 import { TerrainPainter } from './terrain-painter.js';
 import { treeTurnScript, onTreeDeath } from './tree-boss-view.js';
-import { snakeTurnScript, onSnakeDeath, addDrops } from './snake-boss-view.js';
-import { beeTurnScript, addBees, onHiveDeath } from './hive-view.js';
+import { snakeTurnScript, onSnakeDeath, addDrops, showDrops } from './snake-boss-view.js';
+import { beeTurnScript, showBees, onHiveDeath } from './hive-view.js';
 import { pickupAlong } from '../shared/snake-boss.js';
 import { Music } from './music.js';
 import { audio } from './audio.js';
@@ -111,20 +111,10 @@ export class GameView {
         this.canAct = false;
         this.waiting = false;
         break;
-      case 'move': {
-        const e = this.match && this.match.byId(msg.id);
-        if (e && msg.id !== this.myId) {
-          e.netTarget = { x: msg.x, y: msg.y };
-          e.onVine = Number.isInteger(msg.vine) ? msg.vine : -1;   // 抓著藤蔓的姿勢
-          if (msg.facing) e.facing = msg.facing;
-          if (Number.isFinite(msg.stamina)) e.stamina = msg.stamina;
-          if (Number.isFinite(msg.vy)) {   // 往上的速度突然變大 = 他剛起跳（含空中再跳一次）
-            if (msg.vy < -200 && msg.vy < (e.netVy || 0) - 150) sfx.play('jump', { x: msg.x, vol: 0.7 });
-            e.netVy = msg.vy;
-          }
-        }
+      case 'move':
+        if (this.holdMoves) this.heldMoves.set(msg.id, msg);   // 重播一波時先收著（重播的物理不受影響），播完再套最新的
+        else this.applyMove(msg);
         break;
-      }
       case 'weapon': {
         const e = this.match && this.match.byId(msg.id);
         if (e) e.weapon = msg.weapon;
@@ -136,7 +126,29 @@ export class GameView {
     }
   }
 
+  applyMove(msg) {
+    const e = this.match && this.match.byId(msg.id);
+    if (e && msg.id !== this.myId) {
+      e.netTarget = { x: msg.x, y: msg.y };
+      e.onVine = Number.isInteger(msg.vine) ? msg.vine : -1;   // 抓著藤蔓的姿勢
+      if (msg.facing) e.facing = msg.facing;
+      if (Number.isFinite(msg.stamina)) e.stamina = msg.stamina;
+      if (Number.isFinite(msg.vy)) {   // 往上的速度突然變大 = 他剛起跳（含空中再跳一次）
+        if (msg.vy < -200 && msg.vy < (e.netVy || 0) - 150) sfx.play('jump', { x: msg.x, vol: 0.7 });
+        e.netVy = msg.vy;
+      }
+    }
+  }
+
+  flushMoves() {
+    const held = [...this.heldMoves.values()];
+    this.heldMoves.clear();
+    for (const msg of held) this.applyMove(msg);
+  }
+
   setup(msg) {
+    this.holdMoves = false;
+    this.heldMoves = new Map();
     if (this.slowMo) this.setSlowMo(false);
     this.match = new Match({ levelId: msg.levelId, players: msg.players, seed: msg.seed, carry: msg.carry || {}, stage: msg.stage || 1 });
     this.match.applySnapshot(msg.snapshot);
@@ -359,12 +371,14 @@ export class GameView {
     }
   }
 
-  // 重播一發（或一波轟炸）：跟伺服器 Match.runVolley 同樣的幀序——每幀先跑角色物理（update 裡），
-  // 再推進每顆飛行物（只跑運動學），然後套用這一幀、這顆飛行物的事件（爆炸 / 穿透 / 彈射 / 折返…）
-  *shotScript(shot) {
+  // 重播一發（或一波轟炸）：shared/volley.js 照伺服器的事件逐幀重播（跟伺服器同一個幀迴圈）。
+  // 每一幀的角色物理在 update 原本的位置由 tick.step() 跑（見 update），飛行物與事件在下面的 tickScript 裡；
+  // 這裡只管畫面（出發、事件的特效 / 飄字）與最後的校正。extra.frame = 每個飛行幀結束時呼叫（蜜蜂的衝刺用）
+  *shotScript(shot, extra = {}) {
+    const run = replayVolley(this.match, shot);   // 格式壞掉會在這裡丟錯（還在 advanceScript 的 try 裡）
+    if (!run) return;
     const actor = this.match.byId(shot.actorId);
     const weapon = CONFIG.WEAPONS[shot.weapon];
-    if (!weapon) return;
     if (shot.kind === 'bombard') {
       // 回合開始的轟炸：這時已經輪到持有者了（turn 訊息要等轟炸播完才會來）
       this.currentId = shot.actorId;
@@ -373,71 +387,34 @@ export class GameView {
       this.waiting = false;
       this.showBanner(`${actor ? actor.name : ''} 的無差別轟炸！`, '#fb7185', this.feverNotice());
     } else if (actor) {
-      // 射手放到伺服器認定的位置（可能在空中），砲口才會一致
-      actor.x = shot.actor.x;
-      actor.y = shot.actor.y;
-      actor.vx = 0;
-      actor.vy = shot.actor.vy || 0;
-      // 把自己摔進水裡時兩邊才會扣一樣的血、在同一個地方重生
-      if (shot.actor.sx !== undefined) { actor.safeX = shot.actor.sx; actor.safeY = shot.actor.sy; }
-      if (shot.actor.hp !== undefined) actor.hp = shot.actor.hp;
-      if (shot.actor.vn !== undefined) actor.onVine = shot.actor.vn;   // 掛在藤蔓上開火：重播時不會掉下去
-      actor.vineDir = 0;
-      actor.facing = shot.facing;
-      actor.weapon = shot.weapon;
-      actor.aimAngle = shot.angle;
-      actor.aimPower = Math.round(shot.power);
-      actor.aiming = false;
-      actor.moveDir = 0;
-      actor.wantJump = false;
+      // 射手的位置 / 血量 / 藤蔓由重播模組照 shot.actor 擺好（第一個 next()）；這裡只清客戶端自己的狀態
       actor.netTarget = null;
       actor.slowMo = false;
       if (actor.id === this.myId) this.waiting = false;   // 結果到了，射手接著照伺服器的狀態動
     }
 
-    // x0 / y0 = 出發點（巨蟒衝撞 / 撕咬時，頭照「飛行物往前移了多少」跟著衝出去）
-    const projs = shot.projectiles.map((s, i) => ({
-      i, weapon, x: s.x, y: s.y, x0: s.x, y0: s.y, vx: s.vx, vy: s.vy, gravity: weapon.gravity, age: 0,
-      spawn: s.spawn, follow: !!s.follow, state: 'pending', path: null, retIdx: 0, trail: [], spin: 0,
-    }));
-    const byFrame = new Map();
-    for (const ev of shot.events) {
-      if (!byFrame.has(ev.f)) byFrame.set(ev.f, []);
-      byFrame.get(ev.f).push(ev);
-    }
-
-    for (let f = 1; f <= shot.flightFrames; f++) {
-      yield { frames: 1 };
-      const evs = byFrame.get(f);
-      for (const p of projs) {
-        if (p.state === 'pending' && p.spawn === f) {
-          p.state = 'flying';
-          if (p.follow && actor && actor.alive) { const mz = actor.muzzle(); p.x = mz.x; p.y = mz.y; }   // 同伺服器：從射手現在的砲口出發
-          if (weapon.boomerang) p.path = [{ x: p.x, y: p.y }];
-          this.projectiles.push(p);
-          if (shot.kind === 'weapon') {
-            sfx.play(weapon.id === 'sniper' ? 'sniper' : 'cannon', { x: p.x });
-            this.spawnParticles(p.x, p.y, 8, { speed: 140, life: 0.25, size: 3, color: weapon.id === 'plasma' ? '#67e8f9' : '#ffcc66', gravity: 0 });
-            this.shake = Math.max(this.shake, weapon.gravity > 0 ? 5 : 2);
-          }
-        }
-        if (p.state === 'returning') stepReturn(p, weapon.returnSpeed || 1, actor && actor.alive ? actor.muzzle() : null, weapon.homingSpeed);
-        else if (p.state === 'flying') advanceProjectile(null, p, CONFIG.FIXED_DT);
-        else continue;
-        const mine = evs ? evs.filter(ev => ev.p === p.i) : [];
-        for (const ev of mine) this.applyShotEvent(shot, weapon, p, ev);
-        if (!mine.length && p.state === 'flying' && p.path) p.path.push({ x: p.x, y: p.y });
-        p.trail.push({ x: p.x, y: p.y });
-        if (p.trail.length > 18) p.trail.shift();
-        p.spin += 0.45;
-      }
-      this.projectiles = this.projectiles.filter(p => p.state !== 'done');
+    // 重播中隊友的 move 先收著（見 onMessage 的 'move'）：他照物理跑、跟伺服器一致，播完才套最新的那筆
+    this.holdMoves = true;
+    this.heldMoves ||= new Map();
+    this.projectiles = run.live;   // 同一個陣列：模組原地更新（巨蟒的頭、蜜蜂、render 都讀它）
+    let played = false;
+    try {
+      yield* run.frames({
+        spawn: (p) => { if (shot.kind === 'weapon') this.showLaunch(weapon, p); },
+        event: (ev, p, made) => this.showShotEvent(shot, weapon, ev, made),
+        frame: extra.frame,
+      });   // 剛好 flightFrames + settleFrames 幀（沉降也照伺服器的幀數）
+      played = true;
+    } finally {
+      this.holdMoves = false;
+      if (!played) this.flushMoves();   // 播到一半丟錯：收著的 move 不要卡到下一波
     }
     this.projectiles = [];
+    if (run.drift.length) console.warn('重播跟伺服器對不起來', run.drift);
 
-    yield { until: () => this.match.isSettled(), max: shot.settleFrames + 60 };
     const stacksBefore = actor ? [actor.readyStacks, actor.huntStacks] : null;
     this.match.applyEntities(shot.results);   // 校正成伺服器結果
+    this.flushMoves();   // 重播中收到的 move（比 results 新）：現在才套上
     if (actor && shot.hitEnemy !== undefined) {   // 磨刀霍霍 / 越戰越強的層數變化
       const m = actor.mods;
       if (m.missDamagePct > 0 && actor.readyStacks !== stacksBefore[0]) {
@@ -453,32 +430,32 @@ export class GameView {
     yield { frames: CONFIG.TIMING.settleDelay * FPS * 0.5 };
   }
 
-  // 套用伺服器算好的一個飛行事件：飛行物的新位置 / 速度、挖坑、受影響角色的最新狀態、飄字與特效
-  applyShotEvent(shot, weapon, p, ev) {
-    p.x = ev.x;
-    p.y = ev.y;
+  // 一顆飛行物出發（自己 / 隊友 / AI 開火）：砲聲、砲口的火花、震一下
+  showLaunch(weapon, p) {
+    sfx.play(weapon.id === 'sniper' ? 'sniper' : 'cannon', { x: p.x });
+    this.spawnParticles(p.x, p.y, 8, { speed: 140, life: 0.25, size: 3, color: weapon.id === 'plasma' ? '#67e8f9' : '#ffcc66', gravity: 0 });
+    this.shake = Math.max(this.shake, weapon.gravity > 0 ? 5 : 2);
+  }
+
+  // 一個飛行事件的畫面（狀態已經由 shared/volley.js 套好：飛行物、挖坑、角色的事件狀態、蛇血、蜜蜂）：
+  // 特效、重畫挖掉的地形（made.rect）、蛇血 / 蜜蜂飛出來（made.items / made.bees）、傷害飄字
+  showShotEvent(shot, weapon, ev, made) {
     switch (ev.type) {
       case 'bounce':
-        p.vx = ev.vx; p.vy = ev.vy;
         this.spawnParticles(ev.x, ev.y, 6, { speed: 160, life: 0.3, size: 2, color: '#fef08a', gravity: 300 });
         break;
       case 'pierce':
-        p.vx = ev.vx; p.vy = ev.vy;
         this.spawnParticles(ev.x, ev.y, 8, { speed: 150, life: 0.35, size: 3, color: '#fca5a5', gravity: 400 });
         break;
       case 'return':
-        p.state = 'returning';
-        p.retIdx = p.path.length;
         this.spawnParticles(ev.x, ev.y, 6, { speed: 120, life: 0.3, size: 3, color: '#fcd34d', gravity: 300 });
         break;
       case 'water':
-        p.state = 'done';
         this.splash(ev.x);
         sfx.play('plop', { x: ev.x });
         break;
       case 'explode': {
-        p.state = 'done';
-        if (ev.carve) this.painter.repaintRect(this.match.terrain.carve(ev.carve.x, ev.carve.y, ev.carve.r));
+        if (made.rect) this.painter.repaintRect(made.rect);
         const r = ev.carve ? ev.carve.r : 8;
         const big = r >= 25;
         sfx.play('explode', { x: ev.x, big });
@@ -490,15 +467,9 @@ export class GameView {
         if (weapon.poison) this.spawnParticles(ev.x, ev.y, 10, { speed: 120, life: 0.5, size: 3, color: '#a855f7', gravity: 300 });   // 毒液濺開
         break;
       }
-      default:   // out / catch（迴力鏢回到手上）
-        p.state = 'done';
     }
-    for (const s of ev.ents || []) {
-      const e = this.match.byId(s.id);
-      if (e) e.applyEventState(s);
-    }
-    if (ev.drops) addDrops(this, ev.drops);   // 打到巨蟒跨過門檻：掉蛇血
-    if (ev.bees) addBees(this, ev.bees);      // 打到蜂巢：飛出蜜蜂
+    if (ev.drops) showDrops(this, ev.drops, made.items);   // 打到巨蟒跨過門檻：掉蛇血
+    if (ev.bees) showBees(this, made.bees);                // 打到蜂巢：飛出蜜蜂
     for (const d of ev.damages || []) {
       const e = this.match.byId(d.id);
       if (!e) continue;
@@ -824,25 +795,14 @@ export class GameView {
 
     this.updateInput();
 
-    const world = this.match.world;
-    for (const e of this.match.entities) {
-      const px = e.x, py = e.y, wantedJump = e.wantJump;   // 給 moveSfx 比這一幀前後的差別
-      if (e.netTarget && e.id !== this.myId) {
-        // 遠端玩家：平滑插值到他回報的位置
-        e.x += (e.netTarget.x - e.x) * 0.35;
-        e.y += (e.netTarget.y - e.y) * 0.35;
-        if (Math.abs(e.netTarget.x - e.x) < 0.3 && Math.abs(e.netTarget.y - e.y) < 0.3) { e.x = e.netTarget.x; e.y = e.netTarget.y; }
-        e.hurtTimer = Math.max(0, e.hurtTimer - dt);
-      } else if (this.waiting && e.id === this.myId) {
-        // 開火後等伺服器的結果：先停在出手的位置。空中開火時才不會自己先掉下去（甚至先淹死）再被拉回出手點
-      } else {
-        const falls = e.waterFalls;
-        e.update(dt, world);
-        // 叢林巨蟒：自己的回合走過蛇血，先在本地喝掉（跟伺服器同一套判斷）——之後在本地掉水才會照解開後的上限扣，跟伺服器一樣
-        if (e.id === this.myId && this.canAct && e.waterFalls === falls) this.predictPickup(e, px, py);
-      }
-      this.moveSfx(e, px, py, wantedJump);
-    }
+    const w = this.wait;
+    if (w && w.step) {
+      // 重播一波的幀（shared/volley.js 的 tick）：這一幀的角色物理就是 tick.step() = match.step 剛好一次（不能再自己跑一次）；
+      // 飛行物與事件在下面的 tickScript 裡
+      const pre = this.match.entities.map(e => [e, e.x, e.y, e.wantJump]);
+      w.step();
+      for (const [e, px, py, wantedJump] of pre) this.moveSfx(e, px, py, wantedJump);
+    } else this.stepEntities(dt);
 
     if (this.aimAnim) {
       const e = this.match.byId(this.aimAnim.id);
@@ -866,6 +826,33 @@ export class GameView {
     }
     this.updateEffects(dt);
     this.tickScript();
+  }
+
+  // 遠端玩家：平滑插值到他回報的位置（不跑物理）
+  followNet(e, dt) {
+    e.x += (e.netTarget.x - e.x) * 0.35;
+    e.y += (e.netTarget.y - e.y) * 0.35;
+    if (Math.abs(e.netTarget.x - e.x) < 0.3 && Math.abs(e.netTarget.y - e.y) < 0.3) { e.x = e.netTarget.x; e.y = e.netTarget.y; }
+    e.hurtTimer = Math.max(0, e.hurtTimer - dt);
+  }
+
+  // 不是重播的幀：每個角色自己跑物理（自己操作、AI 走路、等待…）
+  stepEntities(dt) {
+    const world = this.match.world;
+    for (const e of this.match.entities) {
+      const px = e.x, py = e.y, wantedJump = e.wantJump;   // 給 moveSfx 比這一幀前後的差別
+      if (e.netTarget && e.id !== this.myId) {
+        this.followNet(e, dt);
+      } else if (this.waiting && e.id === this.myId) {
+        // 開火後等伺服器的結果：先停在出手的位置。空中開火時才不會自己先掉下去（甚至先淹死）再被拉回出手點
+      } else {
+        const falls = e.waterFalls;
+        e.update(dt, world);
+        // 叢林巨蟒：自己的回合走過蛇血，先在本地喝掉（跟伺服器同一套判斷）——之後在本地掉水才會照解開後的上限扣，跟伺服器一樣
+        if (e.id === this.myId && this.canAct && e.waterFalls === falls) this.predictPickup(e, px, py);
+      }
+      this.moveSfx(e, px, py, wantedJump);
+    }
   }
 
   // 自己操作時掉進水裡：本地已經先扣血、回到岸上（或淹死），把落水的那一點與最後站穩的地方回報給伺服器結算。

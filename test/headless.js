@@ -364,7 +364,7 @@ test('斷線代打：跳到半空中斷線，伺服器先讓他落地（途中�
   if (ai.walk) { c1.moveDir = ai.walk.dir; for (let i = 0; i < ai.walk.frames; i++) cm.step(); c1.moveDir = 0; }
   if (ai.shot) {
     const shot = JSON.parse(JSON.stringify(ai.shot));
-    replayLikeClient(cm, shot);
+    replayChecked(cm, shot, 'aiTurn shot');
     const r = shot.results.find(e => e.id === 'p1');
     assert(c1.hp === r.hp && c1.alive === r.alive && c1.x === r.x && c1.y === r.y && c1.waterFalls === r.wf, `replay matches the server: client ${c1.x},${c1.y},${c1.hp} vs ${r.x},${r.y},${r.hp}`);
   }
@@ -672,7 +672,8 @@ test('牌的加成會進戰鬥：大砲傷害 +%、爆炸半徑 +%、減傷 %', 
 
 // ---------- 武器欄與裝備效果 ----------
 import { baseStats, derivePlayerStats, needsDiscard, equipWeapon } from '../shared/cards.js';
-import { traceShot, advanceProjectile, stepReturn } from '../shared/weapons.js';
+import { traceShot } from '../shared/weapons.js';
+import { replayChecked } from './replay-check.js';
 
 const cardById = (id) => CARDS.cards.find(c => c.id === id);
 // p1 帶指定效果（直接加在 stats 上）的測試戰鬥；所有人血量拉到 hp，數字不受 config 的血量影響
@@ -694,55 +695,6 @@ function toPickPhase(io, run, offersById) {
   for (const [pid, ids] of Object.entries(offersById)) run.offers[pid] = ids.map(id => (typeof id === 'string' ? cardById(id) : id));
 }
 
-// 照 client/game-view.js 的 shotScript 在另一份 Match 上重播：每幀先跑角色物理，
-// 飛行物只跑運動學，撞擊結果照伺服器的事件套用。回傳每顆飛行物的最終狀態
-function replayLikeClient(cm, shot) {
-  const weapon = CONFIG.WEAPONS[shot.weapon];
-  if (shot.kind !== 'bombard') {
-    const a = cm.byId(shot.actorId);
-    a.x = shot.actor.x; a.y = shot.actor.y; a.vx = 0; a.vy = shot.actor.vy || 0;
-    if (shot.actor.sx !== undefined) { a.safeX = shot.actor.sx; a.safeY = shot.actor.sy; }
-    if (shot.actor.hp !== undefined) a.hp = shot.actor.hp;
-  }
-  const projs = shot.projectiles.map((s, i) => ({ i, x: s.x, y: s.y, vx: s.vx, vy: s.vy, gravity: weapon.gravity, age: 0, spawn: s.spawn, follow: !!s.follow, state: 'pending', path: null, retIdx: 0 }));
-  for (let f = 1; f <= shot.flightFrames; f++) {
-    cm.step();
-    const evs = shot.events.filter(ev => ev.f === f);
-    for (const p of projs) {
-      if (p.state === 'pending' && p.spawn === f) {
-        p.state = 'flying';
-        const a = cm.byId(shot.actorId);
-        if (p.follow && a && a.alive) { const mz = a.muzzle(); p.x = mz.x; p.y = mz.y; }
-        if (weapon.boomerang) p.path = [{ x: p.x, y: p.y }];
-      }
-      if (p.state === 'returning') {
-        const a = cm.byId(shot.actorId);
-        stepReturn(p, weapon.returnSpeed || 1, a && a.alive ? a.muzzle() : null, weapon.homingSpeed);
-      }
-      else if (p.state === 'flying') advanceProjectile(null, p, CONFIG.FIXED_DT);
-      else continue;
-      const mine = evs.filter(ev => ev.p === p.i);
-      if (mine.length && mine[0].type !== 'catch' && p.state === 'flying') {
-        // 客戶端自己推進的位置，離伺服器的撞擊點不會超過一幀的飛行距離（出發點錯了就會差很多）
-        const reach = Math.hypot(p.vx, p.vy) * CONFIG.FIXED_DT + 2;
-        const off = Math.hypot(p.x - mine[0].x, p.y - mine[0].y);
-        assert(off <= reach, `client projectile #${p.i} is ${off.toFixed(1)}px from the server event at f${f} (max ${reach.toFixed(1)})`);
-      }
-      for (const ev of mine) {
-        if (ev.type === 'catch') assert(Math.abs(p.x - ev.x) < 1e-9 && Math.abs(p.y - ev.y) < 1e-9, 'client boomerang return path matches server');
-        p.x = ev.x; p.y = ev.y;
-        if (ev.vx !== undefined) { p.vx = ev.vx; p.vy = ev.vy; }
-        if (ev.type === 'return') { p.state = 'returning'; p.retIdx = p.path.length; }
-        else if (ev.type !== 'bounce' && ev.type !== 'pierce') p.state = 'done';
-        if (ev.carve) cm.terrain.carve(ev.carve.x, ev.carve.y, ev.carve.r);
-        for (const s of ev.ents || []) cm.byId(s.id).applyEventState(s);
-      }
-      if (!mine.length && p.state === 'flying' && p.path) p.path.push({ x: p.x, y: p.y });
-    }
-  }
-  for (let n = 0; n < shot.settleFrames + 60; n++) { cm.step(); if (cm.isSettled()) break; }
-  return projs;
-}
 
 test('武器牌：驗證武器 id；已有的武器不會再出；沒有那把武器時只對它有用的牌不出；武器欄滿要丟一把', () => {
   assert(cardById('boomerang').weapon === 'boomerang' && cardById('plasma').weapon === 'plasma', 'weapon cards loaded');
@@ -1149,7 +1101,7 @@ test('客戶端照事件重播（只跑運動學）的結果，跟伺服器結�
     }
     const shot = JSON.parse(JSON.stringify(c.fire(m)));   // 跟網路一樣走一趟 JSON
     traceSteps(cm, 'p1', clientTrace);
-    replayLikeClient(cm, shot);
+    replayChecked(cm, shot, c.name);
     for (const s of shot.results) {
       const e = cm.byId(s.id);
       assert(e.x === s.x && e.y === s.y && e.hp === s.hp && e.alive === s.alive, `${c.name}: ${s.id} client ${e.x},${e.y},${e.hp},${e.alive} vs server ${s.x},${s.y},${s.hp},${s.alive}`);

@@ -75,6 +75,14 @@ export function spawnBee(match, spec) {
   return e;
 }
 
+// 照事件帶來的出生資料（ev.bees）建出還沒有的蜜蜂：已經有同 id 的就跳過（重連時快照先建過）。回傳這次新建的角色。
+// 客戶端重播（shared/volley.js）與 client/hive-view.js 的 addBees 都用這個，建法只有一份
+export function hatchBees(match, specs) {
+  const made = [];
+  for (const s of specs || []) if (!match.byId(s.id)) made.push(spawnBee(match, s));
+  return made;
+}
+
 // 這一下剛放出來的蜜蜂（resolveHit 寫進事件給客戶端），拿出來就清掉
 export function takeFreshBees(match) {
   if (!match.hive || !match.hive.fresh.length) return [];
