@@ -4,7 +4,7 @@ import { performance } from 'node:perf_hooks';
 import { CONFIG } from '../shared/config.js';
 import { LEVELS, levelsInPool } from '../shared/level.js';
 import { Terrain } from '../shared/terrain.js';
-import { Match, feverStacks } from '../shared/match.js';
+import { Match, feverStacks, feverEvery } from '../shared/match.js';
 import { Referee } from '../shared/referee.js';
 import { planShot } from '../shared/ai.js';
 import { Rng } from '../shared/rng.js';
@@ -12,6 +12,7 @@ import { Rng } from '../shared/rng.js';
 // 其他測試照武器原本傷害算敵人的攻擊；敵人傷害倍率（ENEMY.damageMult）有下面的專門測試
 const ENEMY_DAMAGE_MULT = CONFIG.ENEMY.damageMult;
 CONFIG.ENEMY.damageMult = 1;
+CONFIG.ENEMY.damageMultLate = 1;   // 第二輪（第 6 關起）的倍率也一樣當 1
 
 const results = [];
 function test(name, fn) {
@@ -88,7 +89,7 @@ test('地形遮罩與多邊形內外判定一致；挖洞、用洞清單重建�
   return { sampled: N, holes: t.holes.length };
 });
 
-test('4 位玩家：回合順序 玩家1→4 → 敵人A→B，敵人血量每多一人 +70%，死者跳過', () => {
+test('4 位玩家：回合順序 玩家1→4 → 敵人A→B，敵人血量每多一人 +50%，死者跳過', () => {
   const m = new Match({ players: mkPlayers(4), seed: 5 });
   const order = [];
   let cur = null;
@@ -443,14 +444,27 @@ test('牌庫 JSON 可載入且無警告；抽牌不重複、稀有度合法、un
   return counts;
 });
 
-test('肉鴿流程：5 小關（地圖隨機不連續重複）→ 選牌帶加成 → Boss 關 → 通關', () => {
+test('肉鴿流程：10 關（第 5、10 關是 Boss，兩隻王各一次不重複；小關地圖不連續重複）→ 每關選牌帶加成 → 打贏最後一關通關', () => {
+  // 關數 / Boss 關的位置照這個測試自己設的（使用者會改 config）
+  const savedRun = { stageCount: CONFIG.RUN.stageCount, bossStages: CONFIG.RUN.bossStages, bossHpPerStage: CONFIG.RUN.bossHpPerStage };
+  CONFIG.RUN.stageCount = 10;
+  CONFIG.RUN.bossStages = [5, 10];
+  CONFIG.RUN.bossHpPerStage = 0.15;
+  try {
+    return runTenStages();
+  } finally {
+    Object.assign(CONFIG.RUN, savedRun);
+  }
+});
+
+function runTenStages() {
   const io = new FakeIo();
   const players = mkPlayers(2);
   const run = new Run({ players, seed: 3, io, cards: CARDS.cards });
   run.start();
   const levels = [];
   let guard = 0;
-  while (run.phase !== 'over' && guard++ < 300) {
+  while (run.phase !== 'over' && guard++ < 1000) {
     io.advance(200);
     if (run.phase === 'battle' && run.referee.phase === 'turn') {
       const id = run.match.levelId + '#' + run.stage;
@@ -468,24 +482,107 @@ test('肉鴿流程：5 小關（地圖隨機不連續重複）→ 選牌帶加�
   assert(run.phase === 'over' && run.result === 'win', 'run should be won, phase=' + run.phase);
   const bossLevels = levelsInPool('boss');
   assert(bossLevels.includes('treeGarden') && bossLevels.includes('jungleSerpent'), 'boss pool ' + bossLevels);
-  assert(levels.length === 6 && bossLevels.some(id => levels.at(-1).startsWith(id + '#6')), 'levels ' + levels.join(','));
-  for (let i = 1; i < 5; i++) assert(levels[i].split('#')[0] !== levels[i - 1].split('#')[0], 'same map twice in a row: ' + levels.join(','));
+  const ids = levels.map(l => l.split('#')[0]);
+  assert(levels.length === 10 && levels.every((l, i) => l.endsWith('#' + (i + 1))), 'levels ' + levels.join(','));
+  // 第 5、10 關是兩隻不同的王；其他都是小關
+  assert(bossLevels.includes(ids[4]) && bossLevels.includes(ids[9]) && ids[4] !== ids[9], 'two different bosses at 5 and 10: ' + levels.join(','));
+  assert(ids.every((id, i) => (i === 4 || i === 9) === bossLevels.includes(id)), 'other stages are normal maps: ' + levels.join(','));
+  for (let i = 1; i < 10; i++) assert(ids[i] !== ids[i - 1], 'same map twice in a row: ' + levels.join(','));
   const p1 = run.players.get('p1'), p2 = run.players.get('p2');
-  assert(p1.cards.length === 5 && p2.cards.length === 5, 'each player gets one card per cleared stage');
+  assert(p1.cards.length === 9 && p2.cards.length === 9, 'each player gets one card per cleared stage (the first boss too)');
   const sc = io.take('stageClear');
-  assert(sc.length === 5 && sc.every(m => m.offers.p1.length === 3 && m.offers.p2.length === 3), 'stageClear offers');
+  assert(sc.length === 9 && sc.every(m => m.offers.p1.length === 3 && m.offers.p2.length === 3), 'stageClear offers');
   const picks = io.take('picks');
-  assert(picks.length === 5 && picks[0].summary.length === 2, 'picks summary');
-  const bossStart = io.take('start').at(-1);
-  // Boss 關從 Boss 池隨機抽（古樹之庭 / 叢林巨蟒），血量都只吃人數放大
-  const tree = bossStart.levelId === 'treeGarden';
-  const boss = bossStart.snapshot.entities.find(e => e.id === (tree ? 'eye' : 'snake'));
-  const bossHp2p = Math.round((tree ? CONFIG.TREE_BOSS.eyeHp : CONFIG.SNAKE_BOSS.hp) * (1 + CONFIG.ENEMY_HP_PER_EXTRA_PLAYER));
-  assert(bossStart.stageInfo.isBoss && bossLevels.includes(bossStart.levelId) && boss && boss.hp === bossHp2p, 'boss stage payload');
-  assert(bossStart.carry.p1 && bossStart.carry.p1.maxHp >= CONFIG.PLAYER.hp, 'carry travels to boss stage');
-  const over = io.take('runOver')[0];
-  assert(over && over.result === 'win' && over.stage === 6, 'runOver payload');
-  return { levels, p1Cards: p1.cards.map(c => c.id), p1MaxHp: bossStart.carry.p1.maxHp };
+  assert(picks.length === 9 && picks[0].summary.length === 2, 'picks summary');
+  assert(picks.map(p => p.isBoss).join() === [2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => n === 5 || n === 10).join(), 'picks announce the next boss stage');
+  const starts = io.take('start');
+  // Boss 關從 Boss 池抽（古樹之庭 / 叢林巨蟒），血量都只吃人數放大
+  for (const k of [4, 9]) {
+    const bossStart = starts[k];
+    const tree = bossStart.levelId === 'treeGarden';
+    const boss = bossStart.snapshot.entities.find(e => e.id === (tree ? 'eye' : 'snake'));
+    // 第 5 關的王照原本的血量；第 10 關的王再 ×(1 + 0.15 × 5) = ×1.75
+    const bossHp2p = Math.round((tree ? CONFIG.TREE_BOSS.eyeHp : CONFIG.SNAKE_BOSS.hp) * (1 + CONFIG.ENEMY_HP_PER_EXTRA_PLAYER) * (k === 9 ? 1.75 : 1));
+    assert(bossStart.stageInfo.isBoss && bossStart.stageInfo.stage === k + 1 && bossStart.stageInfo.stageCount === 10, 'boss stage info');
+    assert(bossLevels.includes(bossStart.levelId) && boss && boss.hp === bossHp2p && boss.mhp === bossHp2p, `boss stage ${k + 1} hp ${boss && boss.hp} vs ${bossHp2p}`);
+    assert(bossStart.carry.p1 && bossStart.carry.p1.maxHp >= CONFIG.PLAYER.hp, 'carry travels to boss stage');
+  }
+  assert(starts.filter((s, i) => i !== 4 && i !== 9).every(s => !s.stageInfo.isBoss), 'normal stages are not boss stages');
+  const overs = io.take('runOver');
+  assert(overs.length === 1 && overs[0].result === 'win' && overs[0].stage === 10 && overs[0].stageCount === 10, 'only the last boss ends the run');
+  return { levels, p1Cards: p1.cards.length };
+}
+
+test('肉鴿流程：Boss 關比 Boss 池多的時候，王都打過一輪才重複，而且不會連續同一隻', () => {
+  const savedRun = { stageCount: CONFIG.RUN.stageCount, bossStages: CONFIG.RUN.bossStages };
+  CONFIG.RUN.stageCount = 6;
+  CONFIG.RUN.bossStages = [1, 2, 3, 4, 5, 6];
+  try {
+    const pool = levelsInPool('boss');
+    for (let seed = 1; seed <= 20; seed++) {
+      const run = new Run({ players: mkPlayers(1), seed, io: new FakeIo(), cards: CARDS.cards });
+      const picked = [];
+      for (let s = 1; s <= 6; s++) {
+        run.stage = s;
+        const id = run.pickLevel();
+        run.lastLevelId = id;
+        run.bossesUsed.push(id);
+        picked.push(id);
+      }
+      assert(new Set(picked.slice(0, pool.length)).size === pool.length, `seed ${seed}: first round of bosses repeats: ${picked}`);
+      for (let i = 1; i < picked.length; i++) assert(picked[i] !== picked[i - 1], `seed ${seed}: same boss twice in a row: ${picked}`);
+    }
+    // 正式的排法（第 5、10 關）：第 10 關的前一關是小關，也一定抽到第 5 關沒打過的那隻
+    CONFIG.RUN.stageCount = 10;
+    CONFIG.RUN.bossStages = [5, 10];
+    for (let seed = 1; seed <= 40; seed++) {
+      const run = new Run({ players: mkPlayers(1), seed, io: new FakeIo(), cards: CARDS.cards });
+      run.stage = 5;
+      const first = run.pickLevel();
+      run.bossesUsed.push(first);
+      run.stage = 10;
+      run.lastLevelId = 'level1';   // 第 9 關是小關
+      const second = run.pickLevel();
+      assert(pool.includes(first) && pool.includes(second) && first !== second, `seed ${seed}: bosses ${first} → ${second}`);
+    }
+  } finally {
+    Object.assign(CONFIG.RUN, savedRun);
+  }
+});
+
+test('Boss 關血量：第一個王關照原本的，之後每多一關 +bossHpPerStage（第 10 關 ×1.75）；樹妖一起放大；不是排定的王關、或成長設 0 就不變', () => {
+  const savedRun = { stageCount: CONFIG.RUN.stageCount, bossStages: CONFIG.RUN.bossStages, bossHpPerStage: CONFIG.RUN.bossHpPerStage };
+  const savedHp = { eye: CONFIG.TREE_BOSS.eyeHp, snake: CONFIG.SNAKE_BOSS.hp, treant: CONFIG.TREANT.hp };
+  Object.assign(CONFIG.RUN, { stageCount: 10, bossStages: [5, 10], bossHpPerStage: 0.15 });
+  CONFIG.TREE_BOSS.eyeHp = 300; CONFIG.SNAKE_BOSS.hp = 400; CONFIG.TREANT.hp = 15;
+  try {
+    const p2 = 1 + CONFIG.ENEMY_HP_PER_EXTRA_PLAYER;   // 2 人
+    const hpAt = (levelId, stage) => {
+      const m = new Match({ levelId, players: mkPlayers(2), seed: 4, stage });
+      return m.byId(levelId === 'treeGarden' ? 'eye' : 'snake');
+    };
+    const out = {};
+    for (const [levelId, base] of [['treeGarden', 300], ['jungleSerpent', 400]]) {
+      for (const [stage, k] of [[5, 1], [10, 1.75], [6, 1], [3, 1]]) {
+        const b = hpAt(levelId, stage);
+        const want = Math.round(base * p2 * k);
+        assert(b.hp === want && b.maxHp === want, `${levelId} stage ${stage}: hp ${b.hp} vs ${want}`);
+        out[`${levelId}@${stage}`] = b.hp;
+      }
+    }
+    // 第 10 關古樹召喚的樹妖也 ×1.75
+    const m = new Match({ levelId: 'treeGarden', players: mkPlayers(2), seed: 4, stage: 10 });
+    const summon = m.planAiTurn(m.byId('eye')).boss.steps.find(s => s.action === 'summon');
+    assert(summon && summon.spawns.length && summon.spawns.every(s => s.hp === Math.round(15 * p2 * 1.75)), 'treant hp: ' + JSON.stringify(summon && summon.spawns));
+    assert(Math.abs(m.tree.hpScale - p2 * 1.75) < 1e-9, 'tree hpScale (meditate heal) ' + m.tree.hpScale);
+    // 成長設 0：兩個王關一樣
+    CONFIG.RUN.bossHpPerStage = 0;
+    assert(hpAt('treeGarden', 10).hp === Math.round(300 * p2), 'bossHpPerStage 0 → no growth');
+    return out;
+  } finally {
+    Object.assign(CONFIG.RUN, savedRun);
+    CONFIG.TREE_BOSS.eyeHp = savedHp.eye; CONFIG.SNAKE_BOSS.hp = savedHp.snake; CONFIG.TREANT.hp = savedHp.treant;
+  }
 });
 
 test('肉鴿流程：全隊倒下 → runOver lose；血量在關卡間帶著走，倒下者下一關復活', () => {
@@ -514,6 +611,40 @@ test('肉鴿流程：全隊倒下 → runOver lose；血量在關卡間帶著走
   assert(run.phase === 'over' && run.result === 'lose', 'lose expected, phase=' + run.phase);
   assert(io.take('runOver').at(-1).result === 'lose');
   return { hpAfterClear: hp1, reviveHp: p2e.hp };
+});
+
+test('結算畫面：runOver 帶每個人整場的造成傷害（不含誤傷）、承受傷害、開槍 / 命中次數（跨關加總）與拿到的牌', () => {
+  const io = new FakeIo();
+  const run = new Run({ players: mkPlayers(2), seed: 8, io, cards: CARDS.cards });
+  run.start();
+  io.advance(2000);
+  const w = CONFIG.WEAPONS.cannon;
+  const want = { dealt: 0, taken: 0 };   // 照實際扣的血算（隨機拿到的牌可能改變傷害）
+  const stage = () => {
+    const m = run.match;
+    for (const e of m.entities) e.hp = e.maxHp = 10000;
+    const [p1, p2] = m.players;
+    const e0 = m.enemies[0].hp, h2 = p2.hp;
+    m.applyExplosion(m.enemies[0].cx, m.enemies[0].cy, w, p1, m.enemies[0]);   // p1 打敵人：全額算造成傷害
+    m.applyExplosion(p2.cx, p2.cy, w, p1, p2);                                  // 誤傷 p2：不算 p1 的造成傷害、算 p2 的承受傷害
+    want.dealt += e0 - m.enemies[0].hp;
+    want.taken += h2 - p2.hp;
+    p1.shots += 2; p1.hits += 1;
+    for (const e of m.enemies) e.die('hit');
+  };
+  stage();
+  io.advance(31_000 + 3000 + CONFIG.RUN.pickTime * 1000 + 3000);
+  assert(run.stage === 2, 'stage 2, got ' + run.stage);
+  stage();
+  for (const e of run.match.players) e.die('hit');
+  io.advance(31_000);
+  const msg = io.take('runOver').at(-1);
+  const [s1, s2] = msg.summary;
+  assert(want.dealt > 0 && want.taken > 0, 'want ' + JSON.stringify(want));
+  assert(s1.dealt === want.dealt && s1.shots === 4 && s1.hits === 2, 'p1 ' + JSON.stringify(s1));
+  assert(s2.dealt === 0 && s2.taken === want.taken && s2.shots === 0, 'p2 ' + JSON.stringify(s2));
+  assert(s1.cards.length === 1 && s1.cards[0].count === 1 && s1.cards[0].name, 'cards ' + JSON.stringify(s1.cards));
+  return { p1: { dealt: s1.dealt, taken: s1.taken }, p2: { taken: s2.taken } };
 });
 
 test('牌的加成會進戰鬥：大砲傷害 +%、爆炸半徑 +%、減傷 %', () => {
@@ -1363,6 +1494,49 @@ test('狂熱：每過 10 輪，所有角色（含敵人、誤傷、燃燒）的�
   }
 });
 
+test('狂熱幾輪一層照人數：4 人每 7 輪、2 ~ 3 人每 8 輪、1 人每 9 輪；表上沒有的人數照比它少、最接近的那格；填數字 = 不分人數', () => {
+  const saved = { ...CONFIG.FEVER };
+  const TABLE = { 1: 9, 2: 8, 3: 8, 4: 7 };
+  Object.assign(CONFIG.FEVER, { everyRounds: TABLE, damagePct: 50, inBoss: false });
+  try {
+    const every = [1, 2, 3, 4].map(n => feverEvery(n));
+    assert(every.join() === '9,8,8,7', 'every by players ' + every.join());
+    // 第一層：1 人第 10 輪、2 ~ 3 人第 9 輪、4 人第 8 輪起；再過同樣輪數疊第二層
+    const firsts = {};
+    for (const n of [1, 2, 3, 4]) {
+      const m = new Match({ players: mkPlayers(n), seed: 3 });
+      const k = TABLE[n];
+      assert(m.playerCount === n, `${n}p playerCount ${m.playerCount}`);
+      const got = [k, k + 1, 2 * k, 2 * k + 1].map(r => m.feverAt(r));
+      assert(got.join() === '0,1,1,2', `${n}p stacks at rounds ${[k, k + 1, 2 * k, 2 * k + 1]}: ${got}`);
+      firsts[n] = k + 1;
+    }
+    assert(feverEvery(6) === 7 && feverEvery(0) === 9, `out-of-table counts: ${feverEvery(6)} / ${feverEvery(0)}`);
+    CONFIG.FEVER.everyRounds = { 2: 8, 4: 6 };
+    assert(feverEvery(1) === 8 && feverEvery(3) === 8 && feverEvery(5) === 6, 'gaps use the nearest smaller entry');
+    CONFIG.FEVER.everyRounds = 10;
+    assert([1, 4].every(n => feverEvery(n) === 10) && new Match({ players: mkPlayers(4), seed: 3 }).feverAt(11) === 1, 'a number applies to every count');
+    CONFIG.FEVER.everyRounds = { 1: 0, 4: 7 };
+    assert(feverStacks(50, 1) === 0 && feverStacks(8, 4) === 1, '0 in the table disables fever for that count');
+    CONFIG.FEVER.everyRounds = TABLE;
+    // 裁判：4 人的關卡第 8 輪起 match.fever = 1（大家都超時、敵人只發呆，只是要快轉輪數）
+    const rm = matchWith({}, { players: 4 });
+    rm.planAiTurn = () => ({ walk: null, plan: null });
+    const io = new FakeIo();
+    const feverAt = [];
+    const broadcast = io.broadcast.bind(io);
+    io.broadcast = (msg, ex) => { if (msg.t === 'turn') feverAt.push([msg.round, rm.fever]); broadcast(msg, ex); };
+    const ref = new Referee({ match: rm, humans: mkPlayers(4), io });
+    ref.start();
+    assert(advanceUntil(io, () => ref.round >= 9, 6_000_000), 'reach round 9 with 4 players');
+    const wrong = feverAt.filter(([r, f]) => f !== (r > 7 ? 1 : 0));
+    assert(!wrong.length && feverAt.some(([r]) => r === 8), '4p fever per round: ' + JSON.stringify(wrong.slice(0, 3)));
+    return { firsts };
+  } finally {
+    Object.assign(CONFIG.FEVER, saved);
+  }
+});
+
 test('狂熱：Boss 關不套用（過了第 10 輪還是 0 層，古樹的攻擊照原本傷害）；FEVER.inBoss 打開才會套用', () => {
   const saved = { ...CONFIG.FEVER };
   Object.assign(CONFIG.FEVER, { everyRounds: 10, damagePct: 50, inBoss: false });
@@ -1412,6 +1586,49 @@ test('敵人傷害倍率：敵人打人 = 武器傷害 × ENEMY.damageMult（再
     assert(hit(p1, e1) === Math.round(w.damage * (0.7 * 1.5)), 'fever stacks on top');
     return { cannon: w.damage, enemyHit: d };
   } finally { CONFIG.ENEMY.damageMult = 1; }
+});
+
+test('敵人傷害倍率的第二輪：第 1 ~ 5 關 ×damageMult（0.7），第 6 關起 ×damageMultLate（1，不再抑制）；Boss、蜜蜂也一樣；lateFromStage 0 = 整場都 0.7', () => {
+  const saved = { damageMult: CONFIG.ENEMY.damageMult, lateFromStage: CONFIG.ENEMY.lateFromStage, damageMultLate: CONFIG.ENEMY.damageMultLate };
+  Object.assign(CONFIG.ENEMY, { damageMult: 0.7, lateFromStage: 6, damageMultLate: 1 });
+  try {
+    const w = CONFIG.WEAPONS.cannon;
+    const dealt = (levelId, stage, attackerId = null) => {
+      const m = new Match({ levelId, players: mkPlayers(1), seed: 2, stage });
+      const p = m.players[0];
+      p.hp = p.maxHp = 10000;
+      const e = attackerId ? m.byId(attackerId) : m.enemies[0];
+      const h = p.hp;
+      m.applyExplosion(p.cx, p.cy, w, e, p);
+      return { d: h - p.hp, mult: m.enemyDamageMult() };
+    };
+    const out = {};
+    for (const [stage, k] of [[1, 0.7], [5, 0.7], [6, 1], [9, 1]]) {
+      const r = dealt('level1', stage);
+      assert(r.mult === k && r.d === Math.round(w.damage * k), `stage ${stage}: ×${r.mult}, dealt ${r.d}`);
+      out[stage] = r.d;
+    }
+    // 王關：第 5 關的王照第一輪、第 10 關的王照第二輪
+    assert(dealt('jungleSerpent', 5, 'snake').d === Math.round(w.damage * 0.7), 'boss at stage 5 ×0.7');
+    assert(dealt('treeGarden', 10, 'eye').d === Math.round(w.damage * 1), 'boss at stage 10 ×1');
+    // 小心擊發的蜜蜂：第 7 關螫人照第二輪（15 × 1）
+    const hm = new Match({ levelId: 'beehive', players: mkPlayers(1), seed: 2, stage: 7 });
+    const hp1 = hm.players[0];
+    hp1.hp = hp1.maxHp = 10000;
+    const hive = hm.byId('hive');
+    hm.applyExplosion(hive.x, hive.cy, CONFIG.WEAPONS.sniper, hp1, hive);
+    const bee = hm.byId('b1');
+    bee.waitTurns = 0;
+    const before = hp1.hp;
+    hm.planAiTurn(bee);
+    assert(before - hp1.hp === Math.round(CONFIG.WEAPONS.beeSting.damage * 1), 'bee sting at stage 7 ×1: ' + (before - hp1.hp));
+    // 玩家打敵人不受影響
+    const m = new Match({ levelId: 'level1', players: mkPlayers(1), seed: 2, stage: 8 });
+    assert(m.damageMult(m.players[0], w) === 1, 'players unaffected');
+    CONFIG.ENEMY.lateFromStage = 0;
+    assert(dealt('level1', 9).mult === 0.7, 'lateFromStage 0 → 0.7 all run');
+    return out;
+  } finally { Object.assign(CONFIG.ENEMY, saved); }
 });
 
 test('新武器與裝備也維持確定性：同 seed 同輸入兩次結果完全一樣', () => {

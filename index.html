@@ -12,29 +12,53 @@
   </div>
 
   <div id="lobby" class="overlay">
-    <div class="panel">
-      <h1>Shooting Hero</h1>
-      <p class="sub">彈彈堂風格 PVE 共鬥，最多 4 人</p>
-      <label class="row">暱稱 <input id="name" maxlength="12" placeholder="你的名字"></label>
-      <div id="menu">
-        <button id="btn-solo" class="big">單人練習</button>
-        <button id="btn-create" class="big primary">建立房間</button>
-        <div class="row join">
-          <input id="code" maxlength="4" placeholder="房號" autocomplete="off">
-          <button id="btn-join">加入房間</button>
+    <div class="panel lobby-panel">
+      <div class="lobby-main">
+        <h1>Shooting Hero <span id="version-badge" class="version-badge"></span></h1>
+        <p class="sub">彈彈堂風格 PVE 共鬥，最多 4 人</p>
+        <label class="row">暱稱 <input id="name" maxlength="12" placeholder="你的名字"></label>
+        <div id="menu">
+          <button id="btn-solo" class="big">單人練習</button>
+          <div class="row create">
+            <button id="btn-create" class="primary">建立房間</button>
+            <label class="private-check" title="私人房間不會出現在大廳列表，只能輸入房號加入"><input type="checkbox" id="create-private"> 私人房間</label>
+          </div>
+          <div class="row join">
+            <input id="code" maxlength="4" placeholder="房號" autocomplete="off">
+            <button id="btn-join">輸入房號加入</button>
+          </div>
+          <section class="room-browser">
+            <div class="room-browser-bar">
+              <span class="room-browser-heading">大廳 · 公開房間</span>
+              <span id="room-count" class="room-count"></span>
+            </div>
+            <ul id="room-list" class="room-list"></ul>
+          </section>
         </div>
-      </div>
-      <div id="room" hidden>
-        <div class="code-line">房號 <b id="room-code"></b><span class="hint">把房號告訴朋友，最多 4 人</span></div>
-        <ul id="players"></ul>
-        <div class="row">
-          <button id="btn-ready" class="primary">準備</button>
-          <button id="btn-start" hidden>開始遊戲</button>
-          <button id="btn-leave">離開</button>
+        <div id="room" hidden>
+          <div class="code-line">房號 <b id="room-code"></b><span id="room-hint" class="hint"></span></div>
+          <div class="privacy-line">
+            <span id="privacy-label" class="privacy-tag"></span>
+            <label id="privacy-toggle" class="private-check" hidden><input type="checkbox" id="room-private"> 設為私人房間</label>
+          </div>
+          <ul id="players"></ul>
+          <div class="row">
+            <button id="btn-ready" class="primary">準備</button>
+            <button id="btn-start" hidden>開始遊戲</button>
+            <button id="btn-leave">離開</button>
+          </div>
         </div>
+        <div id="status" class="status"></div>
+        <div id="error" class="error"></div>
       </div>
-      <div id="status" class="status"></div>
-      <div id="error" class="error"></div>
+      <section id="changelog" class="changelog">
+        <div class="changelog-bar">
+          <span class="changelog-heading">版本履歷</span>
+          <span id="version-label" class="version-label"></span>
+          <button id="btn-changelog" class="changelog-toggle" type="button" aria-expanded="true" aria-controls="changelog-list">收合</button>
+        </div>
+        <div id="changelog-list" class="changelog-list"></div>
+      </section>
     </div>
   </div>
 
@@ -55,6 +79,15 @@
         <span id="cards-status" class="status"></span>
       </div>
       <div id="cards-others" class="others"></div>
+    </div>
+  </div>
+
+  <div id="summary" class="overlay" hidden>
+    <div class="panel summary-panel">
+      <h1 id="summary-title">冒險結束</h1>
+      <p class="sub" id="summary-sub"></p>
+      <div id="summary-list" class="summary-list"></div>
+      <button id="summary-back" class="primary">回到大廳（R）</button>
     </div>
   </div>
 

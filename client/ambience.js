@@ -83,7 +83,7 @@ export class LeafAmbience {
     this.timer = null;
   }
 
-  // 即時播放：每 0.5 秒把之後 2 秒內的風排好（分頁在背景、AudioContext 暫停時時間不走，就不會一直往後排）
+  // 即時播放：每 0.5 秒把之後 2 秒內的風排好（照 ctx.currentTime 排：AudioContext 暫停時時間不走，計時器被放慢也不會一直往後排）
   start() {
     this.nextGust = this.ctx.currentTime + R(0.5, 2);
     const tick = () => this.schedule(this.ctx.currentTime + 2);

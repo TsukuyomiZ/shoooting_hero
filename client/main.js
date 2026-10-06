@@ -5,6 +5,8 @@ import { WsTransport, LocalTransport } from './net.js';
 import { CardsUi } from './cards-ui.js';
 import { StickerUi } from './stickers.js';
 import { SettingsUi } from './settings-ui.js';
+import { SummaryUi } from './summary-ui.js';
+import { ChangelogUi } from './changelog-ui.js';
 
 const canvas = document.getElementById('game');
 const view = new GameView(canvas);
@@ -23,22 +25,29 @@ const stickers = new StickerUi(canvas, {
 });
 
 const settings = new SettingsUi(canvas);   // 右上角的音量設定
+const summaryUi = new SummaryUi(document.getElementById('summary'));   // 冒險結束的結算畫面
+new ChangelogUi(document.getElementById('lobby'));   // 大廳下方的版本號與版本履歷
 
 const lobby = new Lobby(document.getElementById('lobby'), {
   onSolo(name) {
+    if (transport) transport.close();   // 看大廳列表用的連線用不到了
     transport = new LocalTransport();
     attach(transport);
     transport.start(name);
     lobby.hide();
   },
-  async onCreate(name) {
+  // 暱稱跟著送：連上大廳之後才改的名字也要算數
+  async onCreate(name, isPrivate) {
     await connect(name);
-    transport.send({ t: 'create' });
+    transport.send({ t: 'create', name, private: isPrivate });
   },
-  async onJoin(name, code) {
+  // via：code = 輸入房號、list = 從大廳列表點的（只用來記錄）
+  async onJoin(name, code, via) {
     await connect(name);
-    transport.send({ t: 'join', code });
+    transport.send({ t: 'join', code, name, via });
   },
+  onRetryBrowse() { browse(); },
+  onPrivacy(isPrivate) { if (transport) transport.send({ t: 'privacy', private: isPrivate }); },
   onReady(ready) { if (transport) transport.send({ t: 'ready', ready }); },
   onStart() { if (transport) transport.send({ t: 'start' }); },
   onLeave() {
@@ -48,14 +57,25 @@ const lobby = new Lobby(document.getElementById('lobby'), {
   },
 });
 
-async function connect(name) {
-  if (transport instanceof WsTransport && transport.connected) return;
+// 連線中再呼叫（例如大廳正在連、玩家就按了建立房間）共用同一個連線，不會開第二條
+let connecting = null;
+function connect(name) {
+  if (transport instanceof WsTransport && transport.connected) return Promise.resolve();
+  if (connecting) return connecting;
   if (transport) transport.close();
   transport = new WsTransport();
   attach(transport);
-  const welcome = await transport.connect(name);
-  myId = welcome.id;
-  view.myId = myId;
+  connecting = transport.connect(name).then((welcome) => {
+    myId = welcome.id;
+    view.myId = myId;
+  }).finally(() => { connecting = null; });
+  return connecting;
+}
+
+// 打開大廳列表：連上伺服器後由 welcome 送 browse（斷線重連回來也會再送）；連不上就顯示重試
+function browse() {
+  lobby.setBrowseState('connecting');
+  connect(lobby.name()).catch(() => { if (!lobby.inRoom) lobby.setBrowseState('offline'); });
 }
 
 let staleAlerted = false;
@@ -71,6 +91,14 @@ function attach(t) {
           staleAlerted = true;
           alert('伺服器啟動後程式碼有更新，但伺服器還在跑舊版——射擊和血量都會對不上。\n請把伺服器關掉重開，再重新整理頁面。');
         }
+        // 還在大廳選單（不是接回原本的房間 / 遊戲）→ 看公開房間列表
+        if (!msg.rejoined && t instanceof WsTransport && !lobby.inRoom && !view.started) {
+          lobby.showError('');
+          t.send({ t: 'browse', on: true });
+        }
+        break;
+      case 'rooms':
+        lobby.showRooms(msg.rooms);
         break;
       case 'lobby':
         lobby.showRoom(msg, myId);
@@ -86,7 +114,14 @@ function attach(t) {
         break;
       case 'state':
         // 重連回一場已經結束的冒險：清掉 token，回大廳
-        if (msg.runPhase === 'over') { sessionStorage.removeItem('sh_token'); lobby.showMenu(); break; }
+        // （先離開那個房間，伺服器才會給大廳列表）
+        if (msg.runPhase === 'over') {
+          sessionStorage.removeItem('sh_token');
+          lobby.showMenu();
+          t.send({ t: 'leave' });
+          t.send({ t: 'browse', on: true });
+          break;
+        }
         lobby.hide();
         stickers.show();
         settings.show();
@@ -114,11 +149,13 @@ function attach(t) {
         break;
       case 'runOver':
         cardsUi.hide();
+        summaryUi.show(msg, { myId: view.myId, isBoss: !!(view.stageInfo && view.stageInfo.isBoss) });
         sessionStorage.removeItem('sh_token');   // 之後按 R 重新整理會回到大廳，而不是重連進已結束的冒險
         break;
       case 'disconnected':
         if (view.started) view.showBanner('與伺服器斷線，重連中…', '#f87171');
-        else lobby.showError('與伺服器斷線');
+        else if (lobby.inRoom) lobby.showError('與伺服器斷線');
+        else lobby.setBrowseState('connecting');   // 大廳選單：會自己重連，回來再拿列表
         break;
     }
   });
@@ -126,8 +163,11 @@ function attach(t) {
 }
 
 // 重新整理後如果還有 token，先試著回到原本的房間 / 遊戲
+// 沒有 token 就直接連上大廳看公開房間列表
 if (sessionStorage.getItem('sh_token')) {
-  connect(lobby.name()).catch(() => { sessionStorage.removeItem('sh_token'); lobby.showMenu(); });
+  connect(lobby.name()).catch(() => { sessionStorage.removeItem('sh_token'); lobby.showMenu(); lobby.setBrowseState('offline'); });
+} else {
+  browse();
 }
 
 // 固定步長主迴圈；rAF 在背景分頁 / 內嵌視窗可能不觸發，用計時器當備援

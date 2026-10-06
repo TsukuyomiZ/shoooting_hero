@@ -8,9 +8,12 @@ import { planShot } from './ai.js';
 import { clamp } from './utils.js';
 import { buildTree, spawnTreant, witherTree, resolveTreeTurn, reopenMouth, planTreeNext } from './tree-boss.js';
 import { buildSnake, planSnakeNext, resolveSnakeTurn, poisonTick, snakeDrops, pickupAt, pickupAlong } from './snake-boss.js';
+import { buildHive, hitHive, takeFreshBees, spawnBee, resolveBeeTurn } from './hive.js';
 
 // 關卡 enemySpawns 的 type → config 裡的數值區塊（沒寫 type = 一般敵人 CONFIG.ENEMY）
-const ENEMY_TYPES = { sniper: 'SNIPER' };
+const ENEMY_TYPES = { sniper: 'SNIPER', artillery: 'ARTILLERY' };
+// 敵人種類的名字（type: 'random' 隨機抽到種類時，名字 = 這個 + 關卡給的 tag，例如「砲兵 B」）
+export const ENEMY_LABELS = { normal: '敵人', sniper: '狙擊手', artillery: '砲兵' };
 
 // 一場戰鬥（一關）的狀態與規則：地形、角色、回合順序、開火結算、裝備效果、勝負。
 // 不碰 DOM、不碰網路；伺服器拿它當唯一的真相，客戶端拿同一份程式播動畫。
@@ -30,9 +33,11 @@ export class Match {
     this.entities = [];
     this.tree = null;   // 古樹之庭的狀態（見 tree-boss.js）
     this.snake = null;  // 叢林巨蟒的狀態（見 snake-boss.js）
+    this.hive = null;   // 小心擊發的蜂巢（見 hive.js）
     this.items = [];    // 場上的道具（巨蟒掉的蛇血）{ id, type, x, y }，y = 落在的地面
     this.pickups = [];  // 位置回報途中撿到的道具（fx），裁判拿去廣播（見 takePickups）
     this.fever = 0;     // 狂熱層數：裁判每輪開始時照輪數更新（見 feverStacks）
+    this.playerCount = players.length;   // 這一關的玩家人數（含倒下的隊友）：狂熱幾輪一層照這個（敵人血量也照開場人數）
 
     players.forEach((p, i) => {
       const spawn = this.level.playerSpawns[i % this.level.playerSpawns.length];
@@ -51,20 +56,31 @@ export class Match {
     // 攜手之伴的連結只認這一關真的有的隊友
     for (const e of this.entities) e.links = e.links.filter(id => id !== e.id && this.entities.some(f => f.id === id && f.team === e.team));
 
-    // 敵人血量：每多一位玩家 +70%，一般關卡每過一關再 +15%。古樹之庭的血量照 TREE_BOSS，只吃人數放大
+    // 敵人血量：每多一位玩家 +50%，一般關卡每過一關再 +15%。Boss 關的血量照 TREE_BOSS / SNAKE_BOSS，吃人數放大與 bossStageScale
     const playerScale = 1 + CONFIG.ENEMY_HP_PER_EXTRA_PLAYER * Math.max(0, players.length - 1);
     const hpScale = playerScale * (1 + CONFIG.RUN.enemyHpPerStage * Math.max(0, stage - 1));
     this.level.enemySpawns.forEach((s, i) => {
-      const def = s.type ? CONFIG[ENEMY_TYPES[s.type]] : CONFIG.ENEMY;
-      if (!def) throw new Error(`unknown enemy type "${s.type}" in level ${levelId}`);
+      // type: 'random'（大亂鬥）：這一場隨機抽一種（用這一關的 seed，伺服器與客戶端抽到的一樣），名字照抽到的種類取，x 再隨機偏移
+      let type = s.type || null, name = s.name, x = s.x;
+      if (type === 'random') {
+        const R = this.level.randomEnemies;
+        const pick = this.rng.pick(R.types);
+        type = pick === 'normal' ? null : pick;
+        name = `${ENEMY_LABELS[pick] || pick} ${s.tag || i + 1}`;
+        if (R.jitter > 0) x += this.rng.range(-R.jitter, R.jitter);
+      }
+      const def = type ? CONFIG[ENEMY_TYPES[type]] : CONFIG.ENEMY;
+      if (!def) throw new Error(`unknown enemy type "${type}" in level ${levelId}`);
       this.entities.push(new Entity({
         ...def,
-        id: `e${i + 1}`, name: s.name, team: 'enemies', controller: 'ai', slot: i, kind: s.type || null,
-        x: s.x, y: s.y, facing: -1, hp: Math.round(def.hp * hpScale), boss: !!s.boss,
+        id: `e${i + 1}`, name, team: 'enemies', controller: 'ai', slot: i, kind: type,
+        x, y: s.y, facing: s.facing || -1, hp: Math.round(def.hp * hpScale), boss: !!s.boss,
       }));
     });
-    if (this.level.tree) buildTree(this, playerScale);
-    if (this.level.snake) buildSnake(this, playerScale);
+    const bossScale = playerScale * bossStageScale(this.level, stage);   // 第二個王關以後血量變多
+    if (this.level.tree) buildTree(this, bossScale);
+    if (this.level.snake) buildSnake(this, bossScale);
+    if (this.level.hive) buildHive(this, hpScale);   // 蜂巢固定血量；放出來的蜜蜂跟一般敵人一樣放大
 
     this.settle(600);   // 開場先讓大家落地
     // 古樹之庭：大家站好之後先決定古樹的第一招（撞擊要照站位選平面）。客戶端用同一個 seed 也會算一次，之後被伺服器的快照蓋掉
@@ -82,7 +98,8 @@ export class Match {
   result() {
     witherTree(this);   // 古樹之眼倒下（包括回合結束被燒死）→ 整棵樹枯萎
     if (!this.players.some(e => e.alive)) return 'lose';
-    if (!this.enemies.some(e => e.alive)) return 'win';
+    // 打不打都可以的敵人（蜂巢、蜜蜂）不算：小心擊發的狙擊手全倒就過關
+    if (!this.enemies.some(e => e.alive && !e.optional)) return 'win';
     return null;
   }
 
@@ -250,7 +267,9 @@ export class Match {
     e.burnFrac -= whole;
     const dmg = whole > 0 ? e.takeDamage(whole) : 0;
     if (dmg > 0 || shaken > 0) fx.push({ type: 'burn', id: e.id, dmg, shaken, stacks: e.burn });
-    const src = !e.alive && this.byId(e.burnSource);
+    const igniter = this.byId(e.burnSource);
+    if (igniter && igniter.team !== e.team) igniter.dealt += dmg;   // 燒掉的血算點火的人造成的傷害
+    const src = !e.alive && igniter;
     if (src && this.creditKills(src, [e]).length && src.mods.killDamagePct > 0) {
       fx.push({ type: 'soul', id: src.id, soul: src.soulPct });
     }
@@ -282,10 +301,10 @@ export class Match {
     return 1 + this.fever * CONFIG.FEVER.damagePct / 100;
   }
 
-  // 這一關第 round 輪的狂熱層數。Boss 關有自己的機制，不套用狂熱（除非 FEVER.inBoss 打開）
+  // 這一關第 round 輪的狂熱層數（幾輪一層看這一關的玩家人數）。Boss 關有自己的機制，不套用狂熱（除非 FEVER.inBoss 打開）
   feverAt(round) {
     if (this.level.pool === 'boss' && !CONFIG.FEVER.inBoss) return 0;
-    return feverStacks(round);
+    return feverStacks(round, this.playerCount);
   }
 
   // 場上還活著的隊友有幾個（不含自己）：孤狼傳說、團結力量大看這個
@@ -335,10 +354,16 @@ export class Match {
     return out;
   }
 
+  // 敵人（含 Boss、樹妖、蜜蜂）的傷害倍率：第一輪 ENEMY.damageMult（0.7），第二輪（第 ENEMY.lateFromStage 關起）ENEMY.damageMultLate（1）
+  enemyDamageMult() {
+    const E = CONFIG.ENEMY;
+    return E.lateFromStage > 0 && this.stage >= E.lateFromStage ? (E.damageMultLate ?? E.damageMult) : E.damageMult;
+  }
+
   // 攻擊者對某武器的傷害倍率（牌的加成）。裝備產生的攻擊（轟炸）不吃武器傷害加成
   damageMult(attacker, weapon) {
     if (!attacker || weapon.fromEquip) return 1;
-    if (attacker.team === 'enemies') return CONFIG.ENEMY.damageMult;
+    if (attacker.team === 'enemies') return this.enemyDamageMult();
     const m = attacker.mods;
     const per = weapon.id === 'cannon' ? m.cannonDamagePct : weapon.id === 'sniper' ? m.sniperDamagePct : 0;
     return Math.max(0, 1 + (m.damagePct + per + this.rampBonus(attacker) + attacker.soulPct
@@ -373,6 +398,7 @@ export class Match {
 
     // 1. 算好每個被打到的人要扣多少、要分多少給連結對象（還沒扣血）
     const hits = [];
+    const hiveHits = [];   // 蜂巢：先記下來，等大家都扣完血才扣 1、放蜜蜂
     for (const e of aliveBefore) {
       if (opts.exclude && opts.exclude.has(e)) continue;
       const direct = e === directHit;
@@ -385,6 +411,14 @@ export class Match {
           e.closedTurns = e.closeOnHit;
           e.hurtTimer = 0.35;
           damages.push({ id: e.id, dmg: 0, friendly, closed: true });
+        }
+        continue;
+      }
+      if (e.kind === 'hive') {   // 蜂巢：只有玩家方打得到；不管什麼武器、直擊或波及都只扣 1，每次放出一隻蜜蜂（見 hive.js）
+        if (attacker && !friendly) {
+          const entry = { id: e.id, dmg: 0, friendly, hive: true };
+          damages.push(entry);
+          hiveHits.push({ e, entry });
         }
         continue;
       }
@@ -422,6 +456,9 @@ export class Match {
       h.entry.dmg = h.e.takeDamage(h.own);
       for (const s of h.shares) s.entry.dmg = s.q.takeDamage(s.amount);
     }
+    for (const h of hiveHits) h.entry.dmg = hitHive(this, h.e);   // 新的蜜蜂在這一下之後才出現，不會被這一下打到
+    // 結算統計：打在敵方身上的傷害（含分給連結對象的份、蜂巢）算攻擊者造成的；誤傷不算
+    if (attacker) for (const d of damages) if (!d.friendly) attacker.dealt += d.dmg;
     // 3. 燃燒、中毒、擊退（分到的份不會擊退、不會中毒）
     const poison = weapon.poison || 0;
     for (const { e, entry, factor } of hits) {
@@ -464,7 +501,7 @@ export class Match {
 
   // before 裡現在死掉的敵人算攻擊者的擊殺；噬魂者每殺一個武器傷害 +killDamagePct%（整場冒險累積）
   creditKills(attacker, before) {
-    const killed = before.filter(e => !e.alive && e.team !== attacker.team);
+    const killed = before.filter(e => !e.alive && e.team !== attacker.team && e.kind !== 'hive');   // 打掉蜂巢不算擊殺（不是活的）
     attacker.kills += killed.length;
     if (killed.length && attacker.mods.killDamagePct > 0) attacker.soulPct += killed.length * attacker.mods.killDamagePct;
     return killed.map(e => e.id);
@@ -530,11 +567,17 @@ export class Match {
   resolveVolley(owner, weapon, projs, burn, isShot = false) {
     const specs = projs.map(p => ({ spawn: p.spawn, x: p.x, y: p.y, vx: p.vx, vy: p.vy, ...(p.follow ? { follow: true } : {}) }));
     const before = this.entities.filter(e => e.alive);
+    const n0 = this.entities.length;
     const { events, frames } = this.runVolley(owner, weapon, projs, burn);
     const settleFrames = this.settle(360);
     witherTree(this);   // 這一發打倒了古樹之眼 → 嘴巴與樹妖一起枯萎（也算擊殺）
-    const kills = this.creditKills(owner, before);
+    // 這一發途中才出現的角色（打到蜂巢飛出來的蜜蜂）被同一發後面的砲彈打死，也算擊殺
+    const kills = this.creditKills(owner, [...before, ...this.entities.slice(n0)]);
     const hitEnemy = isShot ? this.updateShotStacks(owner, events) : undefined;
+    if (isShot) {   // 結算畫面的命中率：一槍（不管幾顆砲彈）算一次，命中的定義同越戰越強
+      owner.shots++;
+      if (hitEnemy) owner.hits++;
+    }
     return {
       projectiles: specs, events, hit: summarizeHit(events),
       kills, soul: owner.soulPct, ...(isShot ? { hitEnemy } : {}),
@@ -633,16 +676,19 @@ export class Match {
       ev.ents = this.entities.filter(e => ids.has(e.id)).map(e => e.toEventState());
       const drops = snakeDrops(this);   // 打到巨蟒跨過門檻：掉蛇血（客戶端在這一幀播出來）
       if (drops.length) ev.drops = drops;
+      const bees = takeFreshBees(this);   // 打到蜂巢：飛出來的蜜蜂（客戶端在這一幀照出生資料建出來）
+      if (bees.length) ev.bees = bees;
     }
     return ev;
   }
 
   // AI 回合：先決定要不要走、走多久，再規劃一發。回傳 { walk, plan }；
   // 古樹之眼不走也不開火，而是出預定的招式並直接結算好：回傳 { boss: { steps, next } }（見 tree-boss.js 的 resolveTreeTurn）；
-  // 叢林巨蟒也一樣（見 snake-boss.js 的 resolveSnakeTurn）
+  // 叢林巨蟒、蜜蜂也一樣（見 snake-boss.js 的 resolveSnakeTurn、hive.js 的 resolveBeeTurn）
   planAiTurn(actor) {
     if (actor.part === 'eye') return { walk: null, plan: null, boss: resolveTreeTurn(this, actor) };
     if (actor.part === 'snake') return { walk: null, plan: null, boss: resolveSnakeTurn(this, actor) };
+    if (actor.kind === 'bee') return { walk: null, plan: null, boss: resolveBeeTurn(this, actor) };
     let walk = null;
     if (this.rng.chance((actor.ai || CONFIG.ENEMY).moveChance)) {
       const dir = this.rng.chance(0.5) ? -1 : 1;
@@ -665,6 +711,7 @@ export class Match {
       treeNext: this.tree && this.tree.next ? { ...this.tree.next } : null,   // 古樹預定的下一招（客戶端照這個畫撞擊的預告）
       snakeNext: this.snake && this.snake.next ? { ...this.snake.next } : null,   // 巨蟒預定的下一招（衝撞要畫警示帶）
       items: this.items.map(it => ({ ...it })),   // 場上的蛇血
+      bees: this.hive ? this.hive.bees.map(b => ({ ...b })) : [],   // 蜂巢放出來過的蜜蜂（重連時先照這個重建，再套狀態）
     };
   }
 
@@ -678,6 +725,7 @@ export class Match {
   applySnapshot(s) {
     if (s.holes) this.terrain.reset(s.holes);
     for (const spec of s.minions || []) if (!this.byId(spec.id)) spawnTreant(this, spec);
+    for (const spec of s.bees || []) if (!this.byId(spec.id)) spawnBee(this, spec);
     if (this.tree && s.treeNext !== undefined) this.tree.next = s.treeNext ? { ...s.treeNext } : null;
     if (this.snake && s.snakeNext !== undefined) this.snake.next = s.snakeNext ? { ...s.snakeNext } : null;
     if (s.items) this.items = s.items.map(it => ({ ...it }));
@@ -685,9 +733,28 @@ export class Match {
   }
 }
 
-// 狂熱：第 round 輪時疊了幾層（每過 FEVER.everyRounds 輪 +1 層，第 1 ~ everyRounds 輪是 0 層）
-export function feverStacks(round) {
-  const n = CONFIG.FEVER.everyRounds;
+// Boss 關的血量倍率（不含人數）：從第一個 Boss 關開始算，之後每多一關 +RUN.bossHpPerStage
+// （bossStages [5, 10]、15%：第 5 關 ×1、第 10 關 ×1.75）。不是排定的 Boss 關（測試直接建的 Boss 地圖）就照原本的血量
+export function bossStageScale(level, stage) {
+  const B = CONFIG.RUN.bossStages || [];
+  if (level.pool !== 'boss' || !B.includes(stage)) return 1;
+  return 1 + (CONFIG.RUN.bossHpPerStage || 0) * Math.max(0, stage - Math.min(...B));
+}
+
+// 狂熱：players 人的關卡每幾輪疊一層。FEVER.everyRounds 是一個數字（不分人數），或 { 人數: 輪數 }
+// （表上沒有的人數照比它少、最接近的那一格；比表上都少就用最少人數那格）。0 = 關掉
+export function feverEvery(players = 1) {
+  const e = CONFIG.FEVER.everyRounds;
+  if (typeof e === 'number') return e;
+  const keys = Object.keys(e || {}).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!keys.length) return 0;
+  const k = keys.filter(n => n <= players).pop() ?? keys[0];
+  return Number(e[k]) || 0;
+}
+
+// 狂熱：players 人的關卡第 round 輪時疊了幾層（每過 n = feverEvery(players) 輪 +1 層，第 1 ~ n 輪是 0 層）
+export function feverStacks(round, players = 1) {
+  const n = feverEvery(players);
   return n > 0 ? Math.max(0, Math.floor((round - 1) / n)) : 0;
 }
 

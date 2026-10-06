@@ -67,7 +67,7 @@ test('樹影重重在一般地圖池；狙擊手（數量照關卡）：kind sni
       assert(s.hp === 30 && s.maxHp === 30, `${s.id} solo hp ${s.hp}`);
       assert(s.ai && s.ai.moveChance === 0, `${s.id} does not walk`);
     }
-    // 2 人、第 3 關：30 × (1 + 0.7) × (1 + 0.15 × 2) = 66.3 → 66
+    // 2 人、第 3 關：30 × (1 + 0.5) × (1 + 0.15 × 2) = 58.5 → 59
     const duo = grove(2, { stage: 3 });
     const want = Math.round(30 * (1 + CONFIG.ENEMY_HP_PER_EXTRA_PLAYER) * (1 + CONFIG.RUN.enemyHpPerStage * 2));
     assert(duo.enemies.every(s => s.hp === want), `scaled hp ${duo.enemies.map(s => s.hp)} vs ${want}`);

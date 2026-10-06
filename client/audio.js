@@ -20,14 +20,14 @@ class AudioHub {
     } catch {}
     if (this.vol.music > 0) this.lastMusic = this.vol.music;
     // 瀏覽器要使用者操作過才肯出聲（例如重新整理後直接重連回遊戲）：之後第一次點擊 / 按鍵再叫醒
-    const unlock = () => { if (this.ctx && this.ctx.state === 'suspended' && !document.hidden) this.ctx.resume().catch(() => {}); };
+    const unlock = () => { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {}); };
     window.addEventListener('pointerdown', unlock, true);
     window.addEventListener('keydown', unlock, true);
-    // 切到別的分頁就暫停（同時開好幾個分頁測多人時才不會好幾份聲音疊在一起）
+    // 切到別的分頁、縮小視窗時音樂和音效照樣播（多人時等隊友的空檔去做別的事，也聽得到輪到自己的提示音）。
+    // 同時開好幾個分頁測多人會好幾份聲音疊在一起：在其他分頁的音量面板把音量拉到 0。
+    // 回到這個分頁時，如果瀏覽器自己把它暫停了（例如手機切到背景）就叫醒
     document.addEventListener('visibilitychange', () => {
-      if (!this.ctx) return;
-      if (document.hidden) this.ctx.suspend().catch(() => {});
-      else this.ctx.resume().catch(() => {});
+      if (this.ctx && !document.hidden && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
     });
   }
 
@@ -43,7 +43,6 @@ class AudioHub {
       g.connect(this.ctx.destination);
       this.buses[k] = g;
     }
-    if (document.hidden) this.ctx.suspend().catch(() => {});
     return this.ctx;
   }
 

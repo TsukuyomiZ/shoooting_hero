@@ -12,7 +12,13 @@ export const CONFIG = {
 
   // ---- 肉鴿流程 ----
   RUN: {
-    stagesBeforeBoss: 5,       // 打完幾個小關進 Boss 關
+    stageCount: 10,            // 一場冒險總共幾關（打贏最後一關 = 通關）
+    // 第幾關是 Boss 關：從 Boss 池抽，同一場冒險不會抽到同一隻（Boss 池有幾隻就最多幾關不重複，再多才會重複）。
+    // 其他關都是小關；Boss 關打贏後一樣回血、選牌，再接著打下去
+    bossStages: [5, 10],
+    // Boss 關的血量成長：從第一個 Boss 關開始算，之後每多一關 +N（跟小關的 enemyHpPerStage 一樣 15%）。
+    // 第 5 關的王照原本的血量，第 10 關的王 ×1.75（後面幾關玩家的牌比較多，不加會太好打）。召喚的樹妖、閉目養神的回血也一起放大
+    bossHpPerStage: 0.15,
     enemyHpPerStage: 0.15,     // 每過一關敵人血量 +15%
     healPctOnClear: 0.3,       // 過關後回血（血量上限的比例）
     reviveHpPct: 0.5,          // 倒下的隊友下一關復活時的血量比例
@@ -32,14 +38,16 @@ export const CONFIG = {
   MAX_PLAYERS: 4,
   TURN_TIME: 30,                   // 每回合秒數
   FRIENDLY_FIRE: 0.6,              // 同隊（含自己）受到的傷害倍率
-  ENEMY_HP_PER_EXTRA_PLAYER: 0.7,  // 每多一位玩家，敵人血量 +70%
+  ENEMY_HP_PER_EXTRA_PLAYER: 0.5,  // 每多一位玩家，敵人血量 +50%（加法：2 人 ×1.5、3 人 ×2、4 人 ×2.5）
   PLAYER_COLORS: ['#3b82f6', '#22c55e', '#a855f7', '#f97316'],
 
   // 狂熱：避免雙方血量太多、一關打太久。每過 everyRounds 輪（畫面左上的「第 N 輪」），
-  // 所有角色（玩家與敵人）造成的傷害 +damagePct%，會疊加：第 11 輪起 +50%、第 21 輪起 +100%…（每關重新算）。
-  // 誤傷、燃燒也吃這個加成；回血不受影響。everyRounds 設 0 = 關掉
+  // 所有角色（玩家與敵人）造成的傷害 +damagePct%，會疊加（每關重新算）。誤傷、燃燒也吃這個加成；回血不受影響。
+  // everyRounds 照這一關的玩家人數 { 人數: 輪數 }：人越多一輪越久，就越早狂熱。
+  //   4 人每 7 輪（第 8 輪起 +50%、第 15 輪起 +100%…）、2 ~ 3 人每 8 輪（第 9 輪起）、1 人每 9 輪（第 10 輪起）。
+  //   表上沒有的人數照比它少、最接近的那一格；也可以直接填一個數字 = 不分人數；0 = 關掉
   // Boss 關有自己的機制，不套用狂熱（inBoss 改成 true 才會套用）
-  FEVER: { everyRounds: 10, damagePct: 50, inBoss: false },
+  FEVER: { everyRounds: { 1: 9, 2: 8, 3: 8, 4: 7 }, damagePct: 50, inBoss: false },
 
   PLAYER: {
     hp: 150,
@@ -67,7 +75,11 @@ export const CONFIG = {
 
   ENEMY: {
     hp: 45,              // 基礎血量（會依人數放大）
-    damageMult: 0.7,     // 敵人（含 Boss）造成的傷害 = 武器傷害 × 這個倍率（再吃狂熱）
+    damageMult: 0.7,     // 敵人（含 Boss）造成的傷害 = 武器傷害 × 這個倍率（再吃狂熱）。這是第一輪（第 1 ~ 5 關）的
+    // 第二輪：從第 lateFromStage 關起（第 6 關 = 第一隻王之後），敵人傷害倍率改成 damageMultLate（1 = 不再抑制，等於 +0.3）。
+    // lateFromStage 設 0 = 整場都用 damageMult
+    lateFromStage: 6,
+    damageMultLate: 1,
     stamina: 200,
     moveSpeed: 110,
     jumpSpeed: 380,
@@ -96,10 +108,54 @@ export const CONFIG = {
     weapons: ['sniper'],
   },
 
+  // 砲兵（地圖「腹背受敵」，「大亂鬥」也會隨機抽到）：只用大砲，站在原地不走動。關卡的 enemySpawns 寫 type: 'artillery' 就是牠
+  ARTILLERY: {
+    hp: 45,              // 基礎血量（使用者沒指定，跟一般敵人一樣；依人數、關數放大）
+    stamina: 100,
+    moveSpeed: 110,
+    jumpSpeed: 380,
+    moveCost: 45,
+    jumpCost: 30,
+    color: '#7c2d12',
+    aimError: { angle: 5, power: 10 },  // 大砲的瞄準誤差（越小越準、越難）
+    sniperChance: 0,
+    moveChance: 0,                       // 不走動（砲兵守在自己的台地上）
+    weapons: ['cannon'],
+    // 砲彈的擊退 -50%：腹背受敵的石柱很窄、兩邊是水，原本的擊退幾乎每一發直擊都會把人打進水裡（-30% 最大血量）。
+    // 設 0 = 跟一般大砲一樣（越接近 0 越容易被打下水）
+    mods: { knockbackPct: -50 },
+  },
+
+  // ---- 小關「小心擊發」：樹枝最左邊掛著的蜂巢，與它放出來的蜜蜂（規則在 shared/hive.js）----
+  // 蜂巢打不打都可以（不用打掉也能過關，狙擊手全倒就贏）；不管用什麼打、打多重都只扣 1，每被玩家打到一次就飛出一隻蜜蜂。
+  // 直擊或爆炸波及都算一次；等離子三發都打到 = 三次。敵人自己的子彈會穿過蜂巢與蜜蜂，不算
+  HIVE: { hp: 5 },
+  // 蜜蜂：飛在空中（不受重力、不會被擊退），剛飛出來的第一個回合先待機（waitTurns），下一個回合衝向離牠最近的玩家：
+  // 傷害照 WEAPONS.beeSting（再吃敵人傷害倍率與狂熱）+ 中毒（中毒規則見 POISON）。
+  // diesOnSting = 螫一次就死掉（像真的蜜蜂）；改成 false 的話螫完停在那位玩家旁邊，之後每個回合再衝。
+  // 血量跟一般敵人一樣依人數、關數放大
+  BEE: {
+    hp: 30,
+    waitTurns: 1,
+    diesOnSting: true,
+    hw: 10,              // 判定的半寬（比人小）
+    h: 18,               // 判定的高度
+    stamina: 100,
+    moveSpeed: 0,
+    jumpSpeed: 0,
+    moveCost: 0,
+    jumpCost: 0,
+    color: '#facc15',
+    aimError: { angle: 0, power: 0 },   // 蜜蜂不瞄準（直接衝過去），用不到
+    sniperChance: 0,
+    moveChance: 0,
+    weapons: ['beeSting'],
+  },
+
   // ---- Boss 關：古樹之庭 ----
   // 古樹長在地圖最右邊，只有眼睛與嘴巴打得到。眼睛打倒 = 通關（剩下的樹妖跟著枯萎）。
   // 古樹之口打不壞：被攻擊到（直擊或爆炸波及）就閉上，閉著的時候古樹不能召喚，撐過幾個古樹回合後再張開（單人 / 多人不同）。
-  // 眼睛與樹妖的血量跟一般敵人一樣「每多一位玩家 +70%」，但不吃「每過一關 +15%」。
+  // 眼睛與樹妖的血量跟一般敵人一樣「每多一位玩家 +50%」，但不吃小關的「每過一關 +15%」，改吃 RUN.bossHpPerStage（第二個王關以後才變多）。
   // 單人 / 多人以這一關的玩家人數判斷（1 人 = 單人）
   TREE_BOSS: {
     eyeHp: 300,           // 古樹之眼
@@ -117,7 +173,7 @@ export const CONFIG = {
   },
   // ---- Boss 關：叢林巨蟒 ----
   // 一條長長的藤蔓橋（平台）+ 三條垂下來的藤蔓（按住 W / S 抓住、上下爬），巨蟒的頭在最右邊、橋的盡頭（那裡沒有橋，會掉進水裡）。
-  // 巨蟒的頭整顆都打得到；血量跟一般敵人一樣「每多一位玩家 +70%」，不吃「每過一關 +15%」。
+  // 巨蟒的頭整顆都打得到；血量跟一般敵人一樣「每多一位玩家 +50%」，不吃小關的「每過一關 +15%」，改吃 RUN.bossHpPerStage。
   // 每受到最大血量 bloodEveryPct% 的傷害，就掉一瓶蛇血到橋上（落點在 level 的 snake.bloodX 範圍內）。
   // 蛇血：自己的回合走過去就喝掉（有被中毒鎖住的上限、或血沒滿才會撿）：先把鎖住的上限全部解開，再回 bloodHeal 血（10/50(100) → 25/100）
   SNAKE_BOSS: {
@@ -263,7 +319,7 @@ export const CONFIG = {
     // knockDir = 固定的擊退方向（不照爆炸點算）；shareHits = 同一招的好幾顆共用「打過誰」，每人最多中一次
     snakeCharge: {        // 巨蟒衝撞：整顆頭沿著藤蔓橋往左衝到底，打中範圍裡（橋上、藤蔓下段）的每位玩家
       id: 'snakeCharge', name: '巨蟒衝撞', enemyOnly: true,
-      damage: 30,           // 再吃敵人傷害倍率（×0.7 = 21）
+      damage: 30,           // 再吃敵人傷害倍率（第一輪 ×0.7 = 21，第二輪 ×1 = 30）
       poison: 3,
       knockback: 120,       // 我加的：被撞到會往左彈一下（藤蔓上的人會被撞下來）
       radius: 0,
@@ -312,6 +368,21 @@ export const CONFIG = {
       passTerrain: true, passAllies: true,
       shellRadius: 14,
       color: '#7f1d1d',
+    },
+
+    // ---- 小心擊發：蜜蜂的衝刺螫擊（enemyOnly）。飛行物就是蜜蜂本身，直線衝向目標、穿過地形 ----
+    beeSting: {
+      id: 'beeSting', name: '衝刺螫擊', enemyOnly: true,
+      damage: 15,           // 再吃敵人傷害倍率（第 1 ~ 5 關 ×0.7 = 11，第 6 關起 ×1 = 15）
+      poison: 10,
+      knockback: 40,        // 使用者沒指定，給一點點（被螫到會晃一下）
+      radius: 0,
+      gravity: 0,
+      speed: 1000,
+      hitRadius: 8,
+      passTerrain: true, passAllies: true,
+      shellRadius: 9,
+      color: '#facc15',
     },
   },
 

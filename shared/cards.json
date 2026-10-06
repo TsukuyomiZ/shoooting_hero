@@ -38,17 +38,17 @@
     { "id": "wish_staff",      "name": "祈願之杖",     "rarity": "purple", "desc": "全部隊友（包括自己）回復最大生命值 50% 的血量", "effects": { "teamHealPct": 50 } },
     { "id": "lone_wolf",       "name": "孤狼傳說",     "rarity": "purple", "desc": "當場上只剩下自己時（沒有活著的隊友），武器傷害 +50%、傷害吸血 +5%", "effects": { "loneDamagePct": 50, "loneLifestealPct": 5 } },
     { "id": "unity",           "name": "團結力量大",   "rarity": "purple", "desc": "場上每有一名活著的隊友，武器傷害 +10%、受到的傷害 -5%（只有自己生效）", "effects": { "allyDamagePct": 10, "allyArmorPct": 5 } },
-    { "id": "all_seeing_eye",  "name": "全知之眼",     "rarity": "purple", "desc": "武器傷害 +20%，瞄準時能看到完整的拋物線與落點，更容易瞄準", "effects": { "damagePct": 20, "fullArc": 1 }, "unique": true },
     { "id": "whetstone",       "name": "磨刀霍霍",     "rarity": "purple", "desc": "每次射擊沒有命中敵人時，獲得一層「準備」：每層武器傷害 +10%（最多 5 層），擊中敵人後歸零", "effects": { "missDamagePct": 10, "missMaxStacks": 5 }, "unique": true },
     { "id": "battle_hardened", "name": "越戰越強",     "rarity": "purple", "desc": "每次射擊命中敵人時，獲得一層「狂獵」：每層武器傷害 +10%（最多 10 層），沒有命中敵人就歸零", "effects": { "hitDamagePct": 10, "hitMaxStacks": 10 }, "unique": true },
 
-    { "id": "phoenix_heart",   "name": "鳳凰之心",     "rarity": "gold",   "desc": "血量上限 +200 並全回復",   "effects": { "maxHp": 200, "healPct": 100 }, "unique": true },
+    { "id": "phoenix_heart",   "name": "鳳凰之心",     "rarity": "gold",   "desc": "血量上限 +100 並全回復",   "effects": { "maxHp": 100, "healPct": 100 }, "unique": true },
     { "id": "time_warp",       "name": "時間扭曲",     "rarity": "gold",   "desc": "武器傷害 +15%，回合結束之後再獲得一個額外回合（冷卻 3 回合）", "effects": { "damagePct": 15, "extraTurn": 1 }, "unique": true },
-    { "id": "god_body",        "name": "神之軀",       "rarity": "gold",   "desc": "血量上限 +300",            "effects": { "maxHp": 300 } },
+    { "id": "god_body",        "name": "神之軀",       "rarity": "gold",   "desc": "血量上限 +150",            "effects": { "maxHp": 150 } },
     { "id": "soul_eater",      "name": "噬魂者",       "rarity": "gold",   "desc": "武器傷害 +20%，每擊殺一個敵人再 +5%（整場冒險累積）", "effects": { "damagePct": 20, "killDamagePct": 5 } },
     { "id": "carpet_bomb",     "name": "無差別轟炸",   "rarity": "gold",   "desc": "每個回合開始時，自己以外的區域都受到飛彈攻擊（每發傷害 50、半徑 30，隊友也會被炸到）", "effects": { "bombard": 1 }, "unique": true },
     { "id": "godslayer",       "name": "弒神者",       "rarity": "gold",   "desc": "對首領傷害 +100%",         "effects": { "bossDamagePct": 100 } },
     { "id": "blessed_stone",   "name": "神佑之石",     "rarity": "gold",   "desc": "每過三回合，全體隊友無敵一次（擋下一次傷害）", "effects": { "teamShield": 1 }, "unique": true },
-    { "id": "bond",            "name": "攜手之伴",     "rarity": "gold",   "desc": "指定一名隊友成為「連結」：你們受到的傷害先減 30%，再跟連結的隊友平分", "effects": { "link": 1 }, "unique": true }
+    { "id": "bond",            "name": "攜手之伴",     "rarity": "gold",   "desc": "指定一名隊友成為「連結」：你們受到的傷害先減 30%，再跟連結的隊友平分", "effects": { "link": 1 }, "unique": true },
+    { "id": "all_seeing_eye",  "name": "全知之眼",     "rarity": "gold", "desc": "武器傷害 +20%，瞄準時能看到完整的拋物線與落點，更容易瞄準", "effects": { "damagePct": 20, "fullArc": 1 }, "unique": true }
   ]
 }

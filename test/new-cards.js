@@ -10,8 +10,9 @@ import { planShot } from '../shared/ai.js';
 import { validateCards, drawOffers, baseStats, derivePlayerStats } from '../shared/cards.js';
 import { advanceProjectile, makeProjectile, simulateShot, shotTraits, stepReturn, aimPreview } from '../shared/weapons.js';
 
-// 這裡的測試照武器原本傷害算敵人的攻擊；敵人傷害倍率（ENEMY.damageMult）在 headless.js 另有專門測試
+// 這裡的測試照武器原本傷害算敵人的攻擊；敵人傷害倍率（ENEMY.damageMult / damageMultLate）在 headless.js 另有專門測試
 CONFIG.ENEMY.damageMult = 1;
+CONFIG.ENEMY.damageMultLate = 1;
 
 const results = [];
 function test(name, fn) {

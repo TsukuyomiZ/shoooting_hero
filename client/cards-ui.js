@@ -32,9 +32,9 @@ export class CardsUi {
     this.picked = new Set();
     this.root.hidden = false;
     this.$('#cards-title').textContent = `第 ${stage} 關通過！`;
-    this.$('#cards-sub').textContent = stage + 1 > CONFIG.RUN.stagesBeforeBoss
-      ? '選一張牌，接下來是 Boss 關'
-      : `選一張牌，接著進入第 ${stage + 1} / ${stageCount - 1} 關`;
+    this.$('#cards-sub').textContent = CONFIG.RUN.bossStages.includes(stage + 1)
+      ? `選一張牌，接下來是 Boss 關（第 ${stage + 1} / ${stageCount} 關）`
+      : `選一張牌，接著進入第 ${stage + 1} / ${stageCount} 關`;
     const list = this.$('#cards-list');
     list.innerHTML = '';
     list.classList.remove('locked');

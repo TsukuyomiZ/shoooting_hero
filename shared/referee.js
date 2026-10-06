@@ -13,7 +13,8 @@ function hpChanges(match, before) {
   const out = [];
   for (const e of match.entities) {
     const b = before.get(e.id);
-    if (!b) { out.push({ id: e.id, name: e.name, hp: [null, r1(e.hp)], spawned: true }); continue; }
+    // 新出現的（召喚的樹妖、飛出來的蜜蜂）；同一個動作裡就被打死的也標 died
+    if (!b) { out.push({ id: e.id, name: e.name, hp: [null, r1(e.hp)], spawned: true, ...(e.alive ? {} : { died: e.deathCause || true }) }); continue; }
     if (b.hp === e.hp && b.alive === e.alive) continue;
     out.push({ id: e.id, name: e.name, hp: [r1(b.hp), r1(e.hp)], ...(b.alive && !e.alive ? { died: e.deathCause || true } : {}) });
   }

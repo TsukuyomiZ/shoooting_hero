@@ -1,12 +1,13 @@
 // node test/e2e-ws.js
 // 真的開伺服器，用兩個 WebSocket 客戶端跑一場開頭：
-// 建房 → 加入 → 準備 → 開始 → 甲移動、丟貼圖、開火 → 兩邊收到同一份 shot → 乙的回合 → 乙斷線被 AI 代打 → 乙用 token 重連拿到 state
+// 看大廳列表、私人房間 → 建房 → 加入 → 準備 → 開始 → 甲移動、丟貼圖、開火 → 兩邊收到同一份 shot → 乙的回合 → 乙斷線被 AI 代打 → 乙用 token 重連拿到 state
 // 最後檢查紀錄（LOG）檔把這些都記下來了（寫在暫存資料夾，不會弄髒專案的 logs/）
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createServer } from '../server/server.js';
 import { STICKER_LIMIT } from '../shared/stickers.js';
+import { VERSION, versionLabel } from '../shared/version.js';
 
 const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sh-e2e-log-'));
 const srv = await createServer({ port: 0, host: '127.0.0.1', logDir });
@@ -52,12 +53,43 @@ try {
   await b.connect();
   assert(a.id && a.token && b.id !== a.id, 'welcome ids');
 
+  // 大廳列表：w 一直開著列表看
+  const w = new Client('看');
+  await w.connect();
+  w.send({ t: 'browse', on: true });
+  await w.waitFrom(0, m => m.t === 'rooms' && m.rooms.length === 0, 'empty room list');
+
   a.send({ t: 'create' });
   const lobbyA = await a.waitFrom(0, m => m.t === 'lobby', 'lobby after create');
-  assert(/^[A-Z2-9]{4}$/.test(lobbyA.code) && lobbyA.hostId === a.id, 'room code / host');
+  assert(/^[A-Z2-9]{4}$/.test(lobbyA.code) && lobbyA.hostId === a.id && lobbyA.private === false, 'room code / host / public');
+  const listed = await w.waitFrom(0, m => m.t === 'rooms' && m.rooms.some(r => r.code === lobbyA.code), 'public room listed');
+  assert(listed.rooms[0].host === '甲' && listed.rooms[0].players === 1 && !listed.rooms[0].started, 'room list entry');
 
-  b.send({ t: 'join', code: lobbyA.code.toLowerCase() });
+  b.send({ t: 'join', code: lobbyA.code.toLowerCase(), via: 'list' });
   await b.waitFrom(0, m => m.t === 'lobby' && m.players.length === 2, 'lobby with 2 players');
+  await w.waitFrom(0, m => m.t === 'rooms' && m.rooms.some(r => r.code === lobbyA.code && r.players === 2), 'list shows 2 players');
+
+  // 私人房間：列表上看不到，輸入房號照樣能進；房主可以切換公開 / 私人，別人不行
+  const p = new Client('私');
+  const q = new Client('友');
+  await p.connect();
+  await q.connect();
+  p.send({ t: 'create', private: true, name: '私房主' });
+  const lobbyP = await p.waitFrom(0, m => m.t === 'lobby', 'private lobby');
+  assert(lobbyP.private === true && lobbyP.players[0].name === '私房主', 'private room + renamed host');
+  q.send({ t: 'join', code: lobbyP.code });
+  await q.waitFrom(0, m => m.t === 'lobby' && m.players.length === 2, 'join private room by code');
+  q.send({ t: 'privacy', private: false });
+  const errQ = await q.waitFrom(0, m => m.t === 'error', 'non-host privacy refused');
+  assert(/房主/.test(errQ.msg), 'only host can change privacy');
+  let mkW = w.mark();
+  assert(!w.log.some(m => m.t === 'rooms' && m.rooms.some(r => r.code === lobbyP.code)), 'private room never listed');
+  p.send({ t: 'privacy', private: false });
+  await w.waitFrom(mkW, m => m.t === 'rooms' && m.rooms.some(r => r.code === lobbyP.code), 'room listed after going public');
+  mkW = w.mark();
+  p.send({ t: 'privacy', private: true });
+  await w.waitFrom(mkW, m => m.t === 'rooms' && !m.rooms.some(r => r.code === lobbyP.code), 'room hidden after going private');
+  p.close(); q.close();
 
   let mk = a.mark();
   a.send({ t: 'start' });
@@ -72,6 +104,7 @@ try {
   const start = await b.waitFrom(0, m => m.t === 'start', 'start');
   assert(start.players.length === 2 && start.snapshot.entities.length >= 4 && Number.isInteger(start.seed), 'start payload');
   assert(start.stageInfo && start.stageInfo.stage === 1 && start.stageInfo.isBoss === false && start.carry, 'stage info in start payload');
+  await w.waitFrom(0, m => m.t === 'rooms' && m.rooms.some(r => r.code === lobbyA.code && r.started), 'list marks room as started');
 
   const turn1 = await a.waitFrom(0, m => m.t === 'turn', 'first turn');
   assert(turn1.actorId === a.id && turn1.ai === false, 'first turn belongs to host (甲)');
@@ -133,9 +166,12 @@ try {
   const find = (ev, pred = () => true) => logs.find(l => l.ev === ev && pred(l));
   const code = lobbyA.code;
   assert(logs.every(l => /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}$/.test(l.ts)), 'every line has a timestamp');
-  assert(find('server.start') && find('conn.open') && find('player.hello', l => l.pid === a.id && l.name === '甲'), 'connection / hello logged');
+  assert(find('server.start', l => l.version === versionLabel(VERSION)) && find('conn.open') && find('player.hello', l => l.pid === a.id && l.name === '甲'), 'connection / hello logged');
   assert(find('room.create', l => l.room === code && l.pid === a.id), 'room.create logged');
-  assert(find('room.join', l => l.room === code && l.pid === b.id && l.players === 2), 'room.join logged');
+  assert(find('room.join', l => l.room === code && l.pid === b.id && l.players === 2 && l.via === 'list'), 'room.join logged');
+  assert(find('lobby.browse', l => l.pid === w.id && l.on), 'browse logged');
+  assert(find('room.create', l => l.room === lobbyP.code && l.private === true) && find('room.join', l => l.room === lobbyP.code && l.via === 'code' && l.private), 'private room create / join logged');
+  assert(find('room.privacy', l => l.room === lobbyP.code && l.private === false) && find('room.privacy.fail', l => l.room === lobbyP.code && l.reason === 'notHost'), 'privacy change logged');
   assert(find('room.start.fail', l => l.room === code && l.reason === 'notReady'), 'refused start logged');
   assert(find('lobby.ready', l => l.pid === a.id && l.ready) && find('lobby.ready', l => l.pid === b.id && l.ready), 'ready logged');
   assert(find('room.start', l => l.room === code && l.players.length === 2 && Number.isInteger(l.seed)), 'room.start logged');
@@ -152,7 +188,7 @@ try {
   assert(iTurn < iFire && iFire < iShot, 'log lines are in order');
 
   console.log('E2E OK', { code: lobbyA.code, shotHit: shotA.hit.type, flightFrames: shotA.flightFrames, holes: state.snapshot.holes.length, logLines: logs.length });
-  a.close(); b2.close(); c.close();
+  a.close(); b2.close(); c.close(); w.close();
   await srv.close();
   fs.rmSync(logDir, { recursive: true, force: true });
   clearTimeout(overall);

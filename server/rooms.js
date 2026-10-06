@@ -49,6 +49,25 @@ export class RoomManager {
     this.tokens = new Map();   // token → { roomCode, playerId }
     this.connSeq = 0;          // 連線流水號（紀錄裡的 cid：同一條連線先 hello 才有玩家 id）
     this.noise = new Map();    // 雜訊類紀錄的額度：'c<cid>' / 'p<pid>' → { start, count, dropped }
+    this.browsers = new Set(); // 正在看大廳房間列表的連線（建房 / 加入 / 斷線就不再推）
+    this.lastRoomsJson = '';   // 上一次推給大廳的列表（沒變就不推）
+  }
+
+  // 大廳的公開房間列表：私人房間不列；開始了的照樣列（標 started，不能加入）。等人中的排前面、再照建立順序
+  roomsPayload() {
+    const rooms = [...this.rooms.values()].filter(r => !r.isPrivate && r.hostId).map(r => ({
+      code: r.code, host: r.members.get(r.hostId).name, players: r.members.size, max: CONFIG.MAX_PLAYERS, started: r.started,
+    }));
+    rooms.sort((x, y) => x.started - y.started);
+    return { t: 'rooms', rooms };
+  }
+
+  // 房間有變動（建立 / 回收 / 進出 / 開始 / 改公開私人）→ 推給所有看大廳的人
+  notifyBrowsers() {
+    const json = JSON.stringify(this.roomsPayload());
+    if (json === this.lastRoomsJson) return;
+    this.lastRoomsJson = json;
+    for (const c of this.browsers) if (c.ws.readyState === 1) c.ws.send(json);
   }
 
   // 寫一筆紀錄（玩家看不到）；room 給了就標上房號。
@@ -119,18 +138,32 @@ export class RoomManager {
         send(client, { t: 'welcome', id: client.id, token: client.token, stale: this.isStale() });
         break;
       }
+      case 'browse': {
+        // 大廳列表：on = 開始 / 停止接收公開房間列表（開始時先回一份目前的）
+        if (!client.id) return ignored('noHello');
+        if (client.room) return ignored('alreadyInRoom');
+        const on = msg.on !== false;
+        this.record('lobby.browse', { pid: client.id, name: client.name, on });
+        if (!on) { this.browsers.delete(client); break; }
+        this.browsers.add(client);
+        send(client, this.roomsPayload());
+        break;
+      }
       case 'create': {
         if (!client.id) return ignored('noHello');
         if (client.room) return ignored('alreadyInRoom');
-        const room = new Room(this, this.makeCode());
+        if (msg.name !== undefined) client.name = sanitizeName(msg.name);   // 連上大廳後才改的暱稱
+        const room = new Room(this, this.makeCode(), !!msg.private);
         this.rooms.set(room.code, room);
-        this.record('room.create', { pid: client.id, name: client.name }, room);
+        this.record('room.create', { pid: client.id, name: client.name, private: room.isPrivate }, room);
+        this.browsers.delete(client);
         room.add(client);
         break;
       }
       case 'join': {
         if (!client.id) return ignored('noHello');
         if (client.room) return ignored('alreadyInRoom');
+        if (msg.name !== undefined) client.name = sanitizeName(msg.name);
         const code = String(msg.code || '').trim().toUpperCase();
         const room = this.rooms.get(code);
         const fail = (reason, text) => {
@@ -140,8 +173,12 @@ export class RoomManager {
         if (!room) return fail('notFound', '找不到這個房號');
         if (room.started) return fail('started', '這個房間已經開始遊戲了');
         if (room.members.size >= CONFIG.MAX_PLAYERS) return fail('full', `房間已滿（最多 ${CONFIG.MAX_PLAYERS} 人）`);
+        this.browsers.delete(client);
         room.add(client);
-        this.record('room.join', { pid: client.id, name: client.name, players: room.members.size }, room);
+        // via：list = 從大廳列表點進來、否則是輸入房號（客戶端說的，只用來記錄）
+        this.record('room.join', {
+          pid: client.id, name: client.name, players: room.members.size, private: room.isPrivate, via: msg.via === 'list' ? 'list' : 'code',
+        }, room);
         break;
       }
       default:
@@ -154,6 +191,7 @@ export class RoomManager {
     this.record('conn.close', { cid: client.cid, pid: client.id || undefined, name: client.id ? client.name : undefined, code }, client.room);
     this.flushNoise(`c${client.cid}`, client.room);
     if (client.id) this.flushNoise(`p${client.id}`, client.room);
+    this.browsers.delete(client);
     if (client.room) client.room.onDisconnect(client);
   }
 
@@ -163,13 +201,16 @@ export class RoomManager {
     room.stop();
     this.rooms.delete(room.code);
     for (const [token, ref] of this.tokens) if (ref.roomCode === room.code) this.tokens.delete(token);
+    this.notifyBrowsers();
   }
 }
 
 class Room {
-  constructor(manager, code) {
+  // isPrivate：私人房間不會出現在大廳列表，只能輸入房號加入（房主在房間裡可以切換）
+  constructor(manager, code, isPrivate = false) {
     this.manager = manager;
     this.code = code;
+    this.isPrivate = isPrivate;
     this.members = new Map();   // playerId → { id, name, ready, client|null }
     this.hostId = null;
     this.started = false;
@@ -204,7 +245,8 @@ class Room {
     client.name = m.name;
     client.room = this;
     this.clearIdle();
-    send(client, { t: 'welcome', id: playerId, token, stale: this.manager.isStale() });
+    // rejoined：接回了原本的房間 / 遊戲（客戶端就不用再看大廳列表）
+    send(client, { t: 'welcome', id: playerId, token, stale: this.manager.isStale(), rejoined: true });
     if (this.started && this.run) {
       send(client, { t: 'state', ...this.run.statePayload(playerId) });
       this.run.setConnected(playerId, true);
@@ -216,12 +258,15 @@ class Room {
 
   lobbyPayload() {
     return {
-      t: 'lobby', code: this.code, hostId: this.hostId, max: CONFIG.MAX_PLAYERS,
+      t: 'lobby', code: this.code, hostId: this.hostId, max: CONFIG.MAX_PLAYERS, private: this.isPrivate,
       players: [...this.members.values()].map(m => ({ id: m.id, name: m.name, ready: m.ready, connected: !!m.client })),
     };
   }
 
-  sendLobby() { this.broadcast(this.lobbyPayload()); }
+  sendLobby() {
+    this.broadcast(this.lobbyPayload());
+    this.manager.notifyBrowsers();
+  }
 
   handle(client, msg) {
     const m = this.members.get(client.id);
@@ -245,6 +290,18 @@ class Room {
         this.record('lobby.ready', { pid: client.id, name: m.name, ready: m.ready });
         this.sendLobby();
         break;
+      case 'privacy': {
+        if (client.id !== this.hostId) {
+          this.record('room.privacy.fail', { pid: client.id, name: m.name, reason: 'notHost' });
+          return send(client, { t: 'error', msg: '只有房主可以設定公開 / 私人' });
+        }
+        const priv = !!msg.private;
+        if (priv === this.isPrivate) break;
+        this.isPrivate = priv;
+        this.record('room.privacy', { pid: client.id, name: m.name, private: priv });
+        this.sendLobby();
+        break;
+      }
       case 'start': {
         const notReady = [...this.members.values()].filter(x => !x.ready).map(x => x.name);
         if (client.id !== this.hostId) {
@@ -302,6 +359,7 @@ class Room {
     });
     this.run = new Run({ players, seed, io, cards });
     this.run.start();
+    this.manager.notifyBrowsers();   // 列表上改標「遊戲中」
   }
 
   broadcast(msg, exceptId) {

@@ -7,9 +7,16 @@ import { baseStats, drawOffers, applyCard, derivePlayerStats, needsDiscard, equi
 import { logValue } from './utils.js';
 
 // 一場冒險（肉鴿流程）：
-//   小關 ×N（每關隨機一張地圖）→ 每關勝利後每人三選一張牌 → 打完 N 關進 Boss 關 → 通關 / 全滅
+//   共 RUN.stageCount 關，RUN.bossStages 那幾關是 Boss 關（同一場不重複同一隻王），其他是小關（每關隨機一張地圖）；
+//   每關勝利後（Boss 關也是）每人三選一張牌 → 下一關 … → 打贏最後一關 = 通關；任何一關全滅 = 結束
 // 玩家的血量、牌、加成、武器欄在關與關之間帶著走。伺服器（Room）與單人模式（LocalTransport）都用這個。
 // io 同 Referee：{ broadcast(msg, exceptId), schedule(fn, ms), cancel(h), now() }
+
+// 第 stage 關是不是 Boss 關
+export function isBossStage(stage) {
+  return CONFIG.RUN.bossStages.includes(stage);
+}
+
 export class Run {
   constructor({ players, seed, io, cards }) {
     this.io = io;
@@ -24,13 +31,15 @@ export class Run {
       links: [],                                    // 攜手之伴：自己選的連結對象（對方也算連結著自己，見 linksOf）
       next: { damagePct: 0, maxHp: 0 },             // 腎上腺素：下一關才生效的暫時加成
       boost: { damagePct: 0, maxHp: 0 },            // 這一關正在生效的暫時加成（打完就失效）
+      totals: { dealt: 0, taken: 0, shots: 0, hits: 0 },   // 結算畫面：整場冒險的造成 / 承受傷害、開槍 / 命中次數
     }]));
     this.stage = 0;
-    this.stageCount = CONFIG.RUN.stagesBeforeBoss + 1;
+    this.stageCount = CONFIG.RUN.stageCount;
     this.phase = 'idle';   // idle | battle | pick | over
     this.match = null;
     this.referee = null;
     this.lastLevelId = null;
+    this.bossesUsed = [];  // 這場冒險已經打過的 Boss 關（同一隻王不會再出現）
     this.offers = null;    // pick 階段：playerId → [card...]
     this.picks = null;     // pick 階段：playerId → cardId
     this.discards = null;  // pick 階段：playerId → 武器欄滿了要丟掉的武器 id
@@ -39,7 +48,8 @@ export class Run {
     this.result = null;
   }
 
-  get isBoss() { return this.stage > CONFIG.RUN.stagesBeforeBoss; }
+  get isBoss() { return isBossStage(this.stage); }
+  get isLastStage() { return this.stage >= this.stageCount; }
 
   // 寫一筆紀錄（玩家看不到）：io 有 record 才記（同 Referee.record）
   record(ev, data) {
@@ -55,9 +65,11 @@ export class Run {
   }
 
   // ---- 關卡 ----
+  // 小關：不跟上一關同一張。Boss 關：先挑這場還沒打過的王，都打過了才重複（也避開上一隻）
   pickLevel() {
     const pool = levelsInPool(this.isBoss ? 'boss' : 'normal');
-    const choices = pool.length > 1 ? pool.filter(id => id !== this.lastLevelId) : pool;
+    const fresh = this.isBoss ? pool.filter(id => !this.bossesUsed.includes(id)) : [];
+    const choices = fresh.length ? fresh : pool.length > 1 ? pool.filter(id => id !== this.lastLevelId) : pool;
     return this.rng.pick(choices);
   }
 
@@ -110,6 +122,7 @@ export class Run {
     this.stage++;
     const levelId = this.pickLevel();
     this.lastLevelId = levelId;
+    if (this.isBoss) this.bossesUsed.push(levelId);
     const carry = {};
     const list = [...this.players.values()];
     for (const p of list) {
@@ -145,10 +158,11 @@ export class Run {
       if (!p) continue;
       p.hp = e.alive ? Math.min(e.hp, derivePlayerStats(p.stats).maxHp) : 0;
       p.soulPct = e.soulPct;
+      for (const k of Object.keys(p.totals)) p.totals[k] += e[k] || 0;
     }
     for (const p of this.players.values()) p.boost = { damagePct: 0, maxHp: 0 };
     if (result === 'lose') return this.runOver('lose');
-    if (this.isBoss) return this.runOver('win');
+    if (this.isLastStage) return this.runOver('win');   // 打贏最後一關（現在是第二隻王）= 通關；中間的 Boss 關打贏照樣選牌、往下打
 
     // 過關回血 + 發牌（先讓大家看 2.5 秒勝利畫面，廣播 stageClear 後才進入選牌階段）
     this.phase = 'clear';
@@ -285,7 +299,7 @@ export class Run {
     this.picks = null;
     this.discards = null;
     this.linkPicks = null;
-    this.io.broadcast({ t: 'picks', summary, nextStage: this.stage + 1, isBoss: this.stage + 1 > CONFIG.RUN.stagesBeforeBoss });
+    this.io.broadcast({ t: 'picks', summary, nextStage: this.stage + 1, isBoss: isBossStage(this.stage + 1) });
     this.phase = 'between';
     this.schedule(() => this.nextStage(), 2.5);
   }
@@ -294,12 +308,25 @@ export class Run {
     this.cancelTimer();
     this.phase = 'over';
     this.result = result;
-    // 整場冒險結束（win = Boss 打倒、lose = 全滅）：打到第幾關、每個人最後的牌
+    // 整場冒險結束（win = Boss 打倒、lose = 全滅）：打到第幾關、每個人最後的牌與結算統計
     this.record('run.over', {
       result, stage: this.stage, stageCount: this.stageCount,
-      players: [...this.players.values()].map(p => ({ pid: p.id, name: p.name, hp: p.hp, cards: p.cards.map(c => c.id), weapons: p.weapons.slice() })),
+      players: [...this.players.values()].map(p => ({ pid: p.id, name: p.name, hp: p.hp, cards: p.cards.map(c => c.id), weapons: p.weapons.slice(), ...p.totals })),
     });
-    this.io.broadcast({ t: 'runOver', result, stage: this.stage, stageCount: this.stageCount, cards: this.stageInfo().cards });
+    this.io.broadcast({ t: 'runOver', result, stage: this.stage, stageCount: this.stageCount, cards: this.stageInfo().cards, summary: this.summary() });
+  }
+
+  // 結算畫面：每個人整場的統計與拿到的牌（同一張拿好幾次合成一筆 count）
+  summary() {
+    return [...this.players.values()].map(p => {
+      const cards = [];
+      for (const c of p.cards) {
+        const same = cards.find(x => x.id === c.id);
+        if (same) same.count++;
+        else cards.push({ id: c.id, name: c.name, rarity: c.rarity, desc: c.desc, weapon: !!c.weapon, count: 1 });
+      }
+      return { id: p.id, name: p.name, ...p.totals, cards };
+    });
   }
 
   setConnected(id, connected) {

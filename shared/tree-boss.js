@@ -31,7 +31,7 @@ export const TREE_ACTION_NAMES = {
   idle: '古樹靜靜地看著你們',
 };
 
-// 建立古樹的兩個部位。hpScale = 人數放大倍率（每多一位玩家 +70%）
+// 建立古樹的兩個部位。hpScale = 血量倍率（每多一位玩家 +50%，第二個王關以後再乘 bossStageScale，見 match.js）；樹妖、閉目養神也照這個
 export function buildTree(match, hpScale) {
   const T = CONFIG.TREE_BOSS;
   const def = match.level.tree;

@@ -1,12 +1,45 @@
-// 地圖上純裝飾的圖案（關卡的 decor，不影響物理）：先畫成一張圖，畫在水之後、地形之前。
-// 目前只有大樹（樹影重重）：trunk = 樹幹多邊形，canopy = 樹冠一團團的葉子 [x, y, 半徑]
+// 地圖上純裝飾的圖案（關卡的 decor，不影響物理）：先畫成圖。back 畫在水之後、地形之前；front 畫在地形之後、角色之前。
+// 大樹（樹影重重、小心擊發）：trunk = 樹幹多邊形，canopy = 樹冠一團團的葉子 [x, y, 半徑]，
+// twigs = 樹枝上長出來的小枝條 [x, y, dx, dy]（從 (x, y) 長到 (x + dx, y + dy)，末端一片葉子）；
+// canopyFront = 蓋在地形上面的樹冠（小心擊發的樹幹是地形，樹冠要畫在它前面才看得到）
 export function buildDecor(decor, W, H) {
-  const c = document.createElement('canvas');
-  c.width = W; c.height = H;
-  const ctx = c.getContext('2d');
+  const layer = () => {
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    return c;
+  };
+  const back = layer();
+  const ctx = back.getContext('2d');
   if (decor.trunk) drawTrunk(ctx, decor.trunk);
   if (decor.canopy) drawCanopy(ctx, decor.canopy);
-  return c;
+  if (decor.twigs) drawTwigs(ctx, decor.twigs);
+  let front = null;
+  if (decor.canopyFront) {
+    front = layer();
+    drawCanopy(front.getContext('2d'), decor.canopyFront);
+  }
+  return { back, front };
+}
+
+// 小枝條：一小段彎彎的細枝，末端一片葉子（中間一條葉脈）
+function drawTwigs(ctx, twigs) {
+  for (const [x, y, dx, dy] of twigs) {
+    const ex = x + dx, ey = y + dy;
+    ctx.strokeStyle = '#4a311e';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x + dx * 0.2, y + dy * 0.7, ex, ey); ctx.stroke();
+    const a = Math.atan2(dy, dx);
+    ctx.save();
+    ctx.translate(ex, ey);
+    ctx.rotate(a);
+    ctx.fillStyle = '#3f8f3a';
+    ctx.beginPath(); ctx.ellipse(5, 0, 6, 3.4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(16,50,20,0.7)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(10, 0); ctx.stroke();
+    ctx.restore();
+  }
 }
 
 function polyPath(ctx, poly) {

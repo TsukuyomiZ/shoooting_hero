@@ -27,7 +27,7 @@ export const SNAKE_ACTION_NAMES = {
   idle: '巨蟒盯著你們',
 };
 
-// 建立巨蟒。hpScale = 人數放大倍率（每多一位玩家 +70%）
+// 建立巨蟒。hpScale = 血量倍率（每多一位玩家 +50%，第二個王關以後再乘 bossStageScale，見 match.js）
 export function buildSnake(match, hpScale) {
   const def = match.level.snake;
   const h = def.head;

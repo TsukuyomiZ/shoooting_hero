@@ -61,7 +61,8 @@ test('牌庫：四張新牌都通過驗證、稀有度與效果照使用者給�
   const bad = CARDS.warnings.filter(w => NEW.some(id => w.includes(id)));
   assert(!bad.length, bad.join('; '));
   assert(cardById('fever_high').rarity === 'green' && cardById('fever_high').effects.feverDamagePct === 50);
-  assert(cardById('all_seeing_eye').rarity === 'purple' && cardById('all_seeing_eye').effects.damagePct === 20 && cardById('all_seeing_eye').effects.fullArc === 1);
+  // 全知之眼：使用者 2026-10-05 從紫卡改成金卡
+  assert(cardById('all_seeing_eye').rarity === 'gold' && cardById('all_seeing_eye').effects.damagePct === 20 && cardById('all_seeing_eye').effects.fullArc === 1);
   assert(cardById('whetstone').rarity === 'purple' && cardById('whetstone').effects.missDamagePct === 10 && cardById('whetstone').effects.missMaxStacks === 5);
   assert(cardById('battle_hardened').rarity === 'purple' && cardById('battle_hardened').effects.hitDamagePct === 10 && cardById('battle_hardened').effects.hitMaxStacks === 10);
 });

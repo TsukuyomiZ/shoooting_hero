@@ -9,6 +9,7 @@ import { RoomManager } from './rooms.js';
 import { GameLog, NO_LOG } from './logger.js';
 import { CONFIG } from '../shared/config.js';
 import { logValue } from '../shared/utils.js';
+import { VERSION, versionLabel } from '../shared/version.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MIME = {
@@ -167,7 +168,7 @@ export function createServer({ port = 8123, host = '0.0.0.0', logDir = path.reso
       reject(err);
     });
     server.listen(port, host, () => {
-      log.write({ ev: 'server.start', port: server.address().port, host, node: process.version, proc: process.pid });
+      log.write({ ev: 'server.start', version: versionLabel(VERSION), port: server.address().port, host, node: process.version, proc: process.pid });
       resolve({
         server, wss, manager, log,
         port: server.address().port,

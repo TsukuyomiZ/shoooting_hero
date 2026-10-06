@@ -58,11 +58,11 @@ function advanceUntil(io, pred, maxMs = 300_000) {
 }
 
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
-const mult = () => CONFIG.ENEMY.damageMult;
+const mult = () => CONFIG.ENEMY.damageMult;   // 第一輪的倍率：測試的巨蟒都建在第 5 關（第一個王關）
 const enemyDmg = (w) => Math.round(CONFIG.WEAPONS[w].damage * mult());
 // 叢林巨蟒的測試戰鬥：玩家血量自己設（不受 config 影響），巨蟒血量照 config
 function jungle(n = 1, { seed = 1, hp = 5000 } = {}) {
-  const m = new Match({ levelId: 'jungleSerpent', players: mkPlayers(n), seed, stage: 6 });
+  const m = new Match({ levelId: 'jungleSerpent', players: mkPlayers(n), seed, stage: 5 });
   for (const p of m.players) { p.hp = p.maxHp = hp; }
   return m;
 }
@@ -167,7 +167,7 @@ test('地圖：在 Boss 池裡；藤蔓橋炸不壞、子彈穿得過、站得�
   assert(s.distanceTo(s.x - s.hw - 20, s.cy) > 19 && s.distanceTo(s.x - s.hw - 20, s.cy) < 21 && s.distanceTo(s.x, s.cy) === 0, 'distance to the ellipse');
   const scale = 1 + CONFIG.ENEMY_HP_PER_EXTRA_PLAYER * 3;
   assert(s.maxHp === Math.round(CONFIG.SNAKE_BOSS.hp * scale), 'hp scales with players only: ' + s.maxHp);
-  const one = new Match({ levelId: 'jungleSerpent', players: mkPlayers(1), seed: 1, stage: 6 });
+  const one = new Match({ levelId: 'jungleSerpent', players: mkPlayers(1), seed: 1, stage: 5 });
   assert(one.byId('snake').maxHp === CONFIG.SNAKE_BOSS.hp, 'solo hp');
   assert(m.feverAt(11) === 0 && m.feverAt(31) === 0, 'no fever in the boss stage');
   return { snakeHp4p: s.maxHp };
@@ -343,7 +343,7 @@ test('掛在藤蔓上開火：shot.actor 帶 vn，射手照樣掛著；客戶端
   assert(shot && shot.actor.vn === 2 && shot.actor.x === v.x && shot.actor.y === 420, 'shot actor on the vine: ' + JSON.stringify(shot && shot.actor));
   const srv = shot.results.find(s => s.id === 'p1');
   assert(srv.vn === 2 && srv.y === 420, 'shooter still hanging after the shot: ' + JSON.stringify(srv));
-  const cm = new Match({ levelId: 'jungleSerpent', players: mkPlayers(1), seed: m.seed, stage: 6 });
+  const cm = new Match({ levelId: 'jungleSerpent', players: mkPlayers(1), seed: m.seed, stage: 5 });
   cm.applySnapshot(before);
   for (const e of cm.players) { e.maxHp = m.byId(e.id).maxHp; }
   replayLikeClient(cm, JSON.parse(JSON.stringify(shot)));
@@ -540,7 +540,7 @@ test('權重：45 / 25 / 10 / 20；開場（大家落地後）就預定第一招
   const m2 = jungle(2, { seed: 4 });
   assert(m2.snake.next && ['charge', 'spray', 'quake', 'bite'].includes(m2.snake.next.action), 'planned at start');
   m2.snake.next = { action: 'quake' };
-  const c = new Match({ levelId: 'jungleSerpent', players: mkPlayers(2), seed: m2.seed, stage: 6 });
+  const c = new Match({ levelId: 'jungleSerpent', players: mkPlayers(2), seed: m2.seed, stage: 5 });
   c.applySnapshot(JSON.parse(JSON.stringify(m2.snapshot())));
   assert(c.snake.next.action === 'quake', 'snapshot snakeNext');
   const r = resolveSnakeTurn(m2, m2.byId('snake'));
@@ -645,7 +645,7 @@ test('客戶端照事件重播四種招式（擊退、落水、被撞下藤蔓�
     m.players[1].hp = 20;
     const snap = JSON.parse(JSON.stringify(m.snapshot()));
     const b = JSON.parse(JSON.stringify(forced(m, action)));
-    const cm = new Match({ levelId: 'jungleSerpent', players: mkPlayers(4), seed: m.seed, stage: 6 });
+    const cm = new Match({ levelId: 'jungleSerpent', players: mkPlayers(4), seed: m.seed, stage: 5 });
     cm.applySnapshot(snap);
     replayLikeClient(cm, b.shot);
     for (const s of b.shot.results) {
@@ -660,7 +660,7 @@ test('客戶端照事件重播四種招式（擊退、落水、被撞下藤蔓�
 
 test('裁判：巨蟒的回合廣播 aiTurn（boss.steps 一招 + shot、boss.next），等動畫播完才換人；打倒巨蟒就過關', () => {
   const players = mkPlayers(2);
-  const m = new Match({ levelId: 'jungleSerpent', players, seed: 17, stage: 6 });
+  const m = new Match({ levelId: 'jungleSerpent', players, seed: 17, stage: 5 });
   for (const p of m.players) { p.hp = p.maxHp = 100000; }
   const io = new FakeIo();
   const ref = new Referee({ match: m, humans: players, io });
@@ -735,7 +735,7 @@ test('客戶端：預定衝撞時一直畫出警示帶（範圍 = chargeLane 到
 test('確定性：同 seed 同輸入，叢林巨蟒整段流程的廣播完全一樣（含蛇血、中毒、斷線代打）', () => {
   const run = () => {
     const players = mkPlayers(3);
-    const m = new Match({ levelId: 'jungleSerpent', players, seed: 77, stage: 6 });
+    const m = new Match({ levelId: 'jungleSerpent', players, seed: 77, stage: 5 });
     for (const p of m.players) { p.hp = p.maxHp = 1500; }
     const io = new FakeIo();
     const ref = new Referee({ match: m, humans: players, io });

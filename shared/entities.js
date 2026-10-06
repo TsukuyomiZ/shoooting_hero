@@ -37,7 +37,10 @@ export class Entity {
     this.fixed = !!o.fixed;      // 固定在原地：不受重力、不會被擊退（古樹的部位）
     this.noTurn = !!o.noTurn;    // 不會輪到它行動（古樹之口）
     this.minion = !!o.minion;    // Boss 召喚出來的小怪（樹妖）
-    this.kind = o.kind || null;  // 敵人種類（關卡 enemySpawns 的 type，例如 'sniper'），畫面照它換造型
+    this.kind = o.kind || null;  // 敵人種類（關卡 enemySpawns 的 type，例如 'sniper'；'hive' 蜂巢、'bee' 蜜蜂），畫面照它換造型
+    this.optional = !!o.optional;  // 打不打都可以：全隊只剩這種敵人也算過關（蜂巢、蜜蜂）
+    this.allyPass = !!o.allyPass;  // 自己人的子彈會穿過它、也不擋自己人的視線（蜂巢、蜜蜂）
+    this.waitTurns = o.waitTurns | 0;   // 蜜蜂：還要待機幾個自己的回合才開始衝（見 hive.js）
     // 判定形狀：預設是矩形；'ellipse' = 內切在矩形裡的橢圓（叢林巨蟒的頭），子彈命中與爆炸距離都照橢圓算
     this.shape = o.shape || null;
     this.dormant = false;        // 剛被召喚：這一輪還不會行動（伺服器排回合用）
@@ -106,6 +109,11 @@ export class Entity {
     this.safeY = o.y;
     this.waterFalls = 0;         // 這一關掉進水裡幾次
     this.splash = null;          // 最近一次落水 { n, x, y, dmg, died, sx, sy }：給畫面播水花 / 飄字，玩家回報給伺服器
+    // 結算畫面的統計（這一關；Run 打完一關加進整場總計）：造成傷害（打敵方）、承受傷害（含落水）、開槍次數、命中次數
+    this.dealt = 0;
+    this.taken = 0;
+    this.shots = 0;
+    this.hits = 0;
 
     // 裝備效果的戰鬥狀態（每關重新開始；soulPct 是噬魂者累積的傷害加成，整場冒險帶著走）
     this.burn = 0;               // 燃燒層數
@@ -442,6 +450,7 @@ export class Entity {
     const spot = this.hp > dmg ? this.respawnSpot(terrain) : null;
     this.waterFalls++;
     this.splash = { n: this.waterFalls, x: this.x, y: this.y, dmg, died: !spot, sx: this.safeX, sy: this.safeY };
+    this.taken += spot ? dmg : this.hp;   // 淹死：剩下的血全算
     if (!spot) { this.die('water'); return; }
     this.hp -= dmg;
     this.hurtTimer = 0.35;
@@ -462,6 +471,7 @@ export class Entity {
     if (!this.alive) return 0;
     const real = Math.min(this.hp, Math.round(dmg));
     this.hp -= real;
+    this.taken += real;
     this.hurtTimer = 0.35;
     if (this.hp <= 0) this.die('hit');
     return real;
@@ -479,7 +489,8 @@ export class Entity {
   }
 
   // ---- 同步用 ----
-  // ps = 中毒層數、lk = 被中毒鎖住的上限、vn = 抓著第幾條藤蔓（-1 = 沒有；不帶的話客戶端會以為他在半空中、自己掉下去）
+  // ps = 中毒層數、lk = 被中毒鎖住的上限、vn = 抓著第幾條藤蔓（-1 = 沒有；不帶的話客戶端會以為他在半空中、自己掉下去）、
+  // wt = 蜜蜂還要待機幾個回合
   toState() {
     const s = {
       id: this.id, x: this.x, y: this.y, hp: this.hp, mhp: this.maxHp, stamina: this.stamina,
@@ -489,6 +500,7 @@ export class Entity {
       rd: this.readyStacks, hu: this.huntStacks,
     };
     if (this.closeOnHit) s.closed = this.closedTurns;
+    if (this.kind === 'bee') s.wt = this.waitTurns;
     return s;
   }
 
@@ -541,6 +553,7 @@ export class Entity {
     if (s.vn !== undefined) this.onVine = s.vn;
     if (s.rd !== undefined) this.readyStacks = s.rd;
     if (s.hu !== undefined) this.huntStacks = s.hu;
+    if (s.wt !== undefined) this.waitTurns = s.wt;
     this.vineRegrab = 0;
     this.vx = 0;
     this.vy = 0;

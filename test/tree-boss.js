@@ -11,8 +11,9 @@ import { validateCards } from '../shared/cards.js';
 import { planeOf, planeCounts, chooseTreeAction, rollTreeAction, planTreeNext, resolveTreeTurn, spawnTreant, trunkLane } from '../shared/tree-boss.js';
 import { treeTurnScript, drawTreeScene } from '../client/tree-boss-view.js';
 
-// 這裡的測試照武器原本傷害算敵人的攻擊；敵人傷害倍率（ENEMY.damageMult）在 headless.js 另有專門測試
+// 這裡的測試照武器原本傷害算敵人的攻擊；敵人傷害倍率（ENEMY.damageMult / damageMultLate）在 headless.js 另有專門測試
 CONFIG.ENEMY.damageMult = 1;
+CONFIG.ENEMY.damageMultLate = 1;
 
 const results = [];
 function test(name, fn) {
@@ -172,7 +173,7 @@ test('平面一階一階跳得上去：地面 → 低台 → 中台 → 高台',
   return { top: { x: Math.round(p.x), y: Math.round(p.y) } };
 });
 
-test('血量：眼睛 / 樹妖照 config，每多一位玩家 +70%，不吃關數放大；玩家體力照 config', () => {
+test('血量：眼睛 / 樹妖照 config，每多一位玩家 +50%，不吃關數放大；玩家體力照 config', () => {
   const T = CONFIG.TREE_BOSS;
   for (const n of [1, 2, 4]) {
     const scale = 1 + CONFIG.ENEMY_HP_PER_EXTRA_PLAYER * (n - 1);

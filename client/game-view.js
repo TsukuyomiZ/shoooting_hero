@@ -6,6 +6,7 @@ import { Renderer } from './render.js';
 import { TerrainPainter } from './terrain-painter.js';
 import { treeTurnScript, onTreeDeath } from './tree-boss-view.js';
 import { snakeTurnScript, onSnakeDeath, addDrops } from './snake-boss-view.js';
+import { beeTurnScript, addBees, onHiveDeath } from './hive-view.js';
 import { pickupAlong } from '../shared/snake-boss.js';
 import { Music } from './music.js';
 import { audio } from './audio.js';
@@ -96,6 +97,7 @@ export class GameView {
       // pickup（喝到蛇血）也一樣：會改上限，不能被之後才播的舊快照蓋回去
       // slow（別人開 / 關慢動作）也是：畫面落後時，之後才播的他的 turn 會把光環清掉
       case 'turn': case 'aiTurn': case 'shot': case 'skip': case 'turnFx': case 'gameOver': case 'water': case 'pickup': case 'slow':
+        if (msg.t === 'turn' && document.hidden) this.cueTurn(msg);   // 分頁在背景：輪到自己的提示音收到就響，不等前面的動畫播完
         this.queue.push(msg);
         this.pump();
         break;
@@ -293,11 +295,21 @@ export class GameView {
     const kind = msg.extra ? '額外回合' : '回合';   // 時間扭曲給的額外回合
     const fever = this.feverNotice();
     if (mine) {
+      this.cueTurn(msg);
       this.showBanner(`你的${kind}`, msg.extra ? '#c4b5fd' : '#7dd3fc', fever);
     } else {
       const tag = msg.ai && actor.team === 'players' ? '（AI 代打）' : '';
       this.showBanner(`${actor.name} 的${kind}${tag}`, msg.extra ? '#c4b5fd' : (actor.team === 'players' ? '#86efac' : '#fca5a5'), fever);
     }
+  }
+
+  // 輪到自己的回合（單人、多人都一樣；含時間扭曲的額外回合，不含斷線時的 AI 代打）：響一聲提示音。
+  // 平常跟「你的回合」橫幅一起響；分頁在背景時瀏覽器會放慢計時器、畫面落後，伺服器的回合倒數卻已經開始了，
+  // 所以收到 turn 訊息（或切走時佇列裡已經排著）就先響。同一個回合只響一次（msg.cued）。重連回到自己的回合不響
+  cueTurn(msg) {
+    if (msg.cued || msg.ai || msg.actorId !== this.myId) return;
+    msg.cued = true;
+    sfx.play('yourTurn');
   }
 
   // 狂熱剛疊上新的一層（新的一輪跨過門檻）：回傳橫幅底下的提示字，每層只提示一次。Boss 關一直是 0 層，不會提示
@@ -323,8 +335,8 @@ export class GameView {
     const splashes = this.serverSplashes(msg.splashes);   // 斷線代打：伺服器先讓他落地，途中掉進水裡的那一次
     if (msg.entities) this.match.applyEntities(msg.entities);
     for (const s of splashes) this.onSplash(this.match.byId(s.id), s);
-    if (msg.boss) {   // Boss 出招：古樹之庭 / 叢林巨蟒
-      yield* (this.match.snake ? snakeTurnScript(this, msg) : treeTurnScript(this, msg));
+    if (msg.boss) {   // Boss 出招：古樹之庭 / 叢林巨蟒；小心擊發的蜜蜂也用同一個格式
+      yield* (actor.kind === 'bee' ? beeTurnScript(this, msg) : this.match.snake ? snakeTurnScript(this, msg) : treeTurnScript(this, msg));
       return;
     }
     actor.netTarget = null;
@@ -486,6 +498,7 @@ export class GameView {
       if (e) e.applyEventState(s);
     }
     if (ev.drops) addDrops(this, ev.drops);   // 打到巨蟒跨過門檻：掉蛇血
+    if (ev.bees) addBees(this, ev.bees);      // 打到蜂巢：飛出蜜蜂
     for (const d of ev.damages || []) {
       const e = this.match.byId(d.id);
       if (!e) continue;
@@ -673,6 +686,10 @@ export class GameView {
     });
     window.addEventListener('keyup', (ev) => { this.keys[ev.code] = false; });
     window.addEventListener('blur', () => { this.keys = {}; });
+    // 切到別的分頁時，自己的回合已經排在佇列裡（畫面還在播前面的動畫）：提示音現在就響，見 cueTurn
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) for (const m of this.queue) if (m.t === 'turn') this.cueTurn(m);
+    });
 
     const toWorld = (ev) => {
       const r = this.canvas.getBoundingClientRect();
@@ -892,6 +909,7 @@ export class GameView {
   onDeath(e) {
     if (onTreeDeath(this, e)) return;   // 古樹倒下（嘴巴與樹妖跟著枯萎）
     if (onSnakeDeath(this, e)) return;  // 叢林巨蟒倒下
+    if (onHiveDeath(this, e)) return;   // 蜂巢被打掉
     if (e.poisonDeath) { this.showBanner(`${e.name} 中毒倒下了！`, '#c084fc'); return; }
     if (e.deathCause === 'water') {
       this.splash(e.x);

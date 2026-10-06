@@ -5,6 +5,7 @@ import { roundRect, text, drawBar, drawHpBar, FONT } from './draw.js';
 import { drawTreeScene, drawTreePart, drawTreant, drawSpearHeld, drawTreeProjectile, buildForestBackground } from './tree-boss-view.js';
 import { buildDecor } from './decor.js';
 import { drawSnakeScene, drawSnake, drawSnakeProjectile, drawPoisonMark, drawVineHands, buildJungleBackground } from './snake-boss-view.js';
+import { drawBee, drawHive, drawHiveProjectile } from './hive-view.js';
 export class Renderer {
   constructor(view, canvas) {
     this.view = view;
@@ -14,7 +15,7 @@ export class Renderer {
     this.decors = new Map();                               // 關卡 id → 裝飾圖（level.decor，第一次用到才畫）
   }
 
-  // 關卡的純裝飾圖案（例如樹影重重的大樹），沒有就回傳 null
+  // 關卡的純裝飾圖案（例如樹影重重的大樹）：{ back（地形後面）, front（地形前面，可能是 null）}，沒有就回傳 null
   decor() {
     const match = this.view.match;
     if (!match || !match.level.decor) return null;
@@ -78,9 +79,10 @@ export class Renderer {
     if (view.shake > 0) ctx.translate((Math.random() - 0.5) * view.shake, (Math.random() - 0.5) * view.shake);
     this.drawWater();
     const decor = this.decor();
-    if (decor) ctx.drawImage(decor, 0, 0);
+    if (decor) ctx.drawImage(decor.back, 0, 0);
     view.painter.sync();
     ctx.drawImage(view.painter.canvas, 0, 0);
+    if (decor && decor.front) ctx.drawImage(decor.front, 0, 0);   // 蓋在地形上的裝飾（小心擊發：樹幹頂端的樹冠）
     drawTreeScene(ctx, view);   // 古樹之庭：樹冠、預定撞擊的警示帶、出招預兆
     drawSnakeScene(ctx, view);  // 叢林巨蟒：藤蔓、水裡的蛇身、蛇血、預定衝撞的警示帶
     this.drawAim();
@@ -181,6 +183,7 @@ export class Renderer {
     const { ctx, view } = this;
     if (e.part === 'snake' && !e.alive) { drawSnake(ctx, e, view); return; }   // 巨蟒沉進水裡
     if (e.part && !e.alive) { drawTreePart(ctx, e, view); return; }   // 閉上的眼睛 / 嘴巴留在樹上
+    if (e.charging) return;   // 蜜蜂衝出去了：飛行物本身就是牠（見 hive-view.js）
     ctx.save();
     if (!e.alive) {
       const a = Math.max(0, 1 - e.deathTimer / 1.2);
@@ -193,10 +196,17 @@ export class Renderer {
     const isMe = e.id === view.myId;
     const s = e.h / 30;   // 體型牌會把角色放大，整體等比縮放
 
+    if (e.kind === 'hive') {        // 蜂巢：血量畫在下面（上面是樹枝），不會輪到它，不用行動標記
+      drawHive(ctx, e, view, hurt);
+      ctx.restore();
+      return;
+    }
     if (e.part === 'snake') {
       drawSnake(ctx, e, view);      // 叢林巨蟒的頭
     } else if (e.part) {
       drawTreePart(ctx, e, view);   // 古樹之眼 / 古樹之口
+    } else if (e.kind === 'bee') {
+      drawBee(ctx, e, view, hurt);  // 蜜蜂（飛在空中，沒有影子、不拿武器）
     } else {
       if (e.onVine < 0) {           // 腳下的影子（掛在藤蔓上就沒有）
         ctx.fillStyle = 'rgba(0,0,0,0.25)';
@@ -208,7 +218,9 @@ export class Renderer {
       drawTreant(ctx, e, hurt);
     } else if (e.kind === 'sniper') {
       this.drawSniper(e, hurt);
-    } else if (!e.part) {
+    } else if (e.kind === 'artillery') {
+      this.drawArtillery(e, hurt);
+    } else if (!e.part && e.kind !== 'bee') {
       ctx.save();
       ctx.translate(x, y);
       ctx.scale(s, s);
@@ -285,6 +297,39 @@ export class Renderer {
       ctx.fillStyle = e.isPlayer ? (isMe ? '#38bdf8' : '#86efac') : '#f87171';
       ctx.beginPath(); ctx.moveTo(x - 7, ty - 8); ctx.lineTo(x + 7, ty - 8); ctx.lineTo(x, ty); ctx.closePath(); ctx.fill();
     }
+    ctx.restore();
+  }
+
+  // 砲兵：鋼盔（有帽簷與護耳）、深紅色軍服、胸前一排砲彈帶；大砲本身照一般武器畫
+  drawArtillery(e, hurt) {
+    const ctx = this.ctx;
+    const s = e.h / 30, f = e.facing;
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.scale(s, s);
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    ctx.lineWidth = 1.5;
+    ctx.fillStyle = hurt ? '#ffffff' : e.color;           // 軍服
+    roundRect(ctx, -9, -19, 18, 18, 4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = hurt ? '#ddd' : '#3f2a14';             // 腰帶
+    ctx.fillRect(-9, -7, 18, 3);
+    ctx.fillStyle = hurt ? '#eee' : '#d4a017';             // 斜掛的砲彈帶
+    for (let k = 0; k < 4; k++) {
+      ctx.beginPath(); ctx.arc(-6 * f + k * 4 * f, -17 + k * 3, 1.8, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = '#1f1f1f';                             // 靴子
+    ctx.fillRect(-7, -3, 5, 3);
+    ctx.fillRect(2, -3, 5, 3);
+    ctx.fillStyle = hurt ? '#fff' : '#f0c8a0';             // 臉
+    ctx.beginPath(); ctx.arc(0, -25, 8.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = hurt ? '#eee' : '#4b5563';             // 鋼盔：圓頂 + 帽簷
+    ctx.beginPath(); ctx.arc(0, -27, 10, Math.PI, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = hurt ? '#ddd' : '#374151';
+    roundRect(ctx, -12, -28, 24, 3.5, 1.5); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';              // 鋼盔的反光
+    ctx.beginPath(); ctx.arc(-3 * f, -32, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#111';                                // 眼睛
+    ctx.beginPath(); ctx.arc(f * 4, -23.5, 1.7, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
 
@@ -441,6 +486,7 @@ export class Renderer {
       const w = p.weapon;
       if (drawTreeProjectile(ctx, p, view)) continue;   // 古樹撞擊 / 飛散落葉 / 長矛
       if (drawSnakeProjectile(ctx, p, view)) continue;  // 巨蟒的毒液 / 震波（衝撞、撕咬是頭本身）
+      if (drawHiveProjectile(ctx, p, view)) continue;   // 蜜蜂的衝刺螫擊（飛行物就是蜜蜂）
       if (w.id === 'cannon') {
         this.drawTrail(p, '255,200,120', 0.5, 2, 3);
         ctx.fillStyle = w.color;
@@ -533,7 +579,7 @@ export class Renderer {
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     roundRect(ctx, 12, 12, 250, 66, 10); ctx.fill();
     const si = view.stageInfo;
-    const stageLabel = si ? (si.isBoss ? 'Boss 關' : `第 ${si.stage} / ${si.stageCount - 1} 關`) : '';
+    const stageLabel = si ? (si.isBoss ? `Boss 關 ${si.stage} / ${si.stageCount}` : `第 ${si.stage} / ${si.stageCount} 關`) : '';
     text(ctx, `${stageLabel}　第 ${view.round} 輪`, 24, 38, { size: 18, bold: true, color: si && si.isBoss ? '#fca5a5' : '#fff' });
     let sub = '', subColor = '#ddd';
     const actor = view.currentId ? match.byId(view.currentId) : null;
@@ -576,7 +622,10 @@ export class Renderer {
 
     // 右上：隊伍名單（含手牌數）+ 敵人
     const players = match.players;
-    const enemiesAlive = match.enemies.filter(e => e.alive).length;
+    // 打不打都可以的敵人（蜂巢、蜜蜂）不算在「敵人剩餘」裡；小心擊發另外標場上的蜜蜂數（同一行，名單框才不會蓋到樹枝上的狙擊手）
+    const foes = match.enemies.filter(e => !e.optional);
+    const enemiesAlive = foes.filter(e => e.alive).length;
+    const bees = match.hive ? match.enemies.filter(e => e.kind === 'bee' && e.alive).length : 0;
     const rosterH = 34 + players.length * 22 + (match.tree ? 44 : 22);
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     roundRect(ctx, W - 12 - 250, 12, 250, rosterH, 10); ctx.fill();
@@ -604,7 +653,7 @@ export class Renderer {
       const s = match.byId('snake');
       text(ctx, `叢林巨蟒 ${s.hp} / ${s.maxHp}`, W - 250, ey, { size: 13, bold: true, color: '#fca5a5' });
     } else {
-      text(ctx, `敵人剩餘 ${enemiesAlive} / ${match.enemies.length}`, W - 250, ey, { size: 13, bold: true, color: '#fca5a5' });
+      text(ctx, `敵人剩餘 ${enemiesAlive} / ${foes.length}${match.hive ? `　蜜蜂 ×${bees}` : ''}`, W - 250, ey, { size: 13, bold: true, color: '#fca5a5' });
     }
 
     // 底部：自己的狀態
@@ -748,7 +797,7 @@ export class Renderer {
     ctx.fillRect(0, 0, W, H);
     const win = view.runOver.result === 'win';
     text(ctx, win ? '通關！' : '冒險結束', W / 2, H / 2 - 30, { size: 64, bold: true, align: 'center', color: win ? '#fde047' : '#f87171', outline: 'rgba(0,0,0,0.9)', outlineWidth: 8 });
-    text(ctx, win ? '首領被擊敗了' : `倒在第 ${view.runOver.isBoss ? 'Boss' : view.runOver.stage} 關`, W / 2, H / 2 + 20, { size: 22, align: 'center', color: '#eee' });
+    text(ctx, win ? '首領被擊敗了' : `倒在第 ${view.runOver.stage} 關${view.runOver.isBoss ? '（Boss 關）' : ''}`, W / 2, H / 2 + 20, { size: 22, align: 'center', color: '#eee' });
     text(ctx, '按 R 或點擊畫面回到大廳', W / 2, H / 2 + 64, { size: 18, align: 'center', color: '#bbb' });
   }
 }

@@ -62,6 +62,7 @@ export function advanceProjectile(world, p, dt) {
 
     for (const e of world.entities) {
       if (!e.alive || p.ignore.has(e) || (p.passAllies && e !== p.owner && e.team === p.owner.team)) continue;
+      if (e.allyPass && p.owner && e !== p.owner && e.team === p.owner.team) continue;   // 蜂巢、蜜蜂：自己人的子彈穿過去
       if (e === p.owner) {
         // 剛出砲口不會打到自己；空中開火時射手跟著往上飛，所以還沒離開過他的身體也不算打到
         if (!p.leftOwner) {

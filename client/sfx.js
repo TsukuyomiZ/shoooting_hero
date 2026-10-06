@@ -4,7 +4,7 @@
 import { CONFIG } from '../shared/config.js';
 import { audio } from './audio.js';
 
-const GAP = { step: 0.06, explode: 0.05, hurt: 0.06, splash: 0.15, plop: 0.05 };
+const GAP = { step: 0.06, explode: 0.05, hurt: 0.06, splash: 0.15, plop: 0.05, buzz: 0.2, yourTurn: 0.5 };
 const R = (a, b) => a + Math.random() * (b - a);
 
 let noiseBuf = null;
@@ -125,6 +125,20 @@ const SOUNDS = {
     tone(ctx, out, t, { type: 'sine', f0: 140, f1: 460, dur: 0.18, vol: 0.14, attack: 0.01 });
     noise(ctx, out, t, { filter: 'bandpass', f0: 500, f1: 2000, q: 0.8, dur: 0.15, vol: 0.06 });
   },
+  // 蜜蜂（小心擊發）：兩個稍微走音的鋸齒波疊在一起的「嗡嗡」，加一點翅膀的沙沙聲
+  buzz(ctx, out, t) {
+    for (const f of [208, 215]) tone(ctx, out, t, { type: 'sawtooth', f0: f, f1: f * 1.12, dur: 0.38, vol: 0.035, attack: 0.04 });
+    noise(ctx, out, t, { filter: 'bandpass', f0: 900, f1: 1400, q: 4, dur: 0.32, vol: 0.05, attack: 0.04 });
+  },
+  // 輪到你了（單人、多人都響，見 GameView.cueTurn）：木琴似的三個音往上「叮、叮、叮——」，最後一個音拉長；不分左右聲道
+  yourTurn(ctx, out, t) {
+    const notes = [[784, 0], [1047, 0.09], [1568, 0.18]];   // G5 → C6 → G6
+    notes.forEach(([f, dt], i) => {
+      const last = i === notes.length - 1;
+      tone(ctx, out, t + dt, { type: 'sine', f0: f, dur: last ? 0.55 : 0.16, vol: 0.32 });
+      tone(ctx, out, t + dt, { type: 'sine', f0: f * 4, dur: 0.05, vol: 0.05 });   // 敲下去那一下的亮音
+    });
+  },
 };
 
 export const sfx = {
@@ -132,7 +146,7 @@ export const sfx = {
 
   play(name, opts = {}) {
     const ctx = audio.ensure();
-    // 還沒解鎖（沒點過畫面）、分頁在背景、音效關掉：直接不播，不要堆到之後一起響
+    // 還沒解鎖（沒點過畫面）、音效關掉：直接不播，不要堆到之後一起響（分頁在背景照樣播，見 audio.js）
     if (!ctx || ctx.state !== 'running' || audio.volume('sfx') <= 0 || !SOUNDS[name]) return;
     const now = ctx.currentTime;
     if (now - (this.last.has(name) ? this.last.get(name) : -1) < (GAP[name] || 0.03)) return;

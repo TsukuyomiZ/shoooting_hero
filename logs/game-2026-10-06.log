@@ -1,0 +1,142 @@
+{"ts":"2026-10-06 08:35:06.056","ev":"server.start","version":"BETA v1.2","port":8127,"host":"0.0.0.0","node":"v24.12.0","proc":22676}
+{"ts":"2026-10-06 08:59:54.346","ev":"server.start","version":"BETA v1.2","port":8124,"host":"0.0.0.0","node":"v24.12.0","proc":33520}
+{"ts":"2026-10-06 09:00:37.034","ev":"conn.open","cid":1,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 09:00:37.037","ev":"player.hello","cid":1,"pid":"EMWJ789oUdld","name":"A","ip":"127.0.0.1"}
+{"ts":"2026-10-06 09:00:37.039","ev":"room.create","room":"EX3E","pid":"EMWJ789oUdld","name":"A"}
+{"ts":"2026-10-06 09:00:49.978","ev":"conn.open","cid":2,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 09:00:49.979","ev":"player.hello","cid":2,"pid":"h0WKHcZ7atCd","name":"B","ip":"127.0.0.1"}
+{"ts":"2026-10-06 09:00:49.981","ev":"room.join","room":"EX3E","pid":"h0WKHcZ7atCd","name":"B","players":2}
+{"ts":"2026-10-06 09:00:51.173","ev":"lobby.ready","room":"EX3E","pid":"h0WKHcZ7atCd","name":"B","ready":true}
+{"ts":"2026-10-06 09:00:55.526","ev":"lobby.ready","room":"EX3E","pid":"EMWJ789oUdld","name":"A","ready":true}
+{"ts":"2026-10-06 09:00:55.939","ev":"room.start","room":"EX3E","pid":"EMWJ789oUdld","name":"A","seed":2713945235,"cards":46,"players":[{"pid":"EMWJ789oUdld","name":"A"},{"pid":"h0WKHcZ7atCd","name":"B"}]}
+{"ts":"2026-10-06 09:00:55.942","ev":"stage.start","room":"EX3E","stage":1,"stageCount":10,"boss":false,"level":"brawl","players":[{"pid":"EMWJ789oUdld","name":"A","hp":150,"maxHp":150,"weapons":["cannon","sniper"],"cards":[]},{"pid":"h0WKHcZ7atCd","name":"B","hp":150,"maxHp":150,"weapons":["cannon","sniper"],"cards":[]}]}
+{"ts":"2026-10-06 09:00:55.952","ev":"battle.start","room":"EX3E","stage":1,"round":0,"level":"brawl","seed":2836469508,"entities":[{"id":"EMWJ789oUdld","name":"A","team":"players","hp":150,"maxHp":150,"x":50,"y":577},{"id":"h0WKHcZ7atCd","name":"B","team":"players","hp":150,"maxHp":150,"x":110,"y":576},{"id":"e1","name":"砲兵 A","team":"enemies","kind":"artillery","hp":68,"maxHp":68,"x":769.8,"y":570.3},{"id":"e2","name":"敵人 B","team":"enemies","hp":68,"maxHp":68,"x":890,"y":569.3},{"id":"e3","name":"砲兵 C","team":"enemies","kind":"artillery","hp":68,"maxHp":68,"x":960.8,"y":569.3}]}
+{"ts":"2026-10-06 09:00:57.464","ev":"turn.start","room":"EX3E","stage":1,"round":1,"actor":"EMWJ789oUdld","pid":"EMWJ789oUdld","name":"A","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30}
+{"ts":"2026-10-06 09:00:57.474","ev":"move","room":"EX3E","stage":1,"round":1,"pid":"EMWJ789oUdld","name":"A","x":50,"y":577,"facing":1,"stamina":200}
+{"ts":"2026-10-06 09:01:17.452","ev":"fire","room":"EX3E","stage":1,"round":1,"pid":"EMWJ789oUdld","name":"A","weapon":"cannon","angle":45,"power":30,"x":50,"y":577}
+{"ts":"2026-10-06 09:01:17.456","ev":"shot","room":"EX3E","stage":1,"round":1,"hitEnemy":false,"kind":"weapon","pid":"EMWJ789oUdld","name":"A","weapon":"cannon","hit":"terrain","frames":67,"kills":[],"changes":[]}
+{"ts":"2026-10-06 09:01:19.803","ev":"turn.end","room":"EX3E","stage":1,"round":1,"actor":"EMWJ789oUdld","pid":"EMWJ789oUdld","name":"A","hp":150,"alive":true}
+{"ts":"2026-10-06 09:01:19.803","ev":"turn.start","room":"EX3E","stage":1,"round":1,"actor":"h0WKHcZ7atCd","pid":"h0WKHcZ7atCd","name":"B","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30}
+{"ts":"2026-10-06 09:01:19.866","ev":"move","room":"EX3E","stage":1,"round":1,"pid":"h0WKHcZ7atCd","name":"B","x":110,"y":576,"facing":1,"stamina":200}
+{"ts":"2026-10-06 09:01:41.206","ev":"solo.start","room":"SOLO-7B8X4N","version":"BETA v1.2","name":"S","seed":3534766056,"cards":46,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 09:01:41.207","ev":"stage.start","room":"SOLO-7B8X4N","stage":1,"stageCount":10,"boss":false,"level":"level3","players":[{"pid":"me","name":"S","hp":150,"maxHp":150,"weapons":["cannon","sniper"],"cards":[]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-06 09:01:41.212","ev":"battle.start","room":"SOLO-7B8X4N","stage":1,"round":0,"level":"level3","seed":3669103217,"entities":[{"id":"me","name":"S","team":"players","hp":150,"maxHp":150,"x":50,"y":378},{"id":"e1","name":"敵人 A","team":"enemies","hp":45,"maxHp":45,"x":510,"y":566},{"id":"e2","name":"敵人 B","team":"enemies","hp":45,"maxHp":45,"x":860,"y":399.3}],"ip":"127.0.0.1"}
+{"ts":"2026-10-06 09:01:42.725","ev":"turn.start","room":"SOLO-7B8X4N","stage":1,"round":1,"actor":"me","pid":"me","name":"S","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 09:01:42.772","ev":"move","room":"SOLO-7B8X4N","stage":1,"round":1,"pid":"me","name":"S","x":50,"y":378,"facing":1,"stamina":200,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 09:01:49.818","ev":"turn.skip","room":"EX3E","stage":1,"round":1,"actor":"h0WKHcZ7atCd","pid":"h0WKHcZ7atCd","name":"B","reason":"timeout","changes":[]}
+{"ts":"2026-10-06 09:01:50.828","ev":"turn.end","room":"EX3E","stage":1,"round":1,"actor":"h0WKHcZ7atCd","pid":"h0WKHcZ7atCd","name":"B","hp":150,"alive":true}
+{"ts":"2026-10-06 09:01:50.828","ev":"turn.start","room":"EX3E","stage":1,"round":1,"actor":"e1","name":"砲兵 A","team":"enemies","ai":true,"hp":68,"maxHp":68}
+{"ts":"2026-10-06 09:01:50.862","ev":"ai.turn","room":"EX3E","stage":1,"round":1,"actor":"e1","name":"砲兵 A","walk":null,"weapon":"cannon","angle":156.4,"power":84.1,"hit":"out","kills":[],"changes":[]}
+{"ts":"2026-10-06 09:01:51.605","ev":"conn.close","room":"EX3E","cid":2,"pid":"h0WKHcZ7atCd","name":"B","code":1001}
+{"ts":"2026-10-06 09:01:51.605","ev":"player.disconnect","room":"EX3E","pid":"h0WKHcZ7atCd","name":"B","inGame":true}
+{"ts":"2026-10-06 09:01:51.951","ev":"conn.close","room":"EX3E","cid":1,"pid":"EMWJ789oUdld","name":"A","code":1001}
+{"ts":"2026-10-06 09:01:51.951","ev":"player.disconnect","room":"EX3E","pid":"EMWJ789oUdld","name":"A","inGame":true}
+{"ts":"2026-10-06 09:01:51.951","ev":"room.idle","room":"EX3E","closeInSecs":60}
+{"ts":"2026-10-06 10:22:57.815","ev":"server.start","version":"BETA v1.2","port":8123,"host":"0.0.0.0","node":"v24.12.0","proc":24172}
+{"ts":"2026-10-06 10:23:24.230","ev":"solo.start","room":"SOLO-J6UH94","version":"BETA v1.2","name":"玩家237","seed":3419623975,"cards":46,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:24.231","ev":"stage.start","room":"SOLO-J6UH94","stage":1,"stageCount":10,"boss":false,"level":"level1","players":[{"pid":"me","name":"玩家237","hp":150,"maxHp":150,"weapons":["cannon","sniper"],"cards":[]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:24.236","ev":"battle.start","room":"SOLO-J6UH94","stage":1,"round":0,"level":"level1","seed":913093077,"entities":[{"id":"me","name":"玩家237","team":"players","hp":150,"maxHp":150,"x":80,"y":433},{"id":"e1","name":"敵人 A","team":"enemies","hp":45,"maxHp":45,"x":552,"y":441.3},{"id":"e2","name":"敵人 B","team":"enemies","hp":45,"maxHp":45,"x":890,"y":426.3}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:25.746","ev":"turn.start","room":"SOLO-J6UH94","stage":1,"round":1,"actor":"me","pid":"me","name":"玩家237","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:25.763","ev":"move","room":"SOLO-J6UH94","stage":1,"round":1,"pid":"me","name":"玩家237","x":80,"y":433,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:26.880","ev":"fire","room":"SOLO-J6UH94","stage":1,"round":1,"pid":"me","name":"玩家237","weapon":"cannon","angle":14.4,"power":100,"x":80,"y":433,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:26.883","ev":"shot","room":"SOLO-J6UH94","stage":1,"round":1,"hitEnemy":false,"kind":"weapon","pid":"me","name":"玩家237","weapon":"cannon","hit":"terrain","frames":49,"kills":[],"changes":[],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:28.931","ev":"turn.end","room":"SOLO-J6UH94","stage":1,"round":1,"actor":"me","pid":"me","name":"玩家237","hp":150,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:28.931","ev":"turn.start","room":"SOLO-J6UH94","stage":1,"round":1,"actor":"e1","name":"敵人 A","team":"enemies","ai":true,"hp":45,"maxHp":45,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:28.953","ev":"ai.turn","room":"SOLO-J6UH94","stage":1,"round":1,"actor":"e1","name":"敵人 A","walk":{"dir":-1,"frames":22},"weapon":"cannon","angle":162.7,"power":68.1,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家237","hp":[150,129]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:33.555","ev":"turn.end","room":"SOLO-J6UH94","stage":1,"round":1,"actor":"e1","name":"敵人 A","hp":45,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:33.555","ev":"turn.start","room":"SOLO-J6UH94","stage":1,"round":1,"actor":"e2","name":"敵人 B","team":"enemies","ai":true,"hp":45,"maxHp":45,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:33.574","ev":"ai.turn","room":"SOLO-J6UH94","stage":1,"round":1,"actor":"e2","name":"敵人 B","walk":{"dir":-1,"frames":29},"weapon":"cannon","angle":158.7,"power":92.5,"hit":"entity","kills":[],"changes":[{"id":"me","name":"玩家237","hp":[129,108]}],"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:38.209","ev":"turn.end","room":"SOLO-J6UH94","stage":1,"round":1,"actor":"e2","name":"敵人 B","hp":45,"alive":true,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:38.209","ev":"turn.start","room":"SOLO-J6UH94","stage":1,"round":2,"actor":"me","pid":"me","name":"玩家237","team":"players","ai":false,"hp":108,"maxHp":150,"turnTime":30,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:38.380","ev":"move","room":"SOLO-J6UH94","stage":1,"round":2,"pid":"me","name":"玩家237","x":9.5,"y":434,"facing":1,"stamina":200,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:23:45.017","ev":"solo.end","room":"SOLO-J6UH94","reason":"pagehide","stage":1,"runPhase":"battle","round":2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:24:37.749","ev":"server.start","version":"BETA v1.2","port":8124,"host":"0.0.0.0","node":"v24.12.0","proc":35964}
+{"ts":"2026-10-06 10:24:48.770","ev":"solo.start","room":"SOLO-JE81VK","version":"BETA v1.2","name":"S","seed":3836806437,"cards":46,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:24:48.771","ev":"stage.start","room":"SOLO-JE81VK","stage":1,"stageCount":10,"boss":false,"level":"level3","players":[{"pid":"me","name":"S","hp":150,"maxHp":150,"weapons":["cannon","sniper"],"cards":[]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:24:48.784","ev":"battle.start","room":"SOLO-JE81VK","stage":1,"round":0,"level":"level3","seed":3079770695,"entities":[{"id":"me","name":"S","team":"players","hp":150,"maxHp":150,"x":50,"y":378},{"id":"e1","name":"敵人 A","team":"enemies","hp":45,"maxHp":45,"x":510,"y":566},{"id":"e2","name":"敵人 B","team":"enemies","hp":45,"maxHp":45,"x":860,"y":399.3}],"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:24:50.293","ev":"turn.start","room":"SOLO-JE81VK","stage":1,"round":1,"actor":"me","pid":"me","name":"S","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:24:50.372","ev":"move","room":"SOLO-JE81VK","stage":1,"round":1,"pid":"me","name":"S","x":50,"y":378,"facing":1,"stamina":200,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:24:54.770","ev":"fire","room":"SOLO-JE81VK","stage":1,"round":1,"pid":"me","name":"S","weapon":"cannon","angle":45,"power":30,"x":50,"y":378,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:24:54.776","ev":"shot","room":"SOLO-JE81VK","stage":1,"round":1,"hitEnemy":true,"kind":"weapon","pid":"me","name":"S","weapon":"cannon","hit":"entity","frames":87,"kills":[],"changes":[{"id":"e1","name":"敵人 A","hp":[45,15]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:24:58.207","ev":"turn.end","room":"SOLO-JE81VK","stage":1,"round":1,"actor":"me","pid":"me","name":"S","hp":150,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:24:58.207","ev":"turn.start","room":"SOLO-JE81VK","stage":1,"round":1,"actor":"e1","name":"敵人 A","team":"enemies","ai":true,"hp":15,"maxHp":45,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:24:58.225","ev":"ai.turn","room":"SOLO-JE81VK","stage":1,"round":1,"actor":"e1","name":"敵人 A","walk":{"dir":-1,"frames":31},"weapon":"cannon","angle":132.1,"power":61.4,"hit":"terrain","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:25:01.991","ev":"turn.end","room":"SOLO-JE81VK","stage":1,"round":1,"actor":"e1","name":"敵人 A","hp":15,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:25:01.991","ev":"turn.start","room":"SOLO-JE81VK","stage":1,"round":1,"actor":"e2","name":"敵人 B","team":"enemies","ai":true,"hp":45,"maxHp":45,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:25:02.010","ev":"ai.turn","room":"SOLO-JE81VK","stage":1,"round":1,"actor":"e2","name":"敵人 B","walk":{"dir":-1,"frames":36},"weapon":"cannon","angle":157.9,"power":87.5,"hit":"entity","kills":[],"changes":[{"id":"me","name":"S","hp":[150,129]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:25:06.631","ev":"turn.end","room":"SOLO-JE81VK","stage":1,"round":1,"actor":"e2","name":"敵人 B","hp":45,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:25:06.632","ev":"turn.start","room":"SOLO-JE81VK","stage":1,"round":2,"actor":"me","pid":"me","name":"S","team":"players","ai":false,"hp":129,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:25:06.647","ev":"move","room":"SOLO-JE81VK","stage":1,"round":2,"pid":"me","name":"S","x":9.6,"y":380,"facing":1,"stamina":200,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:14.533","ev":"server.start","version":"BETA v1.2","port":8124,"host":"0.0.0.0","node":"v24.12.0","proc":6388}
+{"ts":"2026-10-06 10:38:29.500","ev":"solo.start","room":"SOLO-ZJQWVD","version":"BETA v1.2","name":"S","seed":25757940,"cards":46,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:29.501","ev":"stage.start","room":"SOLO-ZJQWVD","stage":1,"stageCount":10,"boss":false,"level":"brawl","players":[{"pid":"me","name":"S","hp":150,"maxHp":150,"weapons":["cannon","sniper"],"cards":[]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:29.509","ev":"battle.start","room":"SOLO-ZJQWVD","stage":1,"round":0,"level":"brawl","seed":1120399790,"entities":[{"id":"me","name":"S","team":"players","hp":150,"maxHp":150,"x":50,"y":577},{"id":"e1","name":"砲兵 A","team":"enemies","kind":"artillery","hp":45,"maxHp":45,"x":791.5,"y":570.3},{"id":"e2","name":"砲兵 B","team":"enemies","kind":"artillery","hp":45,"maxHp":45,"x":885.4,"y":569.3},{"id":"e3","name":"敵人 C","team":"enemies","hp":45,"maxHp":45,"x":957.2,"y":569.3}],"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:31.023","ev":"turn.start","room":"SOLO-ZJQWVD","stage":1,"round":1,"actor":"me","pid":"me","name":"S","team":"players","ai":false,"hp":150,"maxHp":150,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:31.133","ev":"move","room":"SOLO-ZJQWVD","stage":1,"round":1,"pid":"me","name":"S","x":50,"y":577,"facing":1,"stamina":200,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:34.205","ev":"fire","room":"SOLO-ZJQWVD","stage":1,"round":9,"pid":"me","name":"S","weapon":"cannon","angle":45,"power":30,"x":50,"y":577,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:34.209","ev":"shot","room":"SOLO-ZJQWVD","stage":1,"round":9,"hitEnemy":false,"kind":"weapon","pid":"me","name":"S","weapon":"cannon","hit":"terrain","frames":67,"kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:36.548","ev":"turn.end","room":"SOLO-ZJQWVD","stage":1,"round":9,"actor":"me","pid":"me","name":"S","hp":150,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:36.548","ev":"turn.start","room":"SOLO-ZJQWVD","stage":1,"round":9,"actor":"e1","name":"砲兵 A","team":"enemies","ai":true,"hp":45,"maxHp":45,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:36.578","ev":"ai.turn","room":"SOLO-ZJQWVD","stage":1,"round":9,"actor":"e1","name":"砲兵 A","walk":null,"weapon":"cannon","angle":160.6,"power":100,"hit":"out","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:40.441","ev":"turn.end","room":"SOLO-ZJQWVD","stage":1,"round":9,"actor":"e1","name":"砲兵 A","hp":45,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:40.441","ev":"turn.start","room":"SOLO-ZJQWVD","stage":1,"round":9,"actor":"e2","name":"砲兵 B","team":"enemies","ai":true,"hp":45,"maxHp":45,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:40.459","ev":"ai.turn","room":"SOLO-ZJQWVD","stage":1,"round":9,"actor":"e2","name":"砲兵 B","walk":null,"weapon":"cannon","angle":156.3,"power":100,"hit":"out","kills":[],"changes":[],"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:44.466","ev":"turn.end","room":"SOLO-ZJQWVD","stage":1,"round":9,"actor":"e2","name":"砲兵 B","hp":45,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:44.466","ev":"turn.start","room":"SOLO-ZJQWVD","stage":1,"round":9,"actor":"e3","name":"敵人 C","team":"enemies","ai":true,"hp":45,"maxHp":45,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:44.485","ev":"ai.turn","room":"SOLO-ZJQWVD","stage":1,"round":9,"actor":"e3","name":"敵人 C","walk":null,"weapon":"cannon","angle":160.7,"power":98,"hit":"terrain","kills":[],"changes":[{"id":"me","name":"S","hp":[150,134]}],"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:49.022","ev":"turn.end","room":"SOLO-ZJQWVD","stage":1,"round":9,"actor":"e3","name":"敵人 C","hp":45,"alive":true,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:49.022","ev":"turn.start","room":"SOLO-ZJQWVD","stage":1,"round":10,"actor":"me","pid":"me","name":"S","team":"players","ai":false,"hp":134,"maxHp":150,"fever":1,"turnTime":30,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:38:49.143","ev":"move","room":"SOLO-ZJQWVD","stage":1,"round":10,"pid":"me","name":"S","x":15,"y":577.2,"facing":1,"stamina":200,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:41:04.748","ev":"server.start","version":"BETA v1.2","port":8123,"host":"0.0.0.0","node":"v24.12.0","proc":14804}
+{"ts":"2026-10-06 10:47:45.031","ev":"server.start","version":"BETA v1.2","port":8124,"host":"0.0.0.0","node":"v24.12.0","proc":25296}
+{"ts":"2026-10-06 10:47:48.747","ev":"conn.open","cid":1,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:47:48.751","ev":"player.hello","cid":1,"pid":"sTTnp-LOkx1B","name":"玩家845","ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:47:48.758","ev":"lobby.browse","pid":"sTTnp-LOkx1B","name":"玩家845","on":true}
+{"ts":"2026-10-06 10:47:50.300","ev":"conn.close","cid":1,"pid":"sTTnp-LOkx1B","name":"玩家845","code":1001}
+{"ts":"2026-10-06 10:47:50.670","ev":"conn.open","cid":2,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:47:50.683","ev":"player.hello","cid":2,"pid":"QnTjdEcPV_7e","name":"玩家491","ip":"127.0.0.1","oldToken":true}
+{"ts":"2026-10-06 10:47:50.689","ev":"lobby.browse","pid":"QnTjdEcPV_7e","name":"玩家491","on":true}
+{"ts":"2026-10-06 10:47:54.859","ev":"conn.open","cid":3,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:47:54.861","ev":"player.hello","cid":3,"pid":"IZDARmUYWyof","name":"阿明","ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:47:54.873","ev":"conn.open","cid":4,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:47:54.874","ev":"player.hello","cid":4,"pid":"bAqX1pdHZfsq","name":"小華","ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:47:54.889","ev":"conn.open","cid":5,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:47:54.890","ev":"player.hello","cid":5,"pid":"JmezkT1R1D2t","name":"秘密","ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:47:54.966","ev":"room.create","room":"DYSN","pid":"IZDARmUYWyof","name":"阿明","private":false}
+{"ts":"2026-10-06 10:47:54.981","ev":"room.create","room":"9MDE","pid":"bAqX1pdHZfsq","name":"小華","private":false}
+{"ts":"2026-10-06 10:47:54.997","ev":"room.create","room":"4SX3","pid":"JmezkT1R1D2t","name":"秘密","private":true}
+{"ts":"2026-10-06 10:48:00.859","ev":"room.join","room":"DYSN","pid":"QnTjdEcPV_7e","name":"玩家491","players":2,"private":false,"via":"list"}
+{"ts":"2026-10-06 10:48:22.586","ev":"lobby.leave","room":"DYSN","pid":"QnTjdEcPV_7e","name":"玩家491"}
+{"ts":"2026-10-06 10:48:22.904","ev":"conn.close","cid":2,"code":1001}
+{"ts":"2026-10-06 10:48:22.906","ev":"conn.close","room":"4SX3","cid":5,"pid":"JmezkT1R1D2t","name":"秘密","code":1001}
+{"ts":"2026-10-06 10:48:22.907","ev":"player.disconnect","room":"4SX3","pid":"JmezkT1R1D2t","name":"秘密","inGame":false}
+{"ts":"2026-10-06 10:48:22.907","ev":"room.destroy","room":"4SX3","reason":"empty"}
+{"ts":"2026-10-06 10:48:22.907","ev":"conn.close","room":"9MDE","cid":4,"pid":"bAqX1pdHZfsq","name":"小華","code":1001}
+{"ts":"2026-10-06 10:48:22.907","ev":"player.disconnect","room":"9MDE","pid":"bAqX1pdHZfsq","name":"小華","inGame":false}
+{"ts":"2026-10-06 10:48:22.907","ev":"room.destroy","room":"9MDE","reason":"empty"}
+{"ts":"2026-10-06 10:48:22.907","ev":"conn.close","room":"DYSN","cid":3,"pid":"IZDARmUYWyof","name":"阿明","code":1001}
+{"ts":"2026-10-06 10:48:22.907","ev":"player.disconnect","room":"DYSN","pid":"IZDARmUYWyof","name":"阿明","inGame":false}
+{"ts":"2026-10-06 10:48:22.907","ev":"room.destroy","room":"DYSN","reason":"empty"}
+{"ts":"2026-10-06 10:48:23.290","ev":"conn.open","cid":6,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:48:23.291","ev":"player.hello","cid":6,"pid":"wgefiNfUkmkS","name":"玩家321","ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:48:23.292","ev":"lobby.browse","pid":"wgefiNfUkmkS","name":"玩家321","on":true}
+{"ts":"2026-10-06 10:48:23.728","ev":"room.create","room":"X6HA","pid":"wgefiNfUkmkS","name":"玩家321","private":true}
+{"ts":"2026-10-06 10:48:24.033","ev":"conn.open","cid":7,"ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:48:24.034","ev":"player.hello","cid":7,"pid":"iEl7dWjgR5Ji","name":"觀察","ip":"127.0.0.1"}
+{"ts":"2026-10-06 10:48:24.035","ev":"lobby.browse","pid":"iEl7dWjgR5Ji","name":"觀察","on":true}
+{"ts":"2026-10-06 10:48:24.532","ev":"room.privacy","room":"X6HA","pid":"wgefiNfUkmkS","name":"玩家321","private":false}
+{"ts":"2026-10-06 10:48:42.731","ev":"conn.close","room":"X6HA","cid":6,"pid":"wgefiNfUkmkS","name":"玩家321","code":1001}
+{"ts":"2026-10-06 10:48:42.731","ev":"player.disconnect","room":"X6HA","pid":"wgefiNfUkmkS","name":"玩家321","inGame":false}
+{"ts":"2026-10-06 10:48:42.731","ev":"room.destroy","room":"X6HA","reason":"empty"}
+{"ts":"2026-10-06 10:48:42.731","ev":"conn.close","cid":7,"pid":"iEl7dWjgR5Ji","name":"觀察","code":1006}
+{"ts":"2026-10-06 10:53:30.597","ev":"server.start","version":"BETA v1.2","port":8123,"host":"0.0.0.0","node":"v24.12.0","proc":15336}
+{"ts":"2026-10-06 10:53:39.287","ev":"conn.open","cid":1,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:53:39.297","ev":"player.hello","cid":1,"pid":"bveW_tD0fA0u","name":"玩家367","ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:53:39.300","ev":"lobby.browse","pid":"bveW_tD0fA0u","name":"玩家367","on":true}
+{"ts":"2026-10-06 10:54:12.905","ev":"room.create","room":"TS8P","pid":"bveW_tD0fA0u","name":"玩家367","private":true}
+{"ts":"2026-10-06 10:54:18.977","ev":"lobby.leave","room":"TS8P","pid":"bveW_tD0fA0u","name":"玩家367"}
+{"ts":"2026-10-06 10:54:18.977","ev":"room.destroy","room":"TS8P","reason":"empty"}
+{"ts":"2026-10-06 10:54:18.996","ev":"conn.close","cid":1,"code":1001}
+{"ts":"2026-10-06 10:54:19.197","ev":"conn.open","cid":2,"ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:54:19.202","ev":"player.hello","cid":2,"pid":"x3pX6Yn__OJB","name":"玩家929","ip":"172.23.192.18"}
+{"ts":"2026-10-06 10:54:19.204","ev":"lobby.browse","pid":"x3pX6Yn__OJB","name":"玩家929","on":true}

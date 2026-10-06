@@ -1,6 +1,7 @@
 import { Run } from '../shared/run.js';
 import { validateCards } from '../shared/cards.js';
 import { SoloLog } from './solo-log.js';
+import { VERSION, versionLabel } from '../shared/version.js';
 
 // 兩種傳輸層，介面一樣：send(msg)、onMessage(cb)
 // - WsTransport：連到 Node 伺服器（多人）
@@ -116,7 +117,7 @@ export class LocalTransport {
       now: () => Date.now(),
       record: (ev, data) => this.log.record(ev, data),   // 紀錄（玩家看不到，送回伺服器寫檔）
     };
-    this.log.record('solo.start', { name, seed, cards: cards.length });
+    this.log.record('solo.start', { version: versionLabel(VERSION), name, seed, cards: cards.length });
     this.run = new Run({ players, seed, io, cards });
     this.emit({ t: 'welcome', id: 'me', token: null });
     this.run.start();
