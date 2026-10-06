@@ -1,15 +1,16 @@
 import { CONFIG } from './config.js';
 import { Entity } from './entities.js';
-import { makeProjectile } from './weapons.js';
 import { clamp } from './utils.js';
+import { nearestPlayerAt, bossProjectile, bossShot, stillResult } from './mechanics/common.js';
 
 // 小關「小心擊發」的蜂巢與蜜蜂（伺服器與客戶端共用；蜜蜂的回合只在伺服器算，客戶端照廣播播動畫）。
+// Match 什麼時候呼叫這些，見地圖機制 shared/mechanics/hive.js。
 //
 // - 蜂巢：掛在樹枝最左邊下面，固定不動、不會輪到它（noTurn）。打不打都可以：狙擊手全倒就過關（蜂巢與蜜蜂是 optional）。
 //   被玩家方攻擊到（直擊或爆炸波及；一顆飛行物算一次，等離子三發都打到 = 三次）就只扣 1，不管用什麼武器、傷害多高；
-//   每被打到一次就飛出一隻蜜蜂（打掉蜂巢的那一下也會飛出來，所以最多 HIVE.hp 隻）。
-//   不會燃燒、中毒、被擊退；敵人自己的子彈會穿過它（allyPass），不會讓它扣血、放蜜蜂。見 Match.applyExplosion
-// - 蜜蜂：從蜂巢飛出來，停在 level.hive.beeSpots（找沒有蜜蜂停著的）。飛在空中（fixed：不受重力、不會被擊退、不會落水），
+//   每被打到一次就飛出一隻蜜蜂（打掉蜂巢的那一下也會飛出來，所以最多 HIVE.hp 隻）。打掉蜂巢不算擊殺（noKill）。
+//   不會燃燒、中毒、被擊退；敵人自己的子彈會穿過它（allyPass），不會讓它扣血、放蜜蜂。見 mechanics/hive.js 的 absorbHit
+// - 蜜蜂：從蜂巢飛出來，停在 level.mechanic.beeSpots（找沒有蜜蜂停著的）。飛在空中（fixed：不受重力、不會被擊退、不會落水），
 //   血量跟一般敵人一樣依人數、關數放大。剛飛出來後的第一個自己的回合先待機（BEE.waitTurns），
 //   之後每個回合衝向離牠最近的玩家（直線、穿過地形；中間剛好有別的玩家就先螫到那個人）：beeSting 的傷害 + 中毒。
 //   螫完停在被螫的人身體旁邊（不蓋到他的名字；好幾隻時互相錯開，見 hoverSpot），下一回合再衝（BEE.diesOnSting 打開的話螫完就死）
@@ -23,17 +24,17 @@ export const BEE_ACTION_NAMES = {
 
 // 建立蜂巢。hpScale = 這一關一般敵人的血量倍率（人數 × 關數），蜜蜂照它放大；蜂巢本身固定 HIVE.hp
 export function buildHive(match, hpScale) {
-  const def = match.level.hive;
+  const def = match.level.mechanic;
   // bees：放出來過的蜜蜂出生資料（重連時照著重建）；fresh：剛放出來、還沒寫進事件的
   match.hive = { def, hpScale, bees: [], seq: 0, fresh: [] };
   match.entities.push(new Entity({
     ...CONFIG.ENEMY, id: 'hive', name: '蜂巢', team: 'enemies', controller: 'ai', slot: 0, facing: -1, kind: 'hive',
     x: def.x, y: def.y, hw: def.hw, h: def.h, hp: CONFIG.HIVE.hp,
-    fixed: true, noTurn: true, optional: true, allyPass: true,
+    fixed: true, noTurn: true, optional: true, allyPass: true, noKill: true,
   }));
 }
 
-// 蜂巢被玩家方打到一次（Match.applyExplosion 呼叫）：扣 1、放出一隻蜜蜂（打掉的那一下也放）。回傳實際扣的血
+// 蜂巢被玩家方打到一次（爆炸結算扣完所有人的血之後，見 mechanics/hive.js）：扣 1、放出一隻蜜蜂（打掉的那一下也放）。回傳實際扣的血
 export function hitHive(match, hive) {
   const dmg = hive.takeDamage(1);
   if (match.hive) releaseBee(match);
@@ -91,24 +92,13 @@ export function takeFreshBees(match) {
   return out;
 }
 
-// 離蜜蜂最近的活著的玩家（衝刺螫擊的目標；一樣近時排前面的先）
-export function nearestPlayerTo(match, bee) {
-  let target = null, best = Infinity;
-  for (const e of match.players) {
-    if (!e.alive) continue;
-    const d = (e.cx - bee.cx) * (e.cx - bee.cx) + (e.cy - bee.cy) * (e.cy - bee.cy);
-    if (d < best) { best = d; target = e; }
-  }
-  return target;
-}
-
 // 蜜蜂的回合：還在待機就待機（次數 -1），不然衝向最近的玩家。回傳 { steps: [招式], next: null }（格式同 Boss）
 export function resolveBeeTurn(match, bee) {
   if (bee.waitTurns > 0) {
     bee.waitTurns--;
     return { steps: [{ action: 'wait', still: stillResult(match) }], next: null };
   }
-  const target = nearestPlayerTo(match, bee);
+  const target = nearestPlayerAt(match, bee.cx, bee.cy);   // 離蜜蜂最近的活著的玩家（一樣近時排前面的先）
   if (!target) return { steps: [{ action: 'idle', still: stillResult(match) }], next: null };
   return { steps: [{ action: 'sting', targetId: target.id, shot: stingShot(match, bee, target) }], next: null };
 }
@@ -144,13 +134,7 @@ function stingShot(match, bee, target) {
   const d = Math.sqrt(dx * dx + dy * dy) || 1;
   const ux = dx / d, uy = dy / d;
   bee.facing = ux >= 0 ? 1 : -1;
-  const p = makeProjectile(bee, weapon, ox, oy, ux * weapon.speed, uy * weapon.speed);
-  p.spawn = 1;
-  const shot = {
-    kind: 'boss', actorId: bee.id, weapon: weapon.id, angle: 180, power: 0, facing: bee.facing,
-    actor: { x: bee.x, y: bee.y, vy: 0 },
-    ...match.resolveVolley(bee, weapon, [p], 0),
-  };
+  const shot = bossShot(match, bee, weapon, [bossProjectile(bee, weapon, ox, oy, ux * weapon.speed, uy * weapon.speed)], bee.facing);
   const hit = shot.events.find(ev => ev.target);
   const victim = hit && match.byId(hit.target);
   if (victim) {
@@ -161,9 +145,4 @@ function stingShot(match, bee, target) {
   }
   shot.results = match.entities.map(e => e.toState());   // 蜜蜂停下來的位置（或螫完死掉）要進最後的校正
   return shot;
-}
-
-function stillResult(match) {
-  const settleFrames = match.settle(360);
-  return { results: match.entities.map(e => e.toState()), settleFrames };
 }

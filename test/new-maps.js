@@ -259,7 +259,7 @@ test('小心擊發：玩家在左邊地面；兩個狙擊手站在樹枝右側�
   assert(hive && hive.kind === 'hive' && hive.fixed && hive.noTurn && hive.optional && hive.hp === 5 && hive.maxHp === 5, 'hive entity');
   assert(hive.x - hive.hw - bx0 < 40 && hive.y - hive.h >= top, `hive hangs under the left end of the branch (${hive.x}, ${hive.y})`);
   for (let i = 0; i < 120; i++) m.step();
-  assert(hive.y === LEVELS.beehive.hive.y, 'hive does not fall');
+  assert(hive.y === LEVELS.beehive.mechanic.y, 'hive does not fall');
   // 樹幹（樹皮）與樹枝炸不壞；地面炸得掉
   t.carve(900, 300, 40);
   t.carve(600, top + 5, 40);
@@ -304,7 +304,7 @@ test('蜂巢：不管什麼武器、直擊或波及、傷害加成多高都只�
   const d = ev.damages.find(x => x.id === 'hive');
   assert(d && d.dmg === 1 && d.hive && !d.friendly, 'damage entry: ' + JSON.stringify(d));
   const b1 = m.byId('b1');
-  const spot = LEVELS.beehive.hive.beeSpots[0];
+  const spot = LEVELS.beehive.mechanic.beeSpots[0];
   assert(b1 && b1.kind === 'bee' && b1.alive && b1.fixed && b1.optional && b1.x === spot.x && b1.y === spot.y, 'bee at the first spot');
   assert(b1.hp === Math.round(30 * (1 + CONFIG.ENEMY_HP_PER_EXTRA_PLAYER)) && b1.waitTurns === 1, `bee hp ${b1.hp} wait ${b1.waitTurns}`);
   assert(r1.results.some(s => s.id === 'b1' && s.wt === 1), 'shot results include the bee');

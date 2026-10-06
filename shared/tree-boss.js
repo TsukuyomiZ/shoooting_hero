@@ -1,13 +1,14 @@
 import { CONFIG } from './config.js';
 import { Entity } from './entities.js';
-import { makeProjectile } from './weapons.js';
+import { weightedPick, nearestPlayerAt, bossProjectile, bossShot, stillResult } from './mechanics/common.js';
 
 // Boss 關「古樹之庭」的規則（伺服器與客戶端共用；出招只在伺服器算，客戶端照廣播播動畫）。
+// Match 什麼時候呼叫這些，見地圖機制 shared/mechanics/tree.js。
 //
 // - 古樹本身是地圖右邊不可破壞的樹皮地形，身上只有兩個打得到的部位（固定不動的角色）：
 //     古樹之眼：本體，輪到古樹時由它出招。打倒 = 古樹倒下，嘴巴與樹妖一起枯萎 → 過關
 //     古樹之口：不會輪到它、打不壞。被攻擊到（直擊或爆炸波及）就閉上，閉著的時候古樹不能召喚；
-//              撐過幾個古樹回合才張開（見 Match.applyExplosion / reopenMouth）：
+//              撐過幾個古樹回合才張開（見 hitMouth / reopenMouth）：
 //              單人 mouthClosedTurnsSolo（2：下一輪也還閉著），多人 mouthClosedTurnsMulti（1：只擋下一個古樹回合）
 // - 古樹的下一招是事先決定好的（match.tree.next = { action, plane? }，見 planTreeNext）：
 //     開場（大家落地後）先決定一次，之後每次古樹回合用掉這一招，回合結束（擊退落地後）再決定下一招。
@@ -34,7 +35,7 @@ export const TREE_ACTION_NAMES = {
 // 建立古樹的兩個部位。hpScale = 血量倍率（每多一位玩家 +50%，第二個王關以後再乘 bossStageScale，見 match.js）；樹妖、閉目養神也照這個
 export function buildTree(match, hpScale) {
   const T = CONFIG.TREE_BOSS;
-  const def = match.level.tree;
+  const def = match.level.mechanic;
   // minions：召喚過的樹妖出生資料（重連時照著重建）；next：預定的下一招（Match 開場落地後才決定）
   match.tree = { def, hpScale, minions: [], seq: 0, next: null };
   const part = (p, o) => new Entity({
@@ -56,6 +57,15 @@ export function isSolo(match) {
 export function mouthOpen(match) {
   const m = match.byId('mouth');
   return !!m && m.alive && m.closedTurns === 0;
+}
+
+// 古樹之口被打到（爆炸 / 命中結算的第一步，在無敵之前）：被敵方打到（直擊或波及）就閉上，撐過 closeOnHit 個古樹回合才張開。
+// 打不壞、不會燒、不會中毒、不會被擊退；自己人打到沒事。回傳要放進傷害清單的那一筆（沒事 = null）
+export function hitMouth(mouth, friendly) {
+  if (friendly) return null;
+  mouth.closedTurns = mouth.closeOnHit;
+  mouth.hurtTimer = 0.35;
+  return { id: mouth.id, dmg: 0, friendly, closed: true };
 }
 
 // 古樹（眼睛）的回合結束時：閉著的嘴巴撐過了這個回合，張開。fx 給客戶端播動畫
@@ -115,17 +125,6 @@ function freeSpawn(match) {
   const alive = match.enemies.filter(e => e.minion && e.alive);
   if (alive.length >= CONFIG.TREE_BOSS.maxMinions) return null;
   return match.tree.def.minionSpawns.find(s => !alive.some(m => Math.abs(m.x - s.x) < 20)) || null;
-}
-
-function weightedPick(rng, options) {
-  const total = options.reduce((s, [, w]) => s + Math.max(0, w || 0), 0);
-  if (!(total > 0)) return null;
-  let r = rng.float() * total;
-  for (const [id, w] of options) {
-    r -= Math.max(0, w || 0);
-    if (r < 0) return id;
-  }
-  return options[options.length - 1][0];
 }
 
 // 古樹現在出招的話會不會召喚：嘴巴張著，而且還有空的出生點（樹妖沒滿）。畫面 HUD 也用這個
@@ -218,12 +217,7 @@ function resolveTreeAction(match, eye, { action, plane }) {
       return { action, plane, shot: trunkShot(match, eye, plane) };
     case 'leaves': {
       const { x, y } = leafOrigin(eye);
-      let target = null, best = Infinity;
-      for (const e of match.players) {
-        if (!e.alive) continue;
-        const d = (e.cx - x) * (e.cx - x) + (e.cy - y) * (e.cy - y);
-        if (d < best) { best = d; target = e; }
-      }
+      const target = nearestPlayerAt(match, x, y);
       if (!target) return { action: 'idle', still: stillResult(match) };
       return { action, targetId: target.id, shot: leafShot(match, eye, target) };
     }
@@ -241,12 +235,13 @@ export function leafOrigin(eye) {
   return { x: eye.x - eye.hw - 10, y: eye.cy };
 }
 
-// 古樹撞擊：巨大樹幹從樹幹表面伸出，在預定的平面高度往左橫掃整張地圖（範圍見 trunkLane）
+// 古樹撞擊：巨大樹幹從樹幹表面伸出，在預定的平面高度往左橫掃整張地圖（範圍見 trunkLane）。
+// 古樹的招式（撞擊、下面的落葉）都帶 passAllies：穿過眼、嘴、樹妖，只打玩家；結果跟一般開火同樣格式（見 mechanics/common.js 的 bossShot）
 function trunkShot(match, eye, planeIdx) {
   const weapon = CONFIG.WEAPONS.treeTrunk;
   const { y, x1 } = trunkLane(match, planeIdx);
   const x = Math.min(x1 + 30, CONFIG.WORLD_W);
-  return bossShot(match, eye, weapon, [bossProjectile(match, eye, weapon, x, y, -weapon.speed, 0)]);
+  return bossShot(match, eye, weapon, [bossProjectile(eye, weapon, x, y, -weapon.speed, 0)]);
 }
 
 // 飛散落葉：直線飛向目標，穿過地形與角色
@@ -255,27 +250,5 @@ function leafShot(match, eye, target) {
   const o = leafOrigin(eye);
   const dx = target.cx - o.x, dy = target.cy - o.y;
   const d = Math.sqrt(dx * dx + dy * dy) || 1;
-  return bossShot(match, eye, weapon, [bossProjectile(match, eye, weapon, o.x, o.y, dx / d * weapon.speed, dy / d * weapon.speed)]);
-}
-
-// 古樹的招式都帶 passAllies：穿過眼、嘴、樹妖，只打玩家
-function bossProjectile(match, eye, weapon, x, y, vx, vy) {
-  const p = makeProjectile(eye, weapon, x, y, vx, vy);
-  p.spawn = 1;
-  return p;
-}
-
-// 跟一般開火同樣格式的結果，客戶端直接用 shotScript 重播（古樹的部位不會動，actor 就是眼睛本身的位置）
-function bossShot(match, eye, weapon, projs) {
-  return {
-    kind: 'boss', actorId: eye.id, weapon: weapon.id, angle: 180, power: 0, facing: -1,
-    actor: { x: eye.x, y: eye.y, vy: 0 },
-    ...match.resolveVolley(eye, weapon, projs, 0),
-  };
-}
-
-// 沒有飛行物的招式：讓大家（剛召喚的樹妖）落地，回傳最終狀態
-function stillResult(match) {
-  const settleFrames = match.settle(360);
-  return { results: match.entities.map(e => e.toState()), settleFrames };
+  return bossShot(match, eye, weapon, [bossProjectile(eye, weapon, o.x, o.y, dx / d * weapon.speed, dy / d * weapon.speed)]);
 }

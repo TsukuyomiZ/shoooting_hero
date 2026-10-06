@@ -1,8 +1,9 @@
 import { CONFIG } from './config.js';
 import { Entity } from './entities.js';
-import { makeProjectile } from './weapons.js';
+import { weightedPick, nearestPlayerAt, bossProjectile, bossShot, stillResult } from './mechanics/common.js';
 
 // Boss 關「叢林巨蟒」的規則（伺服器與客戶端共用；出招只在伺服器算，客戶端照廣播播動畫）。
+// Match 什麼時候呼叫這些，見地圖機制 shared/mechanics/snake.js。
 //
 // - 地圖：一條藤蔓橋（平台，炸不壞、子彈穿得過）從左邊接到巨蟒嘴前，上面垂下三條藤蔓（按住 W / S 抓住、上下爬，見 Entity.updateVine）。
 //   巨蟒的頭在最右邊，那裡沒有橋：走過頭、被甩過去都會掉進水裡。
@@ -12,7 +13,7 @@ import { makeProjectile } from './weapons.js';
 //     毒液噴灑（25%）：從嘴巴往左上方隨機散射幾顆毒液，打中的玩家 10 層中毒（同一次噴灑每人最多中一次）
 //     大地震擊（10%）：震波沿著橋面跑，站在橋上的玩家 50 傷害、往巨蟒的方向擊退（藤蔓上 / 半空中的不會被打到）
 //     劇毒撕咬（20%）：咬向離嘴巴最近的玩家，15 傷害 + 10 層中毒
-// - 中毒（任何角色都可能有，現在只有巨蟒會上毒）：在被毒的人自己的回合開始時結算（見 poisonTick）——
+// - 中毒（任何角色都可能有，巨蟒與蜜蜂會上毒）：在被毒的人自己的回合開始時結算（見 entities.js 的 poisonTick）——
 //     每層扣最大血量 POISON.pctPerStack%，同時把最大血量鎖住一樣多（100/100 → 99/99）。層數不會自己消失（POISON.persist），
 //     每個自己的回合開始都再結算一次，要喝蛇血才解除
 // - 蛇血：巨蟒每受到最大血量 bloodEveryPct% 的傷害就掉一瓶到橋上（match.items）。
@@ -29,7 +30,7 @@ export const SNAKE_ACTION_NAMES = {
 
 // 建立巨蟒。hpScale = 血量倍率（每多一位玩家 +50%，第二個王關以後再乘 bossStageScale，見 match.js）
 export function buildSnake(match, hpScale) {
-  const def = match.level.snake;
+  const def = match.level.mechanic;
   const h = def.head;
   // next：預定的下一招（Match 開場落地後才決定）；dropped：已經掉了幾瓶蛇血；itemSeq：蛇血的流水號
   match.snake = { def, next: null, dropped: 0, itemSeq: 0 };
@@ -38,17 +39,6 @@ export function buildSnake(match, hpScale) {
     x: h.x, y: h.y, hw: h.hw, h: h.hh * 2, shape: 'ellipse', boss: true, fixed: true, part: 'snake',
     hp: Math.round(CONFIG.SNAKE_BOSS.hp * hpScale),
   }));
-}
-
-function weightedPick(rng, options) {
-  const total = options.reduce((s, [, w]) => s + Math.max(0, w || 0), 0);
-  if (!(total > 0)) return null;
-  let r = rng.float() * total;
-  for (const [id, w] of options) {
-    r -= Math.max(0, w || 0);
-    if (r < 0) return id;
-  }
-  return options[options.length - 1][0];
 }
 
 // 依權重抽一招（權重全是 0 就發呆）
@@ -84,13 +74,7 @@ export function chargeLane(match) {
 // 離巨蟒嘴巴最近的活著的玩家（劇毒撕咬的目標）
 export function nearestPlayer(match) {
   const { x, y } = match.snake.def.mouth;
-  let target = null, best = Infinity;
-  for (const e of match.players) {
-    if (!e.alive) continue;
-    const d = (e.cx - x) * (e.cx - x) + (e.cy - y) * (e.cy - y);
-    if (d < best) { best = d; target = e; }
-  }
-  return target;
+  return nearestPlayerAt(match, x, y);
 }
 
 function resolveSnakeAction(match, snake, action) {
@@ -149,47 +133,6 @@ function biteShot(match, snake, target) {
   const dx = target.cx - o.x, dy = target.cy - o.y;
   const d = Math.sqrt(dx * dx + dy * dy) || 1;
   return bossShot(match, snake, weapon, [bossProjectile(snake, weapon, o.x, o.y, dx / d * weapon.speed, dy / d * weapon.speed)]);
-}
-
-function bossProjectile(snake, weapon, x, y, vx, vy) {
-  const p = makeProjectile(snake, weapon, x, y, vx, vy);
-  p.spawn = 1;
-  return p;
-}
-
-// 跟一般開火同樣格式的結果，客戶端直接用 shotScript 重播（巨蟒不會動，actor 就是頭本身的位置）
-function bossShot(match, snake, weapon, projs) {
-  return {
-    kind: 'boss', actorId: snake.id, weapon: weapon.id, angle: 180, power: 0, facing: -1,
-    actor: { x: snake.x, y: snake.y, vy: 0 },
-    ...match.resolveVolley(snake, weapon, projs, 0),
-  };
-}
-
-function stillResult(match) {
-  const settleFrames = match.settle(360);
-  return { results: match.entities.map(e => e.toState()), settleFrames };
-}
-
-// ---- 中毒 ----
-
-// 自己的回合開始時結算中毒：每層扣最大血量 pctPerStack%（照現在的上限算），活下來的話上限也鎖住一樣多。
-// POISON.persist：層數留著（下個回合開始再結算一次，要喝蛇血才解除）；關掉的話結算完就歸零。
-// 不吃減傷、狂熱、無敵（無敵擋的是上毒的那一下）。回傳 fx（沒中毒回傳 null）
-export function poisonTick(e) {
-  if (!e.alive || !(e.poison > 0)) return null;
-  const stacks = e.poison;
-  if (!CONFIG.POISON.persist) e.poison = 0;
-  const amount = Math.max(1, Math.round(stacks * CONFIG.POISON.pctPerStack / 100 * e.maxHp));
-  const dmg = e.takeDamage(amount);
-  let lock = 0;
-  if (e.alive) {
-    lock = Math.min(amount, e.maxHp - 1);
-    e.maxHp -= lock;
-    e.poisonLock += lock;
-    e.hp = Math.min(e.hp, e.maxHp);
-  }
-  return { type: 'poison', id: e.id, stacks, dmg, lock, died: !e.alive, left: e.poison };
 }
 
 // ---- 蛇血 ----

@@ -1,7 +1,11 @@
 // 地圖池。每張地圖：多邊形（實體地形，要畫到 y=768 底部）、4 個玩家出生點、敵人出生點。
 // 選填：hardPolygons（不可破壞的實心地形）、platforms（不可破壞、可穿透的平台）、maxX（角色能走到的最右邊）、
 // theme（背景）、platformStyle（平台的畫法）、decor（純裝飾的圖案，不影響物理）、vines（可以攀爬的藤蔓）。
-// Boss 關另外有 tree（古樹之庭，見 tree-boss.js）或 snake（叢林巨蟒，見 snake-boss.js）；hive = 蜂巢（小心擊發，見 hive.js）。
+// mechanic = 這張地圖的地圖機制（見 shared/mechanics/），一張地圖最多一個：{ type, ...這個機制的資料 }
+//   type: 'tree' = 古樹之庭（資料 eye、mouth、planes、minionSpawns，見 tree-boss.js）
+//         'snake' = 叢林巨蟒（head、mouth、eye、bridge、bloodX，見 snake-boss.js）
+//         'hive' = 小心擊發的蜂巢（x、y、hw、h、beeSpots，見 hive.js）
+//   沒寫就是一般小關。不認得的 type、還在用舊格式（tree / snake / hive 直接掛在關卡上）的，建立對戰時會丟錯。
 // enemySpawns 的 type 指定敵人種類（'sniper' = 狙擊手、'artillery' = 砲兵，數值在 config.SNIPER / ARTILLERY），沒寫就是一般敵人；
 // type: 'random' = 每一場從 randomEnemies.types 隨機抽一種（'normal' = 一般敵人），名字 = 種類 + tag，x 再隨機偏移 ±jitter。
 // facing = 開場面向（1 = 右、-1 = 左，沒寫是 -1）。
@@ -179,7 +183,8 @@ export const LEVELS = {
     },
     // 蜂巢：掛在樹枝最左邊下面（(x, y) = 底部中心，hw = 半寬、h = 高）。beeSpots = 蜜蜂剛飛出來時停的位置（底部中心），依序找空的；
     // 要離蜂巢下面的血量 / 名字夠遠（蜜蜂頭上也有血條和名字），彼此也錯開
-    hive: {
+    mechanic: {
+      type: 'hive',
       x: 468, y: 288, hw: 14, h: 34,
       beeSpots: [{ x: 420, y: 370 }, { x: 516, y: 370 }, { x: 468, y: 408 }, { x: 372, y: 414 }, { x: 564, y: 414 }],
     },
@@ -216,7 +221,8 @@ export const LEVELS = {
       ],
     ],
     maxX: 596,   // 角色走不過這條線（碰不到樹幹）
-    tree: {
+    mechanic: {
+      type: 'tree',
       eye: { x: 782, y: 244, hw: 26, hh: 26 },     // 半個嵌在樹幹裡
       mouth: { x: 702, y: 398, hw: 30, hh: 20 },
       // 預定古樹撞擊時會挑「站最多玩家」的平面橫掃；y = 平面表面（腳底）
@@ -252,7 +258,8 @@ export const LEVELS = {
       { x: 578, top: 170, bottom: 470 },
     ],
     maxX: 620,   // 走過橋的盡頭會掉進巨蟒前面的水裡，再過去就走不了
-    snake: {
+    mechanic: {
+      type: 'snake',
       // 巨蟒的頭：橢圓（中心 = (x, y - hh)、半寬 hw、半高 hh），右半邊伸出畫面外；整顆都打得到
       head: { x: 875, y: 646, hw: 270, hh: 118 },
       mouth: { x: 612, y: 536 },     // 毒液噴灑、劇毒撕咬從這裡出發（也是「離巨蟒最近」的量法）

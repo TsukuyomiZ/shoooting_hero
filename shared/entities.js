@@ -40,6 +40,7 @@ export class Entity {
     this.kind = o.kind || null;  // 敵人種類（關卡 enemySpawns 的 type，例如 'sniper'；'hive' 蜂巢、'bee' 蜜蜂），畫面照它換造型
     this.optional = !!o.optional;  // 打不打都可以：全隊只剩這種敵人也算過關（蜂巢、蜜蜂）
     this.allyPass = !!o.allyPass;  // 自己人的子彈會穿過它、也不擋自己人的視線（蜂巢、蜜蜂）
+    this.noKill = !!o.noKill;   // 打倒它不算擊殺（蜂巢）
     this.waitTurns = o.waitTurns | 0;   // 蜜蜂：還要待機幾個自己的回合才開始衝（見 hive.js）
     // 判定形狀：預設是矩形；'ellipse' = 內切在矩形裡的橢圓（叢林巨蟒的頭），子彈命中與爆炸距離都照橢圓算
     this.shape = o.shape || null;
@@ -118,7 +119,7 @@ export class Entity {
     // 裝備效果的戰鬥狀態（每關重新開始；soulPct 是噬魂者累積的傷害加成，整場冒險帶著走）
     this.burn = 0;               // 燃燒層數
     this.burnSource = null;      // 最後一個讓他燃燒的人（燒死算他的擊殺）
-    this.poison = 0;             // 中毒層數（還沒結算的，自己的回合開始時結算，見 Match.poisonTick）
+    this.poison = 0;             // 中毒層數（還沒結算的，自己的回合開始時結算，見下面的 poisonTick）
     this.poisonLock = 0;         // 被中毒鎖住的最大血量（maxHp 已經扣掉了；原本的上限 = maxHp + poisonLock）
     this.shield = 0;             // 神佑之石給的無敵次數
     this.extraTurnCd = 0;        // 時間扭曲：還要再過幾個回合才會再給額外回合（0 = 這回合結束就會給）
@@ -569,4 +570,24 @@ export class Entity {
       this.deathHandled = false;
     }
   }
+}
+
+// 中毒（任何角色都可能有：巨蟒、蜜蜂的攻擊會上毒）：自己的回合開始時結算（Match.turnStartEffects 呼叫）。
+// 每層扣最大血量 pctPerStack%（照現在的上限算），活下來的話上限也鎖住一樣多。
+// POISON.persist：層數留著（下個回合開始再結算一次，要喝蛇血才解除）；關掉的話結算完就歸零。
+// 不吃減傷、狂熱、無敵（無敵擋的是上毒的那一下）。回傳 fx（沒中毒回傳 null）
+export function poisonTick(e) {
+  if (!e.alive || !(e.poison > 0)) return null;
+  const stacks = e.poison;
+  if (!CONFIG.POISON.persist) e.poison = 0;
+  const amount = Math.max(1, Math.round(stacks * CONFIG.POISON.pctPerStack / 100 * e.maxHp));
+  const dmg = e.takeDamage(amount);
+  let lock = 0;
+  if (e.alive) {
+    lock = Math.min(amount, e.maxHp - 1);
+    e.maxHp -= lock;
+    e.poisonLock += lock;
+    e.hp = Math.min(e.hp, e.maxHp);
+  }
+  return { type: 'poison', id: e.id, stacks, dmg, lock, died: !e.alive, left: e.poison };
 }

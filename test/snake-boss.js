@@ -10,8 +10,8 @@ import { Referee } from '../shared/referee.js';
 import { Rng } from '../shared/rng.js';
 import { planShot } from '../shared/ai.js';
 import { replayChecked } from './replay-check.js';
-import { VINE_HAND } from '../shared/entities.js';
-import { chargeLane, resolveSnakeTurn, rollSnakeAction, planSnakeNext, nearestPlayer, poisonTick, snakeDrops, pickupAlong } from '../shared/snake-boss.js';
+import { VINE_HAND, poisonTick } from '../shared/entities.js';
+import { chargeLane, resolveSnakeTurn, rollSnakeAction, planSnakeNext, nearestPlayer, snakeDrops, pickupAlong } from '../shared/snake-boss.js';
 import { snakeTurnScript, drawSnakeScene } from '../client/snake-boss-view.js';
 
 const results = [];
@@ -291,7 +291,7 @@ test('裁判：回報位置帶 vine，掛得上去才算；掛著超時 → 伺�
   assert(ok.onVine === 0 && ok.s.vn === 0 && ok.s.y === 400 && ok.s.x === v.x, 'still hanging after the timeout: ' + JSON.stringify(ok.s));
   assert(ok.move && ok.move.vine === 0, 'move broadcast carries the vine');
   const off = run({ x: v.x + 12, y: 400, vine: 0 });   // 離藤蔓太遠：不算抓著
-  assert(off.onVine === -1 && off.s.vn === -1 && Math.abs(off.s.y - (LEVELS.jungleSerpent.snake.bridge.y - 1)) <= 1, 'bogus vine report falls to the bridge: ' + JSON.stringify(off.s));
+  assert(off.onVine === -1 && off.s.vn === -1 && Math.abs(off.s.y - (LEVELS.jungleSerpent.mechanic.bridge.y - 1)) <= 1, 'bogus vine report falls to the bridge: ' + JSON.stringify(off.s));
   const low = run({ x: v.x, y: v.bottom + 40, vine: 0 });   // 手已經在藤蔓下端下面
   assert(low.onVine === -1, 'hands below the vine end do not count');
   return { hangY: ok.s.y };

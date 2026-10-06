@@ -25,10 +25,10 @@ const MIME = {
 };
 const SERVE_DIRS = ['client', 'shared', 'css', 'assets'];
 
-// 伺服器邏輯（shared/、server/）只在啟動時載入一次：之後改了檔案，瀏覽器會拿到新版、伺服器卻還跑舊版，
+// 伺服器邏輯（shared/、shared/mechanics/、server/）只在啟動時載入一次：之後改了檔案，瀏覽器會拿到新版、伺服器卻還跑舊版，
 // 兩邊的訊息格式 / 數值對不上（射擊事件解析失敗、血量吃到舊設定）。偵測到就提醒要重啟
 const STARTED_AT = Date.now();
-const LOGIC_DIRS = ['shared', 'server'];
+const LOGIC_DIRS = ['shared', 'shared/mechanics', 'server'];   // 只看一層：子資料夾要自己列進來
 let staleWarned = false;
 function codeIsStale() {
   for (const dir of LOGIC_DIRS) {

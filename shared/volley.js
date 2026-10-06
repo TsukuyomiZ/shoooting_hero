@@ -1,12 +1,10 @@
 import { CONFIG } from './config.js';
 import { advanceProjectile, stepReturn } from './weapons.js';
-import { hatchBees } from './hive.js';
-import { takeDrops } from './snake-boss.js';
 
 // 一波（Volley）：一次開火 / 轟炸 / Boss 招式的飛行物，從第 1 幀飛到全部結束，再沉降到大家站穩。
 // 伺服器（runVolley）與客戶端重播（replayVolley）走同一個幀迴圈（loop），差別只在「撞到東西」那一步：
 //   伺服器：advanceProjectile(world) 真的做碰撞 → match.resolveHit 結算，寫成事件
-//   重播：advanceProjectile(null) 只跑運動學 → 照伺服器的事件校正位置、套用角色狀態 / 挖坑 / 蛇血 / 蜜蜂
+//   重播：advanceProjectile(null) 只跑運動學 → 照伺服器的事件校正位置、套用角色狀態 / 挖坑 / 地圖機制帶的（蛇血、蜜蜂）
 // 飛行物的狀態機（transition）也只有這裡一份，兩邊共用。
 //
 // 每一幀的順序（兩邊一樣，伺服器 Match.runVolley 以前就是這樣）：
@@ -21,7 +19,7 @@ const PASS = Object.freeze({});
 /**
  * 準備重播一波：照伺服器的事件逐幀重播（客戶端與測試用）。純函式：只讀 shot、什麼都不改；
  * 擺好射手、真正開始跑要等 frames() / run() 的第一個 next()。
- * @param {import('./match.js').Match} match  客戶端的 Match（用到 step、isSettled、byId、terrain、items、entities、hive）
+ * @param {import('./match.js').Match} match  客戶端的 Match（用到 step、isSettled、byId、terrain、mechanic）
  * @param {object} shot  'shot' 訊息 / aiTurn.shot / Boss 招式的 b.shot（走過一趟 JSON 的）；唯讀，絕不修改
  * @returns {VolleyReplay|null}  只有 CONFIG.WEAPONS[shot.weapon] 不存在時回傳 null（什麼都沒碰）
  * @throws {TypeError} events / projectiles 不是陣列（或裡面有不是物件的）、flightFrames / settleFrames 不是 ≥ 0 的整數
@@ -252,8 +250,8 @@ function* replay(match, shot, weapon, live, drift, end, look) {
         if (e) e.applyEventState(s);
         else drift.push(`${where(ev)} ents: unknown id ${s.id}`);
       }
-      const items = takeDrops(match, ev.drops);   // 打到巨蟒跨過門檻：掉蛇血
-      const bees = hatchBees(match, ev.bees);     // 打到蜂巢：飛出蜜蜂
+      // 地圖機制帶在事件上的：打到巨蟒跨過門檻掉的蛇血（items）、打到蜂巢飛出來的蜜蜂（bees）
+      const { items, bees } = match.mechanic.replayEvent(match, ev);
       if (look.event) look.event(ev, p, { before, rect, items, bees });
     },
     moved(p) {

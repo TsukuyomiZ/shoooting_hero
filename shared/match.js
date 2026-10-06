@@ -2,14 +2,12 @@ import { CONFIG } from './config.js';
 import { LEVELS } from './level.js';
 import { Rng } from './rng.js';
 import { Terrain } from './terrain.js';
-import { Entity } from './entities.js';
+import { Entity, poisonTick } from './entities.js';
 import { launchVelocity, makeProjectile, hitAction, bounceProjectile, shotTraits } from './weapons.js';
 import { runVolley } from './volley.js';
 import { planShot } from './ai.js';
 import { clamp } from './utils.js';
-import { buildTree, spawnTreant, witherTree, resolveTreeTurn, reopenMouth, planTreeNext } from './tree-boss.js';
-import { buildSnake, planSnakeNext, resolveSnakeTurn, poisonTick, snakeDrops, pickupAt, pickupAlong } from './snake-boss.js';
-import { buildHive, hitHive, takeFreshBees, spawnBee, resolveBeeTurn } from './hive.js';
+import { mechanicFor, snapshotOf } from './mechanics/index.js';
 
 // 關卡 enemySpawns 的 type → config 裡的數值區塊（沒寫 type = 一般敵人 CONFIG.ENEMY）
 const ENEMY_TYPES = { sniper: 'SNIPER', artillery: 'ARTILLERY' };
@@ -24,6 +22,8 @@ export class Match {
     this.levelId = levelId;
     this.level = LEVELS[levelId];
     if (!this.level) throw new Error('unknown level: ' + levelId);
+    // 這張地圖的地圖機制（見 shared/mechanics/）：Match 只在固定的時間點呼叫它的掛勾，不知道有哪些地圖
+    this.mechanic = mechanicFor(this.level, levelId);
     this.seed = seed >>> 0;
     this.stage = stage;
     this.carry = carry;
@@ -32,10 +32,13 @@ export class Match {
       hard: this.level.hardPolygons, platforms: this.level.platforms, maxX: this.level.maxX, vines: this.level.vines,
     });
     this.entities = [];
+    // 地圖機制的狀態：由各自的機制建立、讀寫（Match 不碰；客戶端畫面直接讀）
     this.tree = null;   // 古樹之庭的狀態（見 tree-boss.js）
     this.snake = null;  // 叢林巨蟒的狀態（見 snake-boss.js）
     this.hive = null;   // 小心擊發的蜂巢（見 hive.js）
-    this.items = [];    // 場上的道具（巨蟒掉的蛇血）{ id, type, x, y }，y = 落在的地面
+    // 場上的道具 { id, type, x, y }，y = 落在的地面（目前只有巨蟒掉的蛇血）：由地圖機制放上 / 撿走，
+    // Match 只在套用快照時同步（見 applySnapshot）
+    this.items = [];
     this.pickups = [];  // 位置回報途中撿到的道具（fx），裁判拿去廣播（見 takePickups）
     this.fever = 0;     // 狂熱層數：裁判每輪開始時照輪數更新（見 feverStacks）
     this.playerCount = players.length;   // 這一關的玩家人數（含倒下的隊友）：狂熱幾輪一層照這個（敵人血量也照開場人數）
@@ -57,7 +60,7 @@ export class Match {
     // 攜手之伴的連結只認這一關真的有的隊友
     for (const e of this.entities) e.links = e.links.filter(id => id !== e.id && this.entities.some(f => f.id === id && f.team === e.team));
 
-    // 敵人血量：每多一位玩家 +50%，一般關卡每過一關再 +15%。Boss 關的血量照 TREE_BOSS / SNAKE_BOSS，吃人數放大與 bossStageScale
+    // 敵人血量：每多一位玩家 +50%，一般關卡每過一關再 +15%。Boss 的血量照各自的設定，吃人數放大與 bossStageScale（bossScale）
     const playerScale = 1 + CONFIG.ENEMY_HP_PER_EXTRA_PLAYER * Math.max(0, players.length - 1);
     const hpScale = playerScale * (1 + CONFIG.RUN.enemyHpPerStage * Math.max(0, stage - 1));
     this.level.enemySpawns.forEach((s, i) => {
@@ -79,14 +82,11 @@ export class Match {
       }));
     });
     const bossScale = playerScale * bossStageScale(this.level, stage);   // 第二個王關以後血量變多
-    if (this.level.tree) buildTree(this, bossScale);
-    if (this.level.snake) buildSnake(this, bossScale);
-    if (this.level.hive) buildHive(this, hpScale);   // 蜂巢固定血量；放出來的蜜蜂跟一般敵人一樣放大
+    this.mechanic.build(this, { hpScale, bossScale });   // 地圖機制的角色排在關卡的敵人後面（陣列順序 = 回合順序）
 
     this.settle(600);   // 開場先讓大家落地
-    // 古樹之庭：大家站好之後先決定古樹的第一招（撞擊要照站位選平面）。客戶端用同一個 seed 也會算一次，之後被伺服器的快照蓋掉
-    if (this.tree) planTreeNext(this, this.byId('eye'));
-    if (this.snake) planSnakeNext(this);   // 叢林巨蟒：先抽第一招（抽到衝撞，第一個玩家回合就有警示帶）
+    // 大家站好之後（例如 Boss 先決定第一招）。客戶端用同一個 seed 也會算一次，之後被伺服器的快照蓋掉
+    this.mechanic.ready(this);
   }
 
   get world() {
@@ -97,7 +97,7 @@ export class Match {
   byId(id) { return this.entities.find(e => e.id === id) || null; }
 
   result() {
-    witherTree(this);   // 古樹之眼倒下（包括回合結束被燒死）→ 整棵樹枯萎
+    this.mechanic.cascade(this);   // 地圖機制連帶的死亡（例如古樹之眼倒下、包括回合結束被燒死 → 整棵樹枯萎）
     if (!this.players.some(e => e.alive)) return 'lose';
     // 打不打都可以的敵人（蜂巢、蜜蜂）不算：小心擊發的狙擊手全倒就過關
     if (!this.enemies.some(e => e.alive && !e.optional)) return 'win';
@@ -153,7 +153,7 @@ export class Match {
   // 站得住的位置記成「最後站穩的地方」；回報在水裡 = 自己走 / 跳進水裡 → 落水（扣血、回到岸上，或淹死）。
   // safe = 客戶端記的最後站穩的地方（落水那次回報才帶）：站得住、離得不遠就採用，重生點才會跟他畫面上的一樣。
   // vine = 回報說抓著第幾條藤蔓（-1 = 沒有）：位置真的掛得上去才算，不然當成在半空中（超時就會掉下去）。
-  // 從上一個位置走到這裡的路上碰到蛇血（有被中毒鎖住的上限、或血沒滿才會撿）就喝掉，記在 this.pickups 給裁判廣播
+  // 從上一個位置走到這裡的路上撿到的道具（地圖機制的 moved，例如巨蟒關的蛇血）記在 this.pickups 給裁判廣播
   setPlayerPosition(e, x, y, facing, stamina, safe = null, vine = -1) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
     if (x < e.hw || x > this.terrain.maxX - e.hw || y < 0 || y > CONFIG.WORLD_H) return false;
@@ -176,7 +176,7 @@ export class Match {
     if (facing === 1 || facing === -1) e.facing = facing;
     if (Number.isFinite(stamina)) e.stamina = clamp(stamina, 0, e.stamina);   // 只能減不能加
     e.onVine = Number.isInteger(vine) && vine >= 0 && ny <= CONFIG.WATER_LEVEL && e.canHangAt(this.terrain, vine, x, ny) ? vine : -1;
-    const got = pickupAlong(this, e, x0, y0, x, ny);
+    const got = this.mechanic.moved(this, e, x0, y0, x, ny);   // 在落水檢查之前：走進水裡的那一段也撿得到
     if (got) this.pickups.push(got);
     if (ny > CONFIG.WATER_LEVEL) {
       if (safe && Number.isFinite(safe.x) && Number.isFinite(safe.y) && Math.hypot(safe.x - x, safe.y - ny) <= 400 &&
@@ -211,14 +211,13 @@ export class Match {
     e.movedThisTurn = 0;
   }
 
-  // 自己的回合開始時（轟炸之後、開始計時之前）：中毒結算（可能被毒倒）→ 站在蛇血上就喝掉 → 恩賜之杖回血。
+  // 自己的回合開始時（轟炸之後、開始計時之前）：中毒結算（可能被毒倒）→ 地圖機制（例如站在蛇血上就喝掉）→ 恩賜之杖回血。
   // 回傳 fx 清單給客戶端飄字
   turnStartEffects(e) {
     const fx = [];
     const poison = poisonTick(e);
     if (poison) fx.push(poison);
-    const drink = pickupAt(this, e);
-    if (drink) fx.push(drink);
+    this.mechanic.turnStart(this, e, fx);
     if (e.alive && e.mods.regenPct > 0) {
       const n = this.heal(e, e.maxHp * e.mods.regenPct / 100);
       if (n > 0) fx.push({ type: 'heal', id: e.id, amount: n });
@@ -228,6 +227,7 @@ export class Match {
 
   // 自己的回合結束時：
   // - 燃燒：先用這回合移動的距離甩掉層數（每回合最多 maxReducePerTurn 層），剩下的每層扣最大血量 pctPerStack%
+  // - 地圖機制的回合結束效果（例如巨蟒被燒到跨過門檻掉蛇血、古樹的嘴巴張開）
   // - 神佑之石：每過 shieldEveryTurns 個自己的回合，全隊獲得無敵
   // - 時間扭曲：普通回合結束時冷卻好了就給一個額外回合（fx 裡的 extraTurn），之後冷卻 extraTurnCooldown 個普通回合。
   //   額外回合（isExtra）本身不算冷卻、也不能再接額外回合
@@ -235,10 +235,7 @@ export class Match {
     const fx = [];
     if (!e.alive) return fx;
     this.burnTick(e, fx);
-    const drops = snakeDrops(this);   // 巨蟒被燒到跨過門檻也會掉蛇血
-    if (drops.length) fx.push({ type: 'drops', id: e.id, items: drops });
-    // 古樹（眼睛）的回合結束：被打到閉上的嘴巴撐過了這個回合，再張開（已經分出勝負就不播）
-    if (e.part === 'eye' && e.alive && !this.result()) reopenMouth(this, fx);
+    this.mechanic.turnEnd(this, e, fx);
     if (e.mods.teamShield > 0 && e.turnCount % CONFIG.EQUIP.shieldEveryTurns === 0) {
       const ids = [];
       for (const f of this.entities) {
@@ -399,7 +396,7 @@ export class Match {
 
     // 1. 算好每個被打到的人要扣多少、要分多少給連結對象（還沒扣血）
     const hits = [];
-    const hiveHits = [];   // 蜂巢：先記下來，等大家都扣完血才扣 1、放蜜蜂
+    const later = [];   // 地圖機制要等大家都扣完血才做的事（例如蜂巢扣 1、放蜜蜂）
     for (const e of aliveBefore) {
       if (opts.exclude && opts.exclude.has(e)) continue;
       const direct = e === directHit;
@@ -407,22 +404,8 @@ export class Match {
       if (!direct && (!splash || d > R)) continue;
       const factor = direct ? 1 : Math.max(0.3, 1 - d / R);
       const friendly = !!attacker && e.team === attacker.team;
-      if (e.closeOnHit) {   // 古樹之口：打不壞、不會燒，被敵方打到（直擊或波及）就閉上，撐過 closeOnHit 個古樹回合才張開
-        if (!friendly) {
-          e.closedTurns = e.closeOnHit;
-          e.hurtTimer = 0.35;
-          damages.push({ id: e.id, dmg: 0, friendly, closed: true });
-        }
-        continue;
-      }
-      if (e.kind === 'hive') {   // 蜂巢：只有玩家方打得到；不管什麼武器、直擊或波及都只扣 1，每次放出一隻蜜蜂（見 hive.js）
-        if (attacker && !friendly) {
-          const entry = { id: e.id, dmg: 0, friendly, hive: true };
-          damages.push(entry);
-          hiveHits.push({ e, entry });
-        }
-        continue;
-      }
+      // 地圖機制自己處理的角色（例如古樹之口、蜂巢）：在無敵之前，不進一般的傷害、燃燒、擊退
+      if (this.mechanic.absorbHit(this, e, { attacker, friendly, damages, later })) continue;
       if (shielded.has(e)) {   // 這一下完全無效，也不會被擊退、不會分給連結對象
         block(e);
         damages.push({ id: e.id, dmg: 0, friendly, blocked: true });
@@ -457,8 +440,8 @@ export class Match {
       h.entry.dmg = h.e.takeDamage(h.own);
       for (const s of h.shares) s.entry.dmg = s.q.takeDamage(s.amount);
     }
-    for (const h of hiveHits) h.entry.dmg = hitHive(this, h.e);   // 新的蜜蜂在這一下之後才出現，不會被這一下打到
-    // 結算統計：打在敵方身上的傷害（含分給連結對象的份、蜂巢）算攻擊者造成的；誤傷不算
+    for (const f of later) f();   // 這時候才出現的角色（蜜蜂）不會被這一下打到
+    // 結算統計：打在敵方身上的傷害（含分給連結對象的份、地圖機制寫的那幾筆）算攻擊者造成的；誤傷不算
     if (attacker) for (const d of damages) if (!d.friendly) attacker.dealt += d.dmg;
     // 3. 燃燒、中毒、擊退（分到的份不會擊退、不會中毒）
     const poison = weapon.poison || 0;
@@ -468,7 +451,7 @@ export class Match {
         e.burnSource = attacker.id;
         entry.burn = burn;
       }
-      if (poison > 0 && attacker && !entry.friendly && e.alive) {   // 叢林巨蟒的攻擊：傷害 0 也照樣上毒
+      if (poison > 0 && attacker && !entry.friendly && e.alive) {   // 有毒的攻擊（巨蟒、蜜蜂）：傷害 0 也照樣上毒
         e.poison += poison;
         entry.poison = poison;
       }
@@ -502,7 +485,7 @@ export class Match {
 
   // before 裡現在死掉的敵人算攻擊者的擊殺；噬魂者每殺一個武器傷害 +killDamagePct%（整場冒險累積）
   creditKills(attacker, before) {
-    const killed = before.filter(e => !e.alive && e.team !== attacker.team && e.kind !== 'hive');   // 打掉蜂巢不算擊殺（不是活的）
+    const killed = before.filter(e => !e.alive && e.team !== attacker.team && !e.noKill);   // noKill：打倒不算擊殺（蜂巢不是活的）
     attacker.kills += killed.length;
     if (killed.length && attacker.mods.killDamagePct > 0) attacker.soulPct += killed.length * attacker.mods.killDamagePct;
     return killed.map(e => e.id);
@@ -571,7 +554,7 @@ export class Match {
     const n0 = this.entities.length;
     // 飛行 → 沉降（shared/volley.js：跟客戶端重播同一個幀迴圈；撞到東西時呼叫下面的 resolveHit）
     const { events, flightFrames, settleFrames } = runVolley(this, owner, weapon, projs, burn);
-    witherTree(this);   // 這一發打倒了古樹之眼 → 嘴巴與樹妖一起枯萎（也算擊殺）
+    this.mechanic.cascade(this);   // 地圖機制連帶的死亡（這一發打倒了古樹之眼 → 嘴巴與樹妖一起枯萎）：要在算擊殺之前，也算擊殺
     // 這一發途中才出現的角色（打到蜂巢飛出來的蜜蜂）被同一發後面的砲彈打死，也算擊殺
     const kills = this.creditKills(owner, [...before, ...this.entities.slice(n0)]);
     const hitEnemy = isShot ? this.updateShotStacks(owner, events) : undefined;
@@ -629,21 +612,17 @@ export class Match {
       const ids = new Set(damages.map(d => d.id));
       if (heal > 0) ids.add(owner.id);
       ev.ents = this.entities.filter(e => ids.has(e.id)).map(e => e.toEventState());
-      const drops = snakeDrops(this);   // 打到巨蟒跨過門檻：掉蛇血（客戶端在這一幀播出來）
-      if (drops.length) ev.drops = drops;
-      const bees = takeFreshBees(this);   // 打到蜂巢：飛出來的蜜蜂（客戶端在這一幀照出生資料建出來）
-      if (bees.length) ev.bees = bees;
+      // 地圖機制附在事件上的（例如巨蟒掉的蛇血 drops、蜂巢飛出來的蜜蜂 bees）：客戶端在這一幀照著播（重播見 replayEvent）
+      Object.assign(ev, this.mechanic.eventExtras(this));
     }
     return ev;
   }
 
   // AI 回合：先決定要不要走、走多久，再規劃一發。回傳 { walk, plan }；
-  // 古樹之眼不走也不開火，而是出預定的招式並直接結算好：回傳 { boss: { steps, next } }（見 tree-boss.js 的 resolveTreeTurn）；
-  // 叢林巨蟒、蜜蜂也一樣（見 snake-boss.js 的 resolveSnakeTurn、hive.js 的 resolveBeeTurn）
+  // 由地圖機制出招的角色（Boss、蜜蜂）不走也不開火，而是出招並直接結算好：回傳 { boss: { steps, next } }（見 mechanics/ 的 aiTurn）
   planAiTurn(actor) {
-    if (actor.part === 'eye') return { walk: null, plan: null, boss: resolveTreeTurn(this, actor) };
-    if (actor.part === 'snake') return { walk: null, plan: null, boss: resolveSnakeTurn(this, actor) };
-    if (actor.kind === 'bee') return { walk: null, plan: null, boss: resolveBeeTurn(this, actor) };
+    const boss = this.mechanic.aiTurn(this, actor);
+    if (boss) return { walk: null, plan: null, boss };
     let walk = null;
     if (this.rng.chance((actor.ai || CONFIG.ENEMY).moveChance)) {
       const dir = this.rng.chance(0.5) ? -1 : 1;
@@ -662,11 +641,7 @@ export class Match {
     return {
       entities: this.entities.map(e => e.toState()),
       holes: this.terrain.holes.map(h => ({ x: h.x, y: h.y, r: h.r })),
-      minions: this.tree ? this.tree.minions.slice() : [],   // 召喚出來的樹妖（重連時先照這個重建，再套狀態）
-      treeNext: this.tree && this.tree.next ? { ...this.tree.next } : null,   // 古樹預定的下一招（客戶端照這個畫撞擊的預告）
-      snakeNext: this.snake && this.snake.next ? { ...this.snake.next } : null,   // 巨蟒預定的下一招（衝撞要畫警示帶）
-      items: this.items.map(it => ({ ...it })),   // 場上的蛇血
-      bees: this.hive ? this.hive.bees.map(b => ({ ...b })) : [],   // 蜂巢放出來過的蜜蜂（重連時先照這個重建，再套狀態）
+      ...snapshotOf(this),   // 地圖機制的欄位與場上的道具（每張地圖都帶、順序固定，見 mechanics/index.js）
     };
   }
 
@@ -679,10 +654,7 @@ export class Match {
 
   applySnapshot(s) {
     if (s.holes) this.terrain.reset(s.holes);
-    for (const spec of s.minions || []) if (!this.byId(spec.id)) spawnTreant(this, spec);
-    for (const spec of s.bees || []) if (!this.byId(spec.id)) spawnBee(this, spec);
-    if (this.tree && s.treeNext !== undefined) this.tree.next = s.treeNext ? { ...s.treeNext } : null;
-    if (this.snake && s.snakeNext !== undefined) this.snake.next = s.snakeNext ? { ...s.snakeNext } : null;
+    this.mechanic.restore(this, s);   // 先建出快照裡有、這邊還沒有的角色（召喚 / 放出來的），角色狀態才套得上
     if (s.items) this.items = s.items.map(it => ({ ...it }));
     this.applyEntities(s.entities);
   }
