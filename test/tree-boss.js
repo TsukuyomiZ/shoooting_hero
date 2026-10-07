@@ -120,7 +120,7 @@ test('地圖：樹皮炸不掉、土炸得掉；角色走不過 maxX、碰不到
   for (let i = 0; i < 300; i++) m.step();
   p.moveDir = 0;
   assert(p.x <= m.level.maxX - p.hw && p.x > m.level.maxX - p.hw - 1 && p.x + p.hw < t.hardEdgeX(p.y - 5), 'blocked before the tree at x=' + p.x);
-  assert(!m.setPlayerPosition(p, m.level.maxX, p.y, 1, 0), 'reported position past maxX is rejected');
+  assert(!m.applyPositionReport(p, { x: m.level.maxX, y: p.y, facing: 1, stamina: 0 }).ok, 'reported position past maxX is rejected');
   // 古樹的部位不受重力、不會被擊退
   const ey = eye.y;
   for (let i = 0; i < 120; i++) m.step();

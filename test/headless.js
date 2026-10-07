@@ -67,6 +67,8 @@ function pointInPoly(poly, x, y) {
   return inside;
 }
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
+// 位置回報（Match.applyPositionReport）：回傳 { ok, water, pickup }
+const report = (m, e, x, y, facing, stamina, extra = {}) => m.applyPositionReport(e, { x, y, facing, stamina, ...extra });
 // 關卡規則的測試設定（見 shared/stage-rules.js）：照 config.js，只換 patch 列的區塊裡的值；傳給 stageRules / Match / Run，不改全域 CONFIG
 const rulesCfg = (patch) => {
   const c = { ...CONFIG };
@@ -222,11 +224,11 @@ test('位置回報檢查：瞬移 / 卡進地形 / 增加體力都被拒絕；�
   m.planAiTurn = () => ({ walk: null, plan: null });   // 敵人只發呆，免得把人打進水裡 / 改到血量
   const p1 = m.players[0];
   const x0 = p1.x, y0 = p1.y;
-  assert(!m.setPlayerPosition(p1, 900, y0, 1, 100), 'teleport rejected');
-  assert(!m.setPlayerPosition(p1, x0, y0 + 60, 1, 100), 'inside terrain rejected');
+  assert(!report(m, p1, 900, y0, 1, 100).ok, 'teleport rejected');
+  assert(!report(m, p1, x0, y0 + 60, 1, 100).ok, 'inside terrain rejected');
   p1.stamina = 50;
-  assert(m.setPlayerPosition(p1, x0 + 5, y0, 1, 120) && p1.stamina === 50, 'stamina cannot increase');
-  assert(m.setPlayerPosition(p1, x0 + 10, y0, -1, 20) && p1.stamina === 20 && p1.facing === -1, 'valid move accepted');
+  assert(report(m, p1, x0 + 5, y0, 1, 120).ok && p1.stamina === 50, 'stamina cannot increase');
+  assert(report(m, p1, x0 + 10, y0, -1, 20).ok && p1.stamina === 20 && p1.facing === -1, 'valid move accepted');
   p1.maxHp = p1.hp = 1000;   // 血量跟 config 無關
 
   const io = new FakeIo();
@@ -268,6 +270,44 @@ test('位置回報檢查：瞬移 / 卡進地形 / 增加體力都被拒絕；�
   assert(io.take('gameOver').some(g => g.result === 'lose'), 'solo player drowned → lose');
 }));
 
+test('位置回報一次收：回傳 { ok, water, pickup }；vy 收下而且沒掉水才用（夾在 -跳躍力 ~ 1400、掛藤蔓 = 0）；被擋下什麼都不改', () => withWater(() => {
+  const m = matchWith({}, { hp: 1000 });
+  const p = m.players[0];
+  const x0 = p.x, y0 = p.y, st = p.stamina;
+  p.vy = 123;
+  const bad = report(m, p, x0 + 500, y0, -1, 1, { vy: -200 });
+  assert(!bad.ok && bad.water === null && bad.pickup === null, 'rejected: ' + JSON.stringify(bad));
+  assert(p.x === x0 && p.y === y0 && p.vy === 123 && p.stamina === st && p.facing === 1, 'a rejected report changes nothing');
+  const ok = report(m, p, x0 + 4, y0, 1, st, { vy: -99999 });
+  assert(ok.ok && ok.water === null && ok.pickup === null && p.vy === -p.jumpSpeed, 'vy clamped to -jumpSpeed: ' + p.vy);
+  assert(report(m, p, x0 + 6, y0, 1, st, { vy: 99999 }).ok && p.vy === 1400, 'vy clamped to 1400: ' + p.vy);
+  assert(report(m, p, x0 + 6, y0, 1, st, { vy: NaN }).ok && p.vy === 0, 'no usable vy → 0: ' + p.vy);
+  // 掉水：water = 這一次的水花；回到岸上站好，回報的 vy 不用
+  const wet = report(m, p, x0 + 10, CONFIG.WATER_LEVEL + 10, 1, st, { vy: 500 });
+  assert(wet.ok && wet.water === p.splash && wet.water.n === p.waterFalls && !wet.water.died && p.vy === 0 && p.hp === 700, 'water: ' + JSON.stringify(wet));
+  // 掛在藤蔓上（叢林巨蟒）：vy 歸零；掛不上去的照回報的 vy
+  const j = matchWith({}, { levelId: 'jungleSerpent', hp: 1000 });
+  const q = j.players[0];
+  const v = LEVELS.jungleSerpent.vines[0];
+  assert(report(j, q, v.x, 400, 1, q.stamina, { vine: 0, vy: 300 }).ok && q.onVine === 0 && q.vy === 0, `hanging: vine ${q.onVine}, vy ${q.vy}`);
+  assert(report(j, q, v.x + 12, 400, 1, q.stamina, { vine: 0, vy: 300 }).ok && q.onVine === -1 && q.vy === 300, `not hanging: vine ${q.onVine}, vy ${q.vy}`);
+  return { hp: p.hp };
+}));
+
+test('架構檢查：裁判收位置回報只呼叫 Match.applyPositionReport——不自己改行動玩家的位置 / 速度，也不比落水次數（伺服器自己讓大家落地的 settleWithSplashes 除外）', () => {
+  const src = fs.readFileSync(new URL('../shared/referee.js', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const SET = /\b(actor|a|e)\.(x|y|vx|vy|safeX|safeY|onVine)\s*=(?!=)/;
+  assert(['actor.vy = 0;', 'actor.x=1', 'e.onVine = -1'].every(s => SET.test(s)) && !['actor.vy === 0', 'const x = actor.x;'].some(s => SET.test(s)), 'the scan');
+  const sets = src.split('\n').filter(l => SET.test(l));
+  assert(!sets.length, 'referee.js sets position / velocity itself:\n' + sets.join('\n'));
+  const body = src.replace(/settleWithSplashes\(maxFrames = 300\) \{[\s\S]*?\n  \}/, '');
+  assert(body !== src, 'found settleWithSplashes');
+  const falls = body.split('\n').filter(l => /\bwaterFalls\b/.test(l));
+  assert(!falls.length, 'referee.js compares water-fall counters outside settleWithSplashes:\n' + falls.join('\n'));
+  assert(/this\.match\.applyPositionReport\(actor, msg\)/.test(src) && /this\.match\.applyPositionReport\(actor, \{ \.\.\.msg, safe: null \}\)/.test(src), 'move / fire go through applyPositionReport');
+});
+
 test('落水：扣最大血量 30%（不吃狂熱 / 減傷 / 無敵）；站的地方被炸掉就找最近站得住的地面；回報帶的站穩點要站得住才採用', () => withWater(() => {
   const m = matchWith({ armorPct: 50 }, { hp: 1000, config: rulesCfg({ FEVER: { everyRounds: 1, damagePct: 50, inBoss: false } }) });
   const p1 = m.players[0];
@@ -301,13 +341,13 @@ test('落水：扣最大血量 30%（不吃狂熱 / 減傷 / 無敵）；站的�
   const q = m2.players[0];
   const qx = q.x, qy = q.y;
   const tx = qx + 60, ty = standY(q, m2.terrain, tx);
-  assert(m2.setPlayerPosition(q, 300, 400, 1, 100) && m2.setPlayerPosition(q, 440, 655, 1, 100, { x: tx, y: ty }), 'reports accepted');
+  assert(report(m2, q, 300, 400, 1, 100).ok && report(m2, q, 440, 655, 1, 100, { safe: { x: tx, y: ty } }).ok, 'reports accepted');
   assert(q.hp === 700 && q.x === tx && q.y === ty, `client's safe spot used: ${q.x},${q.y} vs ${tx},${ty}`);
-  assert(m2.setPlayerPosition(q, 300, 400, 1, 100) && m2.setPlayerPosition(q, 440, 655, 1, 100, { x: 440, y: 300 }), 'reports accepted');
+  assert(report(m2, q, 300, 400, 1, 100).ok && report(m2, q, 440, 655, 1, 100, { safe: { x: 440, y: 300 } }).ok, 'reports accepted');
   assert(q.hp === 400 && q.x === tx && q.y === ty, `a safe spot in the air is ignored: ${q.x},${q.y}`);
   // 沿著斜的崖壁掉下去，身體擦進牆裡一點：在水裡的回報照樣收（不然伺服器不知道他掉下去了，回合卡到超時）
   assert(q.collides(m2.terrain, 403, 660) && q.collides(m2.terrain, 403, 652), 'precondition: brushing the cliff wall (pushing up 8px does not free him)');
-  assert(m2.setPlayerPosition(q, 300, 400, 1, 100) && m2.setPlayerPosition(q, 403, 660, 1, 100), 'in-water report overlapping a wall accepted');
+  assert(report(m2, q, 300, 400, 1, 100).ok && report(m2, q, 403, 660, 1, 100).ok, 'in-water report overlapping a wall accepted');
   assert(q.hp === 100 && q.waterFalls === 3 && q.x === tx, 'fell in and respawned: hp ' + q.hp);
 
   // 敵人（含樹妖）落水一樣直接淹死，血再多也一樣；enemiesDrown 關掉就跟玩家一樣扣 30%
@@ -1068,8 +1108,8 @@ test('客戶端照事件重播（只跑運動學）的結果，跟伺服器結�
       fire: (m) => {
         const a = m.players[0];
         a.hp = 30;   // 伺服器上這回合已經掉過血（客戶端快照不知道）：重播要照 shot.actor 帶的血量
-        m.setPlayerPosition(a, 150, standY(a, m.terrain, 150), 1, a.stamina);
-        m.setPlayerPosition(a, 220, 380, 1, a.stamina);
+        report(m, a, 150, standY(a, m.terrain, 150), 1, a.stamina);
+        report(m, a, 220, 380, 1, a.stamina);
         return m.resolveShot(a, 'sniper', 80, 100);
       } },
   ];
@@ -1343,7 +1383,7 @@ test('疊很多段跳也不會飛出畫面頂端（頭頂到 y=0 就停），伺
   const s = matchWith({});
   const sp = s.players[0];
   sp.x = topAt.x; sp.y = topAt.y + 200;   // 前一次回報的位置在下面一點
-  assert(s.setPlayerPosition(sp, topAt.x, topAt.y, 1, 100), 'server accepts the highest reachable position');
+  assert(report(s, sp, topAt.x, topAt.y, 1, 100).ok, 'server accepts the highest reachable position');
 });
 
 test('時間扭曲：普通回合結束後再給一個額外回合（不算新的一輪），之後冷卻 3 個普通回合', () => {

@@ -486,7 +486,7 @@ test('攜手之伴：分到的份也會被神佑之石擋下；被打的人有�
   // 落水是另外的規則，不分（走伺服器收到位置回報的那條路）
   h2 = p2.hp;
   const falls = p1.waterFalls;
-  assert(m.setPlayerPosition(p1, p1.x, CONFIG.WATER_LEVEL + 5, 1, p1.stamina) && p1.waterFalls === falls + 1, 'p1 fell in the water');
+  assert(m.applyPositionReport(p1, { x: p1.x, y: CONFIG.WATER_LEVEL + 5, facing: 1, stamina: p1.stamina }).water && p1.waterFalls === falls + 1, 'p1 fell in the water');
   assert(p2.hp === h2, 'water damage is not shared');
 });
 

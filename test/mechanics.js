@@ -152,8 +152,7 @@ function playNormal(levelId, spy) {
     m.beginTurn(a);
     const rec = { id: a.id, fx1: m.turnStartEffects(a) };
     if (a.team === 'players') {
-      rec.pos = m.setPlayerPosition(a, a.x + 12, a.y, 1, a.stamina);
-      rec.pickups = m.takePickups();
+      rec.pos = m.applyPositionReport(a, { x: a.x + 12, y: a.y, facing: 1, stamina: a.stamina });
       const plan = planShot(m.world, a, m.rng);
       if (plan) rec.shot = m.resolveShot(a, plan.weapon, plan.angle, plan.power);
     } else {
@@ -217,18 +216,18 @@ test('掛勾的時間點：turnStart 在中毒之後、回血之前；turnEnd �
   return { fx1, fx2 };
 });
 
-test('掛勾的時間點：moved 在落水之前（回傳的進 pickups）', () => {
+test('掛勾的時間點：moved 在落水之前（回傳的道具由位置回報帶回給裁判）', () => {
   let seen = null;
   const { m } = spyMatch({
     moved: (match, e, x0, y0, x, y) => { seen = { falls: e.waterFalls, args: [x0, y0, x, y].map(Math.round) }; return { type: 'spyPick', id: e.id }; },
   });
   const p = m.players[0];
   p.x = 380; p.y = 440;
-  assert(m.setPlayerPosition(p, 440, 690, 1, p.stamina), 'report accepted');
+  const r = m.applyPositionReport(p, { x: 440, y: 690, facing: 1, stamina: p.stamina });
+  assert(r.ok, 'report accepted');
   assert(seen && seen.falls === 0 && J(seen.args) === J([380, 440, 440, 690]), 'moved before the water check: ' + J(seen));
-  assert(p.waterFalls === 1, 'then fell in the water');
-  const got = m.takePickups();
-  assert(got.length === 1 && got[0].type === 'spyPick' && m.takePickups().length === 0, 'pickups drained: ' + J(got));
+  assert(p.waterFalls === 1 && r.water === p.splash, 'then fell in the water');
+  assert(r.pickup && r.pickup.type === 'spyPick' && r.pickup.id === p.id, 'the pickup comes back with the report: ' + J(r.pickup));
 });
 
 test('掛勾的時間點：absorbHit 在無敵之前、接手的角色不扣血不擊退；later 在所有人扣完血之後照順序跑', () => {

@@ -17,7 +17,7 @@ import { hive } from './hive.js';
 //                                         hpScale / bossScale = 關卡規則的 enemyHp / bossHp（一般敵人 / 王的血量倍率，見 shared/stage-rules.js）
 //   ready(match)                          建構：開場落地之後（決定 Boss 的第一招；會抽亂數，順序不能動）
 //   cascade(match)                        勝負判定前、一波結算完算擊殺前：這個機制連帶造成的死亡（古樹之眼倒下 → 整棵樹枯萎）。要能重複呼叫
-//   moved(match, e, x0, y0, x, y) → fx|null   玩家回報位置（落水檢查之前）：路上撿到的道具，Match 收進 pickups
+//   moved(match, e, x0, y0, x, y) → fx|null   位置回報（落水檢查之前）：路上撿到的道具，由 applyPositionReport 回傳給裁判廣播
 //   turnStart(match, e, fx)               自己的回合開始：中毒結算之後、回血之前，要飄字的推進 fx
 //   turnEnd(match, e, fx)                 每個角色的回合結束：燃燒之後、神佑之石之前
 //   absorbHit(match, e, hit) → boolean    爆炸 / 命中結算的第一步（無敵之前），hit = { attacker, friendly, damages, later }：

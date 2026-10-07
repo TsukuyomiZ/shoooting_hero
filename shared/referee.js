@@ -98,24 +98,22 @@ export class Referee {
 
     switch (msg.t) {
       case 'move': {
-        const falls = actor.waterFalls;
-        // vine = 抓著第幾條藤蔓（叢林巨蟒）：掛得上去才算，超時 / 斷線時伺服器才知道他是掛著、不是在半空中
-        if (this.match.setPlayerPosition(actor, msg.x, msg.y, msg.facing, msg.stamina, msg.safe, msg.vine)) {
-          if (CONFIG.LOG && CONFIG.LOG.moves) {
-            this.record('move', {
-              pid: actor.id, name: actor.name, x: r1(msg.x), y: r1(msg.y), facing: actor.facing, stamina: r1(actor.stamina),
-              ...(actor.onVine >= 0 ? { vine: actor.onVine } : {}),
-            });
-          }
-          this.flushPickups();
-          if (actor.waterFalls !== falls) { this.actorFellInWater(actor); break; }   // 自己走 / 跳進水裡
-          // 記住當下的垂直速度：回報時人可能正在空中（例如往上跳穿平台），超時 / 斷線時伺服器才接得上他原本的軌跡
-          if (Number.isFinite(msg.vy)) actor.vy = actor.onVine >= 0 ? 0 : clamp(msg.vy, -actor.jumpSpeed, 1400);
-          this.io.broadcast({ t: 'move', id: actor.id, x: actor.x, y: actor.y, facing: actor.facing, stamina: actor.stamina, vine: actor.onVine }, playerId);
-        } else {
+        // 位置回報（Match 收下、檢查、結算撿道具與落水；vine = 抓著第幾條藤蔓，超時 / 斷線時伺服器才知道他是掛著）
+        const report = this.match.applyPositionReport(actor, msg);
+        if (!report.ok) {
           // 位置不合理（瞬移、出界、卡進地形）被擋下
           this.record('move.reject', { pid: actor.id, name: actor.name, x: logValue(msg.x), y: logValue(msg.y), from: [r1(actor.x), r1(actor.y)] });
+          break;
         }
+        if (CONFIG.LOG && CONFIG.LOG.moves) {
+          this.record('move', {
+            pid: actor.id, name: actor.name, x: r1(msg.x), y: r1(msg.y), facing: actor.facing, stamina: r1(actor.stamina),
+            ...(actor.onVine >= 0 ? { vine: actor.onVine } : {}),
+          });
+        }
+        this.announcePickup(report.pickup);
+        if (report.water) { this.actorFellInWater(actor); break; }   // 自己走 / 跳進水裡
+        this.io.broadcast({ t: 'move', id: actor.id, x: actor.x, y: actor.y, facing: actor.facing, stamina: actor.stamina, vine: actor.onVine }, playerId);
         break;
       }
       case 'slow': {
@@ -145,10 +143,9 @@ export class Referee {
         if (!actor.weapons.includes(msg.weapon) || !Number.isFinite(msg.angle) || !Number.isFinite(msg.power)) {
           return this.ignored(playerId, msg, actor.weapons.includes(msg.weapon) ? 'badAim' : 'weaponNotOwned');
         }
-        // 空中也能開火：就在回報的位置出手，並接著他當下的垂直速度往下飛 / 落地
-        const falls = actor.waterFalls;
-        const moved = this.match.setPlayerPosition(actor, msg.x, msg.y, msg.facing, msg.stamina, null, msg.vine);
-        this.flushPickups();
+        // 空中也能開火：就在回報的位置出手，並接著他當下的垂直速度往下飛 / 落地（開火的回報不收 safe：重生點只認走路掉水那次回報的）
+        const report = this.match.applyPositionReport(actor, { ...msg, safe: null });
+        this.announcePickup(report.pickup);
         const power = clamp(msg.power, 0, 100);
         this.closeSlow(actor, 'fire');   // 客戶端開火前沒送關的話，這裡補記
         // 先記開火（玩家的操作：他回報的出手位置），結算的結果另記一筆 shot：結算途中出錯的話，至少知道他是怎麼開的。
@@ -156,13 +153,10 @@ export class Referee {
         this.record('fire', {
           pid: actor.id, name: actor.name, weapon: msg.weapon, angle: r1(msg.angle), power: r1(power),
           x: logValue(msg.x), y: logValue(msg.y), ...(Number.isFinite(msg.vy) && msg.vy ? { vy: r1(msg.vy) } : {}),
-          ...(actor.onVine >= 0 ? { vine: actor.onVine } : {}), ...(moved ? {} : { posRejected: true }),
+          ...(actor.onVine >= 0 ? { vine: actor.onVine } : {}), ...(report.ok ? {} : { posRejected: true }),
         });
-        if (actor.waterFalls !== falls) {   // 出手的位置已經在水裡：淹死就結束，撐住了就從重生點出手
-          if (this.actorFellInWater(actor)) return;
-        } else if (moved && Number.isFinite(msg.vy)) {
-          actor.vy = actor.onVine >= 0 ? 0 : clamp(msg.vy, -actor.jumpSpeed, 1400);
-        }
+        // 出手的位置已經在水裡：淹死就結束，撐住了就從重生點出手
+        if (report.water && this.actorFellInWater(actor)) return;
         this.phase = 'resolving';
         this.deadline = null;
         const before = hpOf(this.match);
@@ -197,7 +191,7 @@ export class Referee {
     });
   }
 
-  // 行動玩家回報自己掉進水裡（setPlayerPosition 已經扣完血、把他放回岸上）。
+  // 行動玩家回報自己掉進水裡（位置回報已經扣完血、把他放回岸上，見 Match.applyPositionReport）。
   // 淹死 → 這回合結束；撐住了 → 回合繼續（還有體力就能接著動），告訴其他人播水花、把他放到重生點。
   // 他自己的畫面已經先算好了，不再送給他（送了反而會把他已經走開的位置拉回來）。回傳回合是不是結束了
   actorFellInWater(actor) {
@@ -210,15 +204,14 @@ export class Referee {
     return false;
   }
 
-  // 行動玩家走路途中喝到蛇血（叢林巨蟒）：告訴所有人（包括他自己——客戶端不自己判斷撿到沒），
+  // 位置回報途中撿到道具（例如叢林巨蟒的蛇血；fx = 地圖機制給的，沒撿到是 null）：告訴所有人（包括他自己——客戶端不自己判斷撿到沒），
   // 只帶上限相關的數值，不帶位置（他自己的畫面已經走到更前面了）
-  flushPickups() {
-    for (const fx of this.match.takePickups()) {
-      const e = this.match.byId(fx.id);
-      const { id, ...info } = fx;
-      this.record('pickup', { pid: id, name: e.name, ...info, hp: r1(e.hp), maxHp: r1(e.maxHp) });
-      this.io.broadcast({ t: 'pickup', ...fx, hp: e.hp, mhp: e.maxHp, lk: e.poisonLock });
-    }
+  announcePickup(fx) {
+    if (!fx) return;
+    const e = this.match.byId(fx.id);
+    const { id, ...info } = fx;
+    this.record('pickup', { pid: id, name: e.name, ...info, hp: r1(e.hp), maxHp: r1(e.maxHp) });
+    this.io.broadcast({ t: 'pickup', ...fx, hp: e.hp, mhp: e.maxHp, lk: e.poisonLock });
   }
 
   // 玩家連線狀態改變。輪到他卻斷線 → 立刻由 AI 代打

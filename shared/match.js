@@ -39,7 +39,6 @@ export class Match {
     // 地圖機制的狀態（每場一份，含場上的道具）：機制的 build 建好回傳（見下面），之後由機制讀寫；Match 只存著不碰。
     // 一般小關 = null（見 shared/mechanics/index.js）
     this.mechState = null;
-    this.pickups = [];  // 位置回報途中撿到的道具（fx），裁判拿去廣播（見 takePickups）
     // 關卡規則（見 shared/stage-rules.js）：這一關的血量倍率、敵人傷害倍率、狂熱。人數 = 開場的玩家人數（含之後倒下的隊友）
     this.rules = stageRules({ stage, players: players.length, pool: this.level.pool }, config);
     this.round = 0;     // 第幾輪：裁判在新的一輪開始時加一，客戶端照伺服器的訊息設；狂熱層數照這個算（見 fever）
@@ -149,15 +148,23 @@ export class Match {
     return n;
   }
 
-  // 玩家回報位置（客戶端對自己的移動有主導權，伺服器只做合理性檢查）。
+  // 位置回報（見 GLOSSARY.md）：行動玩家的客戶端說自己現在在哪（走路、跳、掉水、開火那一刻）。
+  // 客戶端對自己的移動有主導權，伺服器只做合理性檢查，並結算路上撿到的道具與落水。
+  // report = 客戶端送來的 { x, y, facing, stamina, vy, vine, safe }：
+  //   facing 1 / -1 才採用；stamina 只能減不能加；
+  //   vine = 抓著第幾條藤蔓（-1 = 沒有）：位置真的掛得上去才算，不然當成在半空中（超時就會掉下去）；
+  //   safe = 客戶端記的最後站穩的地方（落水那次回報才帶）：站得住、離得不遠就採用，重生點才會跟他畫面上的一樣；
+  //   vy = 當下的垂直速度：收下而且沒掉水才接著用（掛在藤蔓上 = 0），超時 / 斷線時伺服器才接得上他原本的軌跡。
   // 站得住的位置記成「最後站穩的地方」；回報在水裡 = 自己走 / 跳進水裡 → 落水（扣血、回到岸上，或淹死）。
-  // safe = 客戶端記的最後站穩的地方（落水那次回報才帶）：站得住、離得不遠就採用，重生點才會跟他畫面上的一樣。
-  // vine = 回報說抓著第幾條藤蔓（-1 = 沒有）：位置真的掛得上去才算，不然當成在半空中（超時就會掉下去）。
-  // 從上一個位置走到這裡的路上撿到的道具（地圖機制的 moved，例如巨蟒關的蛇血）記在 this.pickups 給裁判廣播
-  setPlayerPosition(e, x, y, facing, stamina, safe = null, vine = -1) {
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
-    if (x < e.hw || x > this.terrain.maxX - e.hw || y < 0 || y > CONFIG.WORLD_H) return false;
-    if (Math.hypot(x - e.x, y - e.y) > 400) return false;   // 不准瞬移
+  // 回傳 { ok, water, pickup }：ok = 收下了（false = 瞬移 / 出界 / 卡進地形，什麼都沒改）；
+  // water = 這次掉進水裡的那一次（e.splash），沒掉是 null；pickup = 從上一個位置走到這裡的路上撿到的道具
+  // （地圖機制的 moved 給的 fx，例如巨蟒關的蛇血），沒有是 null
+  applyPositionReport(e, report) {
+    const { x, y, facing, stamina, vy, vine = -1, safe = null } = report;
+    const rejected = { ok: false, water: null, pickup: null };
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return rejected;
+    if (x < e.hw || x > this.terrain.maxX - e.hw || y < 0 || y > CONFIG.WORLD_H) return rejected;
+    if (Math.hypot(x - e.x, y - e.y) > 400) return rejected;   // 不准瞬移
     let ny = y;
     // 在水裡的回報不檢查卡進地形：沿著斜的崖壁掉下去時身體會擦進牆裡一點（直落只檢查腳下），反正馬上就回到岸上
     if (ny <= CONFIG.WATER_LEVEL && e.collides(this.terrain, x, ny)) {
@@ -165,7 +172,7 @@ export class Match {
       for (let up = 1; up <= 8; up++) {
         if (!e.collides(this.terrain, x, ny - up)) { ny -= up; ok = true; break; }
       }
-      if (!ok) return false;
+      if (!ok) return rejected;
     }
     e.movedThisTurn += Math.hypot(x - e.x, ny - e.y);   // 移動可以甩掉燃燒層數
     const x0 = e.x, y0 = e.y;
@@ -176,8 +183,7 @@ export class Match {
     if (facing === 1 || facing === -1) e.facing = facing;
     if (Number.isFinite(stamina)) e.stamina = clamp(stamina, 0, e.stamina);   // 只能減不能加
     e.onVine = Number.isInteger(vine) && vine >= 0 && ny <= CONFIG.WATER_LEVEL && e.canHangAt(this.terrain, vine, x, ny) ? vine : -1;
-    const got = this.mechanic.moved(this, e, x0, y0, x, ny);   // 在落水檢查之前：走進水裡的那一段也撿得到
-    if (got) this.pickups.push(got);
+    const pickup = this.mechanic.moved(this, e, x0, y0, x, ny) || null;   // 在落水檢查之前：走進水裡的那一段也撿得到
     if (ny > CONFIG.WATER_LEVEL) {
       if (safe && Number.isFinite(safe.x) && Number.isFinite(safe.y) && Math.hypot(safe.x - x, safe.y - ny) <= 400 &&
           e.canStandAt(this.terrain, safe.x, safe.y)) {
@@ -185,18 +191,14 @@ export class Match {
         e.safeY = safe.y;
       }
       e.fallInWater(this.terrain);
-    } else if (e.canStandAt(this.terrain, x, ny)) {
+      return { ok: true, water: e.splash, pickup };
+    }
+    if (e.canStandAt(this.terrain, x, ny)) {
       e.safeX = x;
       e.safeY = ny;
     }
-    return true;
-  }
-
-  // 位置回報途中撿到的道具（fx），拿出來就清掉
-  takePickups() {
-    const out = this.pickups;
-    this.pickups = [];
-    return out;
+    if (Number.isFinite(vy)) e.vy = e.onVine >= 0 ? 0 : clamp(vy, -e.jumpSpeed, 1400);
+    return { ok: true, water: null, pickup };
   }
 
   // ---- 回合開始 / 結束（裁判呼叫） ----
