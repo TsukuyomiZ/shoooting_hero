@@ -10,7 +10,7 @@ import { isEquippable } from '../shared/weapons.js';
 import { replayChecked } from './replay-check.js';
 import { validateCards } from '../shared/cards.js';
 import { planeOf, planeCounts, chooseTreeAction, rollTreeAction, planTreeNext, resolveTreeTurn, spawnTreant, trunkLane } from '../shared/tree-boss.js';
-import { treeTurnScript, drawTreeScene } from '../client/tree-boss-view.js';
+import { mapViewFor } from '../client/map-views/index.js';
 
 // 這裡的測試照武器原本傷害算敵人的攻擊；敵人傷害倍率（ENEMY.damageMult / damageMultLate）在 headless.js 另有專門測試
 CONFIG.ENEMY.damageMult = 1;
@@ -928,38 +928,42 @@ const laneRect = (m, i) => { const l = trunkLane(m, i); return [l.x0, l.top, l.x
 test('客戶端：預定撞擊時一直畫出那條警示帶（範圍 = trunkLane）；落葉 / 養神 / 發呆不畫；古樹出撞擊時只畫快閃；預定等古樹回合播完才換', () => {
   const m = garden(2, { seed: 4 });
   const eye = m.byId('eye');
-  const view = { match: m, time: 1.3, painter: { withered: false }, treeFx: null, particles: [], shake: 0,
-    showBanner() {}, spawnParticles() {}, floatText() {}, *shotScript() { yield { frames: 1 }; } };
-  const draw = () => { const r = recordingCtx(); drawTreeScene(r.ctx, view); return r; };
+  // 古樹之庭的地圖畫面（client/map-views/tree.js）；c = 掛勾拿到的那一小塊 GameView（特效出口什麼都不做）
+  const tv = mapViewFor(m);
+  assert(tv.type === 'tree', 'tree map view: ' + tv.type);
+  const c = { match: m, time: 1.3, currentId: null, projectiles: [], state: tv.create(m),
+    fx: { particles() {}, particle() {}, sound() {}, banner() {}, float() {}, shake() {}, splash() {}, wither() {} },
+    *shotScript() { yield { frames: 1 }; } };
+  const draw = () => { const r = recordingCtx(); tv.drawScene(r.ctx, c); return r; };
   // 玩家 / 樹妖的回合：預定撞擊 → 畫一條，範圍跟伺服器的樹幹一樣；虛線用完要還原
   m.tree.next = { action: 'trunk', plane: 1 };
   const r = draw();
   assert(redBands(r.calls).join('|') === laneRect(m, 1), 'steady band = trunkLane: ' + redBands(r.calls));
-  const dash = r.calls.filter(c => c.fn === 'setLineDash');
+  const dash = r.calls.filter(x => x.fn === 'setLineDash');
   assert(dash.length && dash.at(-1).args[0].length === 0, 'line dash reset');
   for (const action of ['leaves', 'meditate', 'idle']) {
     m.tree.next = { action };
     assert(redBands(draw().calls).length === 0, `no band for ${action}`);
   }
   m.tree.next = { action: 'trunk', plane: 1 };
-  view.painter.withered = true;
+  c.state.withered = true;   // 古樹倒下過（onDeath 設的）
   assert(redBands(draw().calls).length === 0, 'no band once withered');
-  view.painter.withered = false;
+  c.state.withered = false;
   eye.alive = false;
   assert(redBands(draw().calls).length === 0, 'no band with the eye dead');
   eye.alive = true;
   // 古樹的回合播撞擊：預兆時只有快閃（在出招的平面）、樹幹飛出去時不畫；全部播完才換成 boss.next 的預告
   const msg = { actorId: 'eye', boss: { steps: [{ action: 'trunk', plane: 1, shot: {} }], next: { action: 'trunk', plane: 2 } } };
   const seen = [];
-  const gen = treeTurnScript(view, msg);
+  const gen = tv.turnScript(c, msg);
   for (let it = gen.next(); !it.done; it = gen.next()) {
     assert(m.tree.next.plane === 1, 'the old plan stays during the tree turn');
-    const fx = view.treeFx;
+    const fx = c.state.fx;
     const bands = redBands(draw().calls);
     const phase = !fx ? 'think' : fx.plane != null ? 'cast' : 'flight';
     assert(phase === 'flight' ? bands.length === 0 : bands.join('|') === laneRect(m, 1), `${phase}: ` + bands);
     if (seen.at(-1) !== phase) seen.push(phase);
-    view.time += 1 / 60;
+    c.time += 1 / 60;
   }
   assert(seen.join() === 'think,cast,flight', 'phases ' + seen);
   assert(m.tree.next.action === 'trunk' && m.tree.next.plane === 2, 'boss.next applied at the end');

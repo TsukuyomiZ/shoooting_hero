@@ -1,17 +1,22 @@
 import { CONFIG } from '../shared/config.js';
 import { displayAngle, clamp } from '../shared/utils.js';
 import { aimPreview } from '../shared/weapons.js';
+import { VINE_HAND } from '../shared/entities.js';
 import { roundRect, text, drawBar, drawHpBar, FONT } from './draw.js';
-import { drawTreeScene, drawTreePart, drawTreant, drawSpearHeld, drawTreeProjectile, buildForestBackground } from './tree-boss-view.js';
 import { buildDecor } from './decor.js';
-import { drawSnakeScene, drawSnake, drawSnakeProjectile, drawPoisonMark, drawVineHands, buildJungleBackground } from './snake-boss-view.js';
-import { drawBee, drawHive, drawHiveProjectile } from './hive-view.js';
+import { BACKGROUNDS } from './backgrounds.js';
+import { HELD_ART } from './weapon-art.js';
+
+const NO_BAR = Object.freeze({});   // 地圖畫面沒有特別交代的血條（hpBar 回傳 null）
+
+// 畫面與 HUD。某一張地圖特有的畫法（Boss、場景、名單底下的提示…）由地圖畫面負責（view.mapView，見 client/map-views/index.js），
+// 這裡只在固定的位置呼叫它的掛勾
 export class Renderer {
   constructor(view, canvas) {
     this.view = view;
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
-    this.backgrounds = { dusk: this.buildBackground() };   // 地圖主題 → 背景（第一次用到才畫）
+    this.backgrounds = { dusk: BACKGROUNDS.dusk(CONFIG.WORLD_W, CONFIG.WORLD_H) };   // 地圖主題 → 背景（第一次用到才畫）
     this.decors = new Map();                               // 關卡 id → 裝飾圖（level.decor，第一次用到才畫）
   }
 
@@ -25,48 +30,10 @@ export class Renderer {
 
   background() {
     const theme = (this.view.match && this.view.match.level.theme) || 'dusk';
-    if (!this.backgrounds[theme]) {
-      this.backgrounds[theme] = theme === 'forest' ? buildForestBackground(CONFIG.WORLD_W, CONFIG.WORLD_H)
-        : theme === 'jungle' ? buildJungleBackground(CONFIG.WORLD_W, CONFIG.WORLD_H) : this.backgrounds.dusk;
+    if (!this.backgrounds[theme]) {   // 不認得的主題用黃昏的
+      this.backgrounds[theme] = Object.hasOwn(BACKGROUNDS, theme) ? BACKGROUNDS[theme](CONFIG.WORLD_W, CONFIG.WORLD_H) : this.backgrounds.dusk;
     }
     return this.backgrounds[theme];
-  }
-
-  // 靜態背景只畫一次：黃昏天空 + 太陽 + 遠山
-  buildBackground() {
-    const W = CONFIG.WORLD_W, H = CONFIG.WORLD_H;
-    const c = document.createElement('canvas');
-    c.width = W; c.height = H;
-    const ctx = c.getContext('2d');
-    const sky = ctx.createLinearGradient(0, 0, 0, H);
-    sky.addColorStop(0, '#2b1e3f');
-    sky.addColorStop(0.45, '#7a3f5c');
-    sky.addColorStop(0.75, '#e0834a');
-    sky.addColorStop(1, '#f3b06a');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, W, H);
-    const sun = ctx.createRadialGradient(780, 300, 10, 780, 300, 150);
-    sun.addColorStop(0, 'rgba(255,235,180,0.95)');
-    sun.addColorStop(0.3, 'rgba(255,190,120,0.5)');
-    sun.addColorStop(1, 'rgba(255,150,100,0)');
-    ctx.fillStyle = sun;
-    ctx.beginPath(); ctx.arc(780, 300, 150, 0, Math.PI * 2); ctx.fill();
-    const layers = [
-      { color: 'rgba(60,30,60,0.55)', base: 520, amp: 120, seed: 3 },
-      { color: 'rgba(40,20,45,0.75)', base: 600, amp: 90, seed: 7 },
-    ];
-    for (const L of layers) {
-      ctx.fillStyle = L.color;
-      ctx.beginPath();
-      ctx.moveTo(0, H);
-      for (let x = 0; x <= W; x += 16) {
-        ctx.lineTo(x, L.base - Math.abs(Math.sin(x * 0.011 * L.seed) * L.amp) - Math.abs(Math.sin(x * 0.037 + L.seed) * 25));
-      }
-      ctx.lineTo(W, H);
-      ctx.closePath();
-      ctx.fill();
-    }
-    return c;
   }
 
   draw() {
@@ -83,13 +50,14 @@ export class Renderer {
     view.painter.sync();
     ctx.drawImage(view.painter.canvas, 0, 0);
     if (decor && decor.front) ctx.drawImage(decor.front, 0, 0);   // 蓋在地形上的裝飾（小心擊發：樹幹頂端的樹冠）
-    drawTreeScene(ctx, view);   // 古樹之庭：樹冠、預定撞擊的警示帶、出招預兆
-    drawSnakeScene(ctx, view);  // 叢林巨蟒：藤蔓、水裡的蛇身、蛇血、預定衝撞的警示帶
+    const mv = view.mapView, c = view.mapCtx;
+    mv.drawScene(ctx, c);   // 地圖畫面的場景（例如古樹之庭的樹冠與撞擊警示帶、叢林巨蟒的藤蔓與蛇血）
     this.drawAim();
-    // 巨蟒的頭先畫：被大地震擊甩到嘴前的人要畫在牠前面，不會像是鑽進牠的頭裡
-    const ents = view.match.entities;
-    for (const e of ents) if (e.part === 'snake') this.drawEntity(e);
-    for (const e of ents) if (e.part !== 'snake') this.drawEntity(e);
+    // 地圖畫面要先畫的角色先畫（例如巨蟒的頭：被甩到嘴前的人要畫在牠前面，不會像是鑽進牠的頭裡）
+    const first = [], rest = [];
+    for (const e of view.match.entities) (mv.drawEntityFirst(c, e) ? first : rest).push(e);
+    for (const e of first) this.drawEntity(e);
+    for (const e of rest) this.drawEntity(e);
     this.drawProjectiles();
     this.drawEffects();
     ctx.restore();
@@ -159,8 +127,8 @@ export class Renderer {
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.beginPath(); ctx.moveTo(10, -9); ctx.lineTo(18, 0); ctx.lineTo(10, 9); ctx.stroke();
-    } else if (w.id === 'treeSpear') {
-      drawSpearHeld(ctx);
+    } else if (HELD_ART[w.id]) {   // 其他武器的畫法（例如長矛，見 weapon-art.js）
+      HELD_ART[w.id](ctx);
     } else if (w.id === 'plasma') {
       ctx.fillStyle = '#334155';
       roundRect(ctx, -6, -5, 30, 10, 4); ctx.fill();
@@ -181,9 +149,9 @@ export class Renderer {
 
   drawEntity(e) {
     const { ctx, view } = this;
-    if (e.part === 'snake' && !e.alive) { drawSnake(ctx, e, view); return; }   // 巨蟒沉進水裡
-    if (e.part && !e.alive) { drawTreePart(ctx, e, view); return; }   // 閉上的眼睛 / 嘴巴留在樹上
-    if (e.charging) return;   // 蜜蜂衝出去了：飛行物本身就是牠（見 hive-view.js）
+    const mv = view.mapView, c = view.mapCtx;
+    // 地圖畫面自己處理的（例如倒下的古樹之眼留在樹上、巨蟒沉進水裡、衝出去的蜜蜂不畫）
+    if (mv.drawEntityBare(ctx, c, e)) return;
     ctx.save();
     if (!e.alive) {
       const a = Math.max(0, 1 - e.deathTimer / 1.2);
@@ -196,54 +164,49 @@ export class Renderer {
     const isMe = e.id === view.myId;
     const s = e.h / 30;   // 體型牌會把角色放大，整體等比縮放
 
-    if (e.kind === 'hive') {        // 蜂巢：血量畫在下面（上面是樹枝），不會輪到它，不用行動標記
-      drawHive(ctx, e, view, hurt);
+    // 地圖畫面的身體（例如 Boss、蜜蜂）；'whole' = 連血條、名字都畫好了（例如蜂巢）
+    const body = mv.drawEntity(ctx, c, e, hurt);
+    if (body === 'whole') {
       ctx.restore();
       return;
     }
-    if (e.part === 'snake') {
-      drawSnake(ctx, e, view);      // 叢林巨蟒的頭
-    } else if (e.part) {
-      drawTreePart(ctx, e, view);   // 古樹之眼 / 古樹之口
-    } else if (e.kind === 'bee') {
-      drawBee(ctx, e, view, hurt);  // 蜜蜂（飛在空中，沒有影子、不拿武器）
-    } else {
+    if (!body) {
       if (e.onVine < 0) {           // 腳下的影子（掛在藤蔓上就沒有）
         ctx.fillStyle = 'rgba(0,0,0,0.25)';
         ctx.beginPath(); ctx.ellipse(x, y + 1, e.hw + 3, 3, 0, 0, Math.PI * 2); ctx.fill();
       }
       this.drawWeapon(e);
+      if (mv.drawFigure(ctx, c, e, hurt)) {
+        // 地圖畫面畫的身體（例如樹妖）
+      } else if (e.kind === 'sniper') {
+        this.drawSniper(e, hurt);
+      } else if (e.kind === 'artillery') {
+        this.drawArtillery(e, hurt);
+      } else {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(s, s);
+        ctx.fillStyle = hurt ? '#ffffff' : e.color;
+        roundRect(ctx, -9, -19, 18, 18, 4); ctx.fill();
+        ctx.fillStyle = '#222';
+        ctx.fillRect(-7, -3, 5, 3);
+        ctx.fillRect(2, -3, 5, 3);
+        ctx.fillStyle = hurt ? '#fff' : '#ffd9b3';
+        ctx.beginPath(); ctx.arc(0, -25, 9, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = hurt ? '#eee' : (e.isPlayer ? '#5b3a1a' : '#333');
+        ctx.beginPath(); ctx.arc(0, -27, 9, Math.PI, 0); ctx.fill();
+        ctx.fillStyle = '#222';
+        ctx.beginPath(); ctx.arc(e.facing * 4, -24, 1.7, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
     }
-    if (e.minion) {
-      drawTreant(ctx, e, hurt);
-    } else if (e.kind === 'sniper') {
-      this.drawSniper(e, hurt);
-    } else if (e.kind === 'artillery') {
-      this.drawArtillery(e, hurt);
-    } else if (!e.part && e.kind !== 'bee') {
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.scale(s, s);
-      ctx.fillStyle = hurt ? '#ffffff' : e.color;
-      roundRect(ctx, -9, -19, 18, 18, 4); ctx.fill();
-      ctx.fillStyle = '#222';
-      ctx.fillRect(-7, -3, 5, 3);
-      ctx.fillRect(2, -3, 5, 3);
-      ctx.fillStyle = hurt ? '#fff' : '#ffd9b3';
-      ctx.beginPath(); ctx.arc(0, -25, 9, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = hurt ? '#eee' : (e.isPlayer ? '#5b3a1a' : '#333');
-      ctx.beginPath(); ctx.arc(0, -27, 9, Math.PI, 0); ctx.fill();
-      ctx.fillStyle = '#222';
-      ctx.beginPath(); ctx.arc(e.facing * 4, -24, 1.7, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-    }
-    if (e.onVine >= 0 && e.alive) drawVineHands(ctx, e);   // 抓著藤蔓：兩手往上握著
+    if (e.onVine >= 0 && e.alive) this.drawVineHands(e);   // 抓著藤蔓：兩手往上握著
 
-    // 血條 + 名字（＋ 你 / AI 標籤）。古樹之口打不壞，不畫血條、改標狀態。
-    // 被中毒鎖住的上限畫成右邊一段灰色（整條 = 原本的上限）；巨蟒的血條比較長，每 bloodEveryPct%（掉蛇血的門檻）一道刻度
-    const snake = e.part === 'snake';
-    const bw = snake ? 170 : e.boss ? 90 : 46, bh = snake ? 8 : 6, by = y - e.h - 16;
-    if (!e.closeOnHit) {
+    // 血條 + 名字（＋ 你 / AI 標籤）。地圖畫面可以改血條的寬高、不畫血條（例如打不壞的古樹之口）、加刻度（例如巨蟒掉蛇血的門檻）。
+    // 被中毒鎖住的上限畫成右邊一段灰色（整條 = 原本的上限）
+    const bar = mv.hpBar(c, e) || NO_BAR;
+    const bw = bar.w || (e.boss ? 90 : 46), bh = bar.h || 6, by = y - e.h - 16;
+    if (!bar.hidden) {
       const full = Math.max(1, e.maxHp + e.poisonLock);
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
       roundRect(ctx, x - bw / 2, by, bw, bh, 3); ctx.fill();
@@ -256,9 +219,9 @@ export class Renderer {
         ctx.fillStyle = '#6b7280';
         roundRect(ctx, gx, by, x + bw / 2 - gx, bh, 3); ctx.fill();
       }
-      if (snake && CONFIG.SNAKE_BOSS.bloodEveryPct > 0) {
+      if (bar.ticks > 0) {
         ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        for (let k = CONFIG.SNAKE_BOSS.bloodEveryPct; k < 100; k += CONFIG.SNAKE_BOSS.bloodEveryPct) ctx.fillRect(x - bw / 2 + bw * k / 100 - 0.5, by, 1, bh);
+        for (let k = bar.ticks; k < 100; k += bar.ticks) ctx.fillRect(x - bw / 2 + bw * k / 100 - 0.5, by, 1, bh);
       }
     }
     let label = e.name;
@@ -269,7 +232,7 @@ export class Renderer {
       color: e.isPlayer ? '#e8f4ff' : '#ffd54f', outline: 'rgba(0,0,0,0.9)',
     });
     if (e.alive && e.burn > 0) this.drawBurn(x + bw / 2 + 7, by + 3, e.burn);
-    if (e.alive && e.poison > 0) drawPoisonMark(ctx, x + bw / 2 + 7 + (e.burn > 0 ? 26 : 0), by + 3, e.poison);   // 中毒層數（每個自己的回合開始都會結算，喝蛇血才解除）
+    if (e.alive && e.poison > 0) this.drawPoisonMark(x + bw / 2 + 7 + (e.burn > 0 ? 26 : 0), by + 3, e.poison);   // 中毒層數（每個自己的回合開始都會結算，喝蛇血才解除）
     if (e.alive && view.match.linkPartners(e).length) this.drawLinkMark(x - bw / 2 - 9, by + 3);   // 攜手之伴：連結生效中
     if (e.alive && e.shield > 0) {   // 神佑之石的無敵護罩
       const r = Math.max(e.h, e.hw * 2) * 0.72 + 4;
@@ -278,7 +241,7 @@ export class Renderer {
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(x, e.cy, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
-    if (e.alive && e.slowMo) {   // 慢動作中（空中瞄準）：淡藍色的光環，外面一圈慢慢轉的刻度
+    if (e.alive && view.look(e).slowMo) {   // 慢動作中（空中瞄準）：淡藍色的光環，外面一圈慢慢轉的刻度
       const r = Math.max(e.h, e.hw * 2) * 0.72 + 9;
       ctx.strokeStyle = 'rgba(103,232,249,0.6)';
       ctx.lineWidth = 1.5;
@@ -386,6 +349,42 @@ export class Renderer {
     text(ctx, String(stacks), fx + 6, fy + 5, { size: 11, bold: true, color: '#fdba74', outline: 'rgba(0,0,0,0.9)' });
   }
 
+  // 血條旁的中毒標記：紫色毒液滴 + 層數（任何角色都可能中毒：巨蟒、蜜蜂都會上毒）
+  drawPoisonMark(x, y, stacks) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = '#a855f7';
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 7);
+    ctx.quadraticCurveTo(x + 5.5, y - 0.5, x + 4, y + 3);
+    ctx.arc(x, y + 2, 4.2, 0.2, Math.PI - 0.2);
+    ctx.quadraticCurveTo(x - 5.5, y - 0.5, x, y - 7);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.beginPath(); ctx.arc(x - 1.5, y + 1, 1.2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    text(ctx, String(stacks), x + 6, y + 5, { size: 11, bold: true, color: '#e9d5ff', outline: 'rgba(0,0,0,0.9)' });
+  }
+
+  // 抓著藤蔓的人：兩隻手往上握住藤蔓（在角色座標裡，跟身體一起縮放）
+  drawVineHands(e) {
+    const ctx = this.ctx;
+    const s = e.h / 30;
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.scale(s, s);
+    ctx.strokeStyle = '#ffd9b3';
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 3;
+    const hy = -30 + VINE_HAND / s;
+    ctx.beginPath(); ctx.moveTo(-7, -16); ctx.lineTo(-2, hy - 2); ctx.moveTo(7, -16); ctx.lineTo(2, hy + 3); ctx.stroke();
+    ctx.fillStyle = '#ffd9b3';
+    ctx.beginPath(); ctx.arc(-2, hy - 2, 2.4, 0, Math.PI * 2); ctx.arc(2, hy + 3, 2.4, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
   // 血條左邊的連結標記（攜手之伴）：兩個扣在一起的小環
   drawLinkMark(cx, cy) {
     const ctx = this.ctx;
@@ -482,11 +481,10 @@ export class Renderer {
 
   drawProjectiles() {
     const { ctx, view } = this;
+    const mv = view.mapView, c = view.mapCtx;
     for (const p of view.projectiles) {
       const w = p.weapon;
-      if (drawTreeProjectile(ctx, p, view)) continue;   // 古樹撞擊 / 飛散落葉 / 長矛
-      if (drawSnakeProjectile(ctx, p, view)) continue;  // 巨蟒的毒液 / 震波（衝撞、撕咬是頭本身）
-      if (drawHiveProjectile(ctx, p, view)) continue;   // 蜜蜂的衝刺螫擊（飛行物就是蜜蜂）
+      if (mv.drawProjectile(ctx, c, p)) continue;   // 地圖畫面的招式（例如古樹撞擊、巨蟒的毒液、蜜蜂的衝刺螫擊）
       if (w.id === 'cannon') {
         this.drawTrail(p, '255,200,120', 0.5, 2, 3);
         ctx.fillStyle = w.color;
@@ -622,11 +620,11 @@ export class Renderer {
 
     // 右上：隊伍名單（含手牌數）+ 敵人
     const players = match.players;
-    // 打不打都可以的敵人（蜂巢、蜜蜂）不算在「敵人剩餘」裡；小心擊發另外標場上的蜜蜂數（同一行，名單框才不會蓋到樹枝上的狙擊手）
+    // 打不打都可以的敵人（例如蜂巢、蜜蜂）不算在「敵人剩餘」裡；名單底下的幾行由地圖畫面決定（例如 Boss 的血量）
     const foes = match.enemies.filter(e => !e.optional);
     const enemiesAlive = foes.filter(e => e.alive).length;
-    const bees = match.hive ? match.enemies.filter(e => e.kind === 'bee' && e.alive).length : 0;
-    const rosterH = 34 + players.length * 22 + (match.tree ? 44 : 22);
+    const lines = view.mapView.hud(view.mapCtx, [`敵人剩餘 ${enemiesAlive} / ${foes.length}`, '#fca5a5']);
+    const rosterH = 34 + players.length * 22 + lines.length * 22;
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     roundRect(ctx, W - 12 - 250, 12, 250, rosterH, 10); ctx.fill();
     text(ctx, '隊伍', W - 250, 34, { size: 14, bold: true, color: '#9ec5ff' });
@@ -644,17 +642,7 @@ export class Renderer {
       drawHpBar(ctx, W - 92, y - 12, 70, 10, p, p.color, '#222');   // 被中毒鎖住的上限是灰色
     });
     const ey = 56 + players.length * 22 + 2;
-    if (match.tree) {   // 古樹之庭：眼睛血量、場上的樹妖數（嘴巴的狀態不用文字提示，只看畫面上張開或闔上）
-      const eye = match.byId('eye');
-      const minions = match.enemies.filter(e => e.minion && e.alive).length;
-      text(ctx, `古樹之眼 ${eye.hp} / ${eye.maxHp}`, W - 250, ey, { size: 13, bold: true, color: '#fca5a5' });
-      text(ctx, `樹妖 ×${minions}`, W - 250, ey + 22, { size: 13, bold: true, color: '#fdba74' });
-    } else if (match.snake) {   // 叢林巨蟒：血量
-      const s = match.byId('snake');
-      text(ctx, `叢林巨蟒 ${s.hp} / ${s.maxHp}`, W - 250, ey, { size: 13, bold: true, color: '#fca5a5' });
-    } else {
-      text(ctx, `敵人剩餘 ${enemiesAlive} / ${foes.length}${match.hive ? `　蜜蜂 ×${bees}` : ''}`, W - 250, ey, { size: 13, bold: true, color: '#fca5a5' });
-    }
+    lines.forEach(([str, color], i) => text(ctx, str, W - 250, ey + i * 22, { size: 13, bold: true, color }));
 
     // 底部：自己的狀態
     const py = H - 96;

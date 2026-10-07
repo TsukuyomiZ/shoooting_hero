@@ -1,37 +1,107 @@
-import { CONFIG } from '../shared/config.js';
-import { spawnTreant, leafOrigin, trunkLane, TREE_ACTION_NAMES } from '../shared/tree-boss.js';
-import { clamp } from '../shared/utils.js';
-import { roundRect } from './draw.js';
+import { CONFIG } from '../../shared/config.js';
+import { spawnTreant, leafOrigin, trunkLane, TREE_ACTION_NAMES } from '../../shared/tree-boss.js';
+import { clamp } from '../../shared/utils.js';
+import { roundRect } from '../draw.js';
+import { drawSpearHeld } from '../weapon-art.js';
 
-// 古樹之庭的客戶端：古樹回合的動畫腳本（照伺服器廣播的招式播）與古樹 / 樹妖 / 招式的繪圖。
+// 古樹之庭的地圖畫面：古樹回合的動畫腳本（照伺服器廣播的招式播）、古樹倒下的特效、嘴巴被打閉上 / 又張開的飄字，
+// 與古樹 / 樹妖 / 招式的繪圖。掛勾的說明見 index.js
 const FPS = 60;
 const BARK = '#5b3d27';
+
+export const tree = {
+  type: 'tree',
+
+  // 這一場的畫面狀態：
+  //   fx         古樹出招的預兆動畫 { action, t, plane, targetId, seeds }（古樹回合播完就清掉）
+  //   withered   古樹倒下了（樹冠、藤蔓變灰；地形的樹皮由 fx.wither() 變灰）
+  //   mouthOpen  嘴巴畫面上張開的程度（id → 數字，每畫一次往目標靠近一點）
+  //   floated    這次被打閉上已經飄過「閉上了！」的嘴巴 id（又張開時清掉）
+  create: () => ({ fx: null, withered: false, mouthOpen: new Map(), floated: new Set() }),
+
+  musicTrack: () => 'tree',
+  turnScript: treeTurnScript,
+  onDeath: onTreeDeath,
+
+  // 古樹之口被打到閉上（不扣血）
+  showDamage(c, e, d) {
+    if (!d.closed) return false;
+    e.hurtTimer = 0.35;   // 閉著的嘴被打到會抖一下
+    if (!c.state.floated.has(e.id)) c.fx.float(e, '閉上了！', '#fdba74');
+    c.state.floated.add(e.id);
+    c.fx.particles(e.cx, e.cy, 10, { speed: 120, life: 0.5, size: 3, color: '#8b5a2b', gravity: 300 });
+    return true;
+  },
+
+  // 古樹之口撐過一回合，又張開了
+  turnFx(c, e, fx) {
+    if (fx.type !== 'mouthOpen') return false;
+    c.fx.float(e, '張開了', '#fca5a5');
+    c.state.floated.delete(e.id);
+    return true;
+  },
+
+  drawScene: drawTreeScene,
+
+  // 閉上的眼睛 / 嘴巴留在樹上（不淡出、沒有血條）
+  drawEntityBare(ctx, c, e) {
+    if (!e.part || e.alive) return false;
+    drawTreePart(ctx, c, e);
+    return true;
+  },
+
+  // 古樹之眼 / 古樹之口
+  drawEntity(ctx, c, e) {
+    if (!e.part) return false;
+    drawTreePart(ctx, c, e);
+    return 'body';
+  },
+
+  // 樹妖：影子、長矛照一般的畫，身體換成樹妖
+  drawFigure(ctx, c, e, hurt) {
+    if (!e.minion) return false;
+    drawTreant(ctx, e, hurt);
+    return true;
+  },
+
+  // 古樹之口打不壞：不畫血條（看畫面上張開或闔上）
+  hpBar: (c, e) => (e.closeOnHit ? { hidden: true } : null),
+
+  drawProjectile: drawTreeProjectile,
+
+  // 隊伍名單下面：眼睛血量、場上的樹妖數（嘴巴的狀態不用文字提示，只看畫面上張開或闔上）
+  hud(c) {
+    const eye = c.match.byId('eye');
+    const minions = c.match.enemies.filter(e => e.minion && e.alive).length;
+    return [[`古樹之眼 ${eye.hp} / ${eye.maxHp}`, '#fca5a5'], [`樹妖 ×${minions}`, '#fdba74']];
+  },
+};
 
 // ---------- 動畫腳本 ----------
 
 // 古樹的回合：依序播放每一招（多人召喚的回合是「召喚 → 攻擊」兩招）。
 // 每一招：預兆（標出目標平面、張嘴、閉眼、聚集落葉）→ 出招（撞擊 / 落葉照 shotScript 重播）→ 校正成伺服器結果。
-// view.treeFx 給畫面用：{ action, t, plane, targetId, seeds }。
+// c.state.fx 給畫面用：{ action, t, plane, targetId, seeds }。
 // 全部播完才換上伺服器預定的下一招（msg.boss.next）：舊的撞擊預告留到真的撞下去，新的預告在古樹回合之後才出現
-export function* treeTurnScript(view, msg) {
-  const eye = view.match.byId(msg.actorId);
+function* treeTurnScript(c, msg) {
+  const eye = c.match.byId(msg.actorId);
   yield { frames: Math.round(CONFIG.TIMING.aiThink * FPS) };
-  for (const step of msg.boss.steps) yield* treeStepScript(view, eye, step);
-  view.treeFx = null;
-  if (view.match.tree && msg.boss.next !== undefined) view.match.tree.next = msg.boss.next;
+  for (const step of msg.boss.steps) yield* treeStepScript(c, eye, step);
+  c.state.fx = null;
+  if (c.match.tree && msg.boss.next !== undefined) c.match.tree.next = msg.boss.next;
 }
 
-function* treeStepScript(view, eye, b) {
-  const match = view.match;
+function* treeStepScript(c, eye, b) {
+  const match = c.match;
   const T = CONFIG.TIMING;
-  const fx = view.treeFx = { action: b.action, t: 0, plane: b.plane ?? null, targetId: b.targetId ?? null, seeds: [] };
+  const fx = c.state.fx = { action: b.action, t: 0, plane: b.plane ?? null, targetId: b.targetId ?? null, seeds: [] };
   const cast = Math.round(T.bossCast * FPS);
   const planes = match.tree ? match.tree.def.planes : [];
   const name = TREE_ACTION_NAMES[b.action] || '';
   switch (b.action) {
     case 'summon': {
       const spawns = b.spawns || [];
-      view.showBanner(spawns.length > 1 ? `古樹：${name} ×${spawns.length}！` : `古樹：${name}！`, '#fca5a5');
+      c.fx.banner(spawns.length > 1 ? `古樹：${name} ×${spawns.length}！` : `古樹：${name}！`, '#fca5a5');
       const mouth = match.byId('mouth');
       yield { frames: Math.round(cast * 0.5) };
       // 嘴巴吐出種子（召喚幾隻就吐幾顆），落地長出樹妖
@@ -41,21 +111,20 @@ function* treeStepScript(view, eye, b) {
       for (let i = 1; i <= flight; i++) { for (const sd of fx.seeds) sd.t = i / flight; yield { frames: 1 }; }
       fx.seeds = [];
       for (const s of spawns) {
-        const e = spawnTreant(match, s);
-        e.deathHandled = !e.alive;
-        view.spawnParticles(e.x, e.y - 10, 18, { speed: 150, life: 0.7, size: 4, color: '#65a30d', gravity: 400 });
-        view.spawnParticles(e.x, e.y - 10, 10, { speed: 90, life: 0.6, size: 3, color: '#a16207', gravity: 300 });
-        view.floatText(e, '樹妖出現！', '#fca5a5', 16);
+        const e = spawnTreant(match, s);   // 新的角色一定活著：GameView 之後看到牠倒下才播死亡特效
+        c.fx.particles(e.x, e.y - 10, 18, { speed: 150, life: 0.7, size: 4, color: '#65a30d', gravity: 400 });
+        c.fx.particles(e.x, e.y - 10, 10, { speed: 90, life: 0.6, size: 3, color: '#a16207', gravity: 300 });
+        c.fx.float(e, '樹妖出現！', '#fca5a5', 16);
       }
       break;
     }
     case 'trunk': {
       const pl = planes[b.plane];
-      view.showBanner(`古樹：${name} → ${pl ? pl.name : ''}！`, '#fdba74');
+      c.fx.banner(`古樹：${name} → ${pl ? pl.name : ''}！`, '#fdba74');
       for (let i = 0; i < cast; i++) {   // 地面震動、樹幹那一側落下木屑
         if (i % 6 === 0) {
-          view.shake = Math.max(view.shake, 3);
-          if (pl) view.spawnParticles(match.terrain.hardEdgeX(pl.y - 18), pl.y - 18 + (Math.random() - 0.5) * 40, 3, { speed: 80, life: 0.6, size: 3, color: '#8b5a2b', gravity: 500 });
+          c.fx.shake(3);
+          if (pl) c.fx.particles(match.terrain.hardEdgeX(pl.y - 18), pl.y - 18 + (Math.random() - 0.5) * 40, 3, { speed: 80, life: 0.6, size: 3, color: '#8b5a2b', gravity: 500 });
         }
         yield { frames: 1 };
       }
@@ -64,35 +133,35 @@ function* treeStepScript(view, eye, b) {
     }
     case 'leaves': {
       const target = match.byId(b.targetId);
-      view.showBanner(`古樹：${name} → ${target ? target.name : ''}！`, '#bef264');
+      c.fx.banner(`古樹：${name} → ${target ? target.name : ''}！`, '#bef264');
       const o = eye ? leafOrigin(eye) : null;
       for (let i = 0; i < cast; i++) {   // 葉子往眼睛前面聚集
         if (o && i % 3 === 0) {
           const a = Math.random() * Math.PI * 2, r = 50 + Math.random() * 30;
-          view.particles.push({ x: o.x + Math.cos(a) * r, y: o.y + Math.sin(a) * r, vx: -Math.cos(a) * r * 2, vy: -Math.sin(a) * r * 2, life: 0.45, maxLife: 0.45, size: 3, color: Math.random() < 0.5 ? '#84cc16' : '#4d7c0f', gravity: 0 });
+          c.fx.particle({ x: o.x + Math.cos(a) * r, y: o.y + Math.sin(a) * r, vx: -Math.cos(a) * r * 2, vy: -Math.sin(a) * r * 2, life: 0.45, maxLife: 0.45, size: 3, color: Math.random() < 0.5 ? '#84cc16' : '#4d7c0f', gravity: 0 });
         }
         yield { frames: 1 };
       }
       break;
     }
     case 'meditate': {
-      view.showBanner(`古樹：${name}`, '#86efac');
+      c.fx.banner(`古樹：${name}`, '#86efac');
       yield { frames: Math.round(cast * 0.6) };
       if (eye && b.heal > 0) {
         eye.hp = Math.min(eye.maxHp, eye.hp + b.heal);
-        view.floatText(eye, `+${b.heal}`, '#4ade80');
-        view.spawnParticles(eye.x, eye.cy, 16, { speed: 90, life: 0.8, size: 3, color: '#86efac', gravity: -80 });
+        c.fx.float(eye, `+${b.heal}`, '#4ade80');
+        c.fx.particles(eye.x, eye.cy, 16, { speed: 90, life: 0.8, size: 3, color: '#86efac', gravity: -80 });
       }
       yield { frames: cast - Math.round(cast * 0.6) };
       break;
     }
     default:
-      view.showBanner(TREE_ACTION_NAMES.idle, '#d9f99d');
+      c.fx.banner(TREE_ACTION_NAMES.idle, '#d9f99d');
       yield { frames: cast };
   }
 
   if (b.shot) {
-    yield* view.shotScript(b.shot);
+    yield* c.shotScript(b.shot);
   } else if (b.still) {
     yield { until: () => match.isSettled(), max: b.still.settleFrames + 60 };
     match.applyEntities(b.still.results);
@@ -101,20 +170,21 @@ function* treeStepScript(view, eye, b) {
 }
 
 // 古樹相關的死亡：回傳 true 表示處理過了（不要再顯示一般的「被擊倒」橫幅）
-export function onTreeDeath(view, e) {
+function onTreeDeath(c, e) {
   if (e.part === 'eye') {
-    view.showBanner('古樹倒下了！', '#fde047');
-    view.shake = Math.max(view.shake, 14);
-    view.spawnParticles(e.x, e.cy, 40, { speed: 260, life: 1.2, size: 4, color: '#65a30d', gravity: 250 });
-    if (view.painter) view.painter.setWithered(true);
+    c.fx.banner('古樹倒下了！', '#fde047');
+    c.fx.shake(14);
+    c.fx.particles(e.x, e.cy, 40, { speed: 260, life: 1.2, size: 4, color: '#65a30d', gravity: 250 });
+    c.state.withered = true;
+    c.fx.wither();
     return true;
   }
   if (e.part === 'mouth') {   // 嘴巴打不壞，只會跟著古樹一起枯萎
-    view.spawnParticles(e.x, e.cy, 20, { speed: 160, life: 0.8, size: 3, color: '#8b5a2b', gravity: 400 });
+    c.fx.particles(e.x, e.cy, 20, { speed: 160, life: 0.8, size: 3, color: '#8b5a2b', gravity: 400 });
     return true;
   }
   if (e.deathCause === 'wither') {   // 樹妖跟著古樹枯萎
-    view.spawnParticles(e.x, e.cy, 14, { speed: 80, life: 1.0, size: 3, color: '#a3a3a3', gravity: 120 });
+    c.fx.particles(e.x, e.cy, 14, { speed: 80, life: 1.0, size: 3, color: '#a3a3a3', gravity: 120 });
     return true;
   }
   return false;
@@ -123,10 +193,10 @@ export function onTreeDeath(view, e) {
 // ---------- 繪圖 ----------
 
 // 樹冠與垂下來的藤蔓（地形之後、角色之前畫）＋ 預定撞擊的警示帶 ＋ 招式的預兆（目標平面、種子）
-export function drawTreeScene(ctx, view) {
-  const match = view.match;
+function drawTreeScene(ctx, c) {
+  const match = c.match;
   if (!match || !match.tree) return;
-  const withered = view.painter && view.painter.withered;
+  const withered = c.state.withered;
   // 樹冠：樹幹頂端一叢一叢的葉子
   const clumps = [[880, 10, 70], [960, 30, 80], [1010, -10, 60], [820, 40, 46], [930, 90, 50], [1000, 110, 44]];
   for (const [x, y, r] of clumps) {
@@ -141,17 +211,17 @@ export function drawTreeScene(ctx, view) {
   for (const [x, len] of [[836, 120], [866, 70], [812, 60]]) {
     ctx.beginPath();
     ctx.moveTo(x, 30);
-    ctx.quadraticCurveTo(x - 10 + Math.sin(view.time * 1.3 + x) * 4, 30 + len / 2, x - 4, 30 + len);
+    ctx.quadraticCurveTo(x - 10 + Math.sin(c.time * 1.3 + x) * 4, 30 + len / 2, x - 4, 30 + len);
     ctx.stroke();
   }
 
-  const fx = view.treeFx;
+  const fx = c.state.fx;
   // 預定的古樹撞擊：玩家 / 樹妖的回合一直標著那條橫掃範圍（慢慢呼吸），讓玩家有機會躲開。
   // 古樹自己出撞擊的時候改由下面的快閃接手（撞完、播完才換成下一個預告）
   const next = match.tree.next;
   const eye = match.byId('eye');
   if (next && next.action === 'trunk' && next.plane != null && eye && eye.alive && !withered && !(fx && fx.action === 'trunk')) {
-    drawTrunkBand(ctx, match, next.plane, 0.26 + 0.08 * Math.sin(view.time * 3), 0.85);
+    drawTrunkBand(ctx, match, next.plane, 0.26 + 0.08 * Math.sin(c.time * 3), 0.85);
   }
   if (!fx) return;
   fx.t += 1 / FPS;
@@ -183,15 +253,15 @@ function drawTrunkBand(ctx, match, planeIdx, alpha, lineAlpha) {
 }
 
 // 古樹身上的眼睛 / 嘴巴
-export function drawTreePart(ctx, e, view) {
-  if (e.part === 'eye') drawEye(ctx, e, view);
-  else drawMouth(ctx, e, view);
+function drawTreePart(ctx, c, e) {
+  if (e.part === 'eye') drawEye(ctx, c, e);
+  else drawMouth(ctx, c, e);
 }
 
-function lookPoint(e, view) {
-  const match = view.match;
-  const fx = view.treeFx;
-  const target = (fx && fx.targetId && match.byId(fx.targetId)) || (view.currentId && match.byId(view.currentId));
+function lookPoint(c, e) {
+  const match = c.match;
+  const fx = c.state.fx;
+  const target = (fx && fx.targetId && match.byId(fx.targetId)) || (c.currentId && match.byId(c.currentId));
   if (target && target.team === 'players' && target.alive) return { x: target.cx, y: target.cy };
   const alive = match.players.filter(p => p.alive);
   if (!alive.length) return null;
@@ -199,9 +269,9 @@ function lookPoint(e, view) {
   return { x: near.cx, y: near.cy };
 }
 
-function drawEye(ctx, e, view) {
+function drawEye(ctx, c, e) {
   const x = e.x, y = e.cy, r = e.hw;
-  const fx = view.treeFx;
+  const fx = c.state.fx;
   const hurt = e.hurtTimer > 0;
   // 閉眼：死掉，或閉目養神的預兆
   const closing = fx && fx.action === 'meditate' ? clamp(fx.t * 3, 0, 1) : 0;
@@ -230,7 +300,7 @@ function drawEye(ctx, e, view) {
   }
   // 瞳孔：看著目前的目標
   if (e.alive) {
-    const lp = lookPoint(e, view);
+    const lp = lookPoint(c, e);
     let ox = -6, oy = 2;
     if (lp) {
       const dx = lp.x - x, dy = lp.y - y, d = Math.hypot(dx, dy) || 1;
@@ -262,15 +332,17 @@ function drawEye(ctx, e, view) {
   ctx.beginPath(); ctx.ellipse(x, y, r + 2, r * 0.92 + 2, 0, 0, Math.PI * 2); ctx.stroke();
 }
 
-function drawMouth(ctx, e, view) {
+function drawMouth(ctx, c, e) {
   const x = e.x, y = e.cy, hw = e.hw;
-  const fx = view.treeFx;
+  const fx = c.state.fx;
   if (!e.alive) { drawShutMouth(ctx, e, true); return; }   // 古樹倒下：縫死
   // 張開的程度：被打到就闔起來、古樹回合結束再慢慢張開；召喚時張大，平常慢慢呼吸（只影響畫面）
-  const target = e.closedTurns > 0 ? 0 : (fx && fx.action === 'summon' ? 1.25 : 0.85 + 0.1 * Math.sin(view.time * 2.2));
-  e.viewOpen = e.viewOpen === undefined ? target : e.viewOpen + (target - e.viewOpen) * 0.2;
-  if (e.viewOpen < 0.12) { drawShutMouth(ctx, e, false); return; }
-  const oh = e.h / 2 * e.viewOpen;
+  const target = e.closedTurns > 0 ? 0 : (fx && fx.action === 'summon' ? 1.25 : 0.85 + 0.1 * Math.sin(c.time * 2.2));
+  const prev = c.state.mouthOpen.get(e.id);
+  const open = prev === undefined ? target : prev + (target - prev) * 0.2;
+  c.state.mouthOpen.set(e.id, open);
+  if (open < 0.12) { drawShutMouth(ctx, e, false); return; }
+  const oh = e.h / 2 * open;
   ctx.fillStyle = '#2b1a0e';
   ctx.beginPath(); ctx.ellipse(x, y, hw + 6, oh + 6, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = e.hurtTimer > 0 ? '#fecaca' : '#3b0a0a';
@@ -325,7 +397,7 @@ function drawShutMouth(ctx, e, dead) {
 }
 
 // 樹妖：身體用 config 的 TREANT.color，頭上一叢葉子
-export function drawTreant(ctx, e, hurt) {
+function drawTreant(ctx, e, hurt) {
   const s = e.h / 30;
   ctx.save();
   ctx.translate(e.x, e.y);
@@ -351,21 +423,13 @@ export function drawTreant(ctx, e, hurt) {
   ctx.restore();
 }
 
-// 樹妖手上的長矛（在角色座標系裡、已經轉到瞄準角度）
-export function drawSpearHeld(ctx) {
-  ctx.fillStyle = '#7c5a3a';
-  ctx.fillRect(-10, -1.5, 34, 3);
-  ctx.fillStyle = '#d6d3d1';
-  ctx.beginPath(); ctx.moveTo(24, -4); ctx.lineTo(33, 0); ctx.lineTo(24, 4); ctx.closePath(); ctx.fill();
-}
-
 // 古樹的招式與長矛。處理了就回傳 true
-export function drawTreeProjectile(ctx, p, view) {
+function drawTreeProjectile(ctx, c, p) {
   const w = p.weapon;
   if (w.id === 'treeTrunk') {
     // 巨大樹幹：從樹幹表面一路伸到前端
     const r = w.hitRadius;
-    const x1 = Math.max(p.x, view.match.terrain.hardEdgeX(p.y) + 10);
+    const x1 = Math.max(p.x, c.match.terrain.hardEdgeX(p.y) + 10);
     const g = ctx.createLinearGradient(0, p.y - r, 0, p.y + r);
     g.addColorStop(0, '#8b5e3c');
     g.addColorStop(0.5, '#6b4423');
@@ -421,47 +485,4 @@ function drawLeaf(ctx, x, y, size, angle, color) {
   ctx.quadraticCurveTo(0, size * 0.8, -size, 0);
   ctx.fill();
   ctx.restore();
-}
-
-// 森林背景（古樹之庭）：深綠的天空、斜射的光、遠方的樹影
-export function buildForestBackground(W, H) {
-  const c = document.createElement('canvas');
-  c.width = W; c.height = H;
-  const ctx = c.getContext('2d');
-  const sky = ctx.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0, '#0d1f1c');
-  sky.addColorStop(0.5, '#1f3d31');
-  sky.addColorStop(0.8, '#4b6f45');
-  sky.addColorStop(1, '#8aa45e');
-  ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, W, H);
-  // 光束
-  for (const [x, w] of [[160, 60], [330, 40], [520, 80], [700, 50]]) {
-    const g = ctx.createLinearGradient(x, 0, x - 200, H);
-    g.addColorStop(0, 'rgba(250,250,200,0.16)');
-    g.addColorStop(1, 'rgba(250,250,200,0)');
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + w, 0); ctx.lineTo(x + w - 260, H); ctx.lineTo(x - 260, H); ctx.closePath(); ctx.fill();
-  }
-  // 遠方的樹影（兩層）
-  const layers = [
-    { color: 'rgba(20,48,36,0.55)', trunk: 'rgba(20,40,30,0.5)', base: 470, seed: 3 },
-    { color: 'rgba(12,32,24,0.8)', trunk: 'rgba(12,28,20,0.75)', base: 540, seed: 7 },
-  ];
-  for (const L of layers) {
-    for (let x = -20; x < W; x += 70 + ((x * L.seed) % 40)) {
-      const h = 160 + Math.abs(Math.sin(x * 0.05 * L.seed)) * 120;
-      ctx.fillStyle = L.trunk;
-      ctx.fillRect(x - 6, L.base - h * 0.4, 12, H);
-      ctx.fillStyle = L.color;
-      ctx.beginPath(); ctx.ellipse(x, L.base - h * 0.55, 40 + (x % 20), h * 0.35, 0, 0, Math.PI * 2); ctx.fill();
-    }
-  }
-  // 飄浮的光點
-  for (let i = 0; i < 40; i++) {
-    const x = (i * 263) % W, y = 80 + (i * 137) % (H - 250);
-    ctx.fillStyle = `rgba(217,249,157,${0.15 + (i % 5) * 0.08})`;
-    ctx.beginPath(); ctx.arc(x, y, 1.5 + (i % 3), 0, Math.PI * 2); ctx.fill();
-  }
-  return c;
 }

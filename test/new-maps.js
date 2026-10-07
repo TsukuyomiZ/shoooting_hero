@@ -14,12 +14,9 @@ import { replayVolley } from '../shared/volley.js';
 import { spawnBee } from '../shared/hive.js';
 import { Rng } from '../shared/rng.js';
 import { PLATFORM, SOIL } from '../shared/terrain.js';
-
-// 客戶端的蜜蜂腳本（hive-view.js）會載入音效模組，它一載入就碰 window / document / localStorage：先給最小的假物件（沒有 AudioContext = 不出聲）
-globalThis.window ??= { addEventListener() {} };
-globalThis.document ??= { addEventListener() {}, hidden: false, createElement: () => ({ getContext: () => ({}) }) };
-globalThis.localStorage ??= { getItem: () => null, setItem() {} };
-const { beeTurnScript, addBees, onHiveDeath } = await import('../client/hive-view.js');
+// 客戶端的地圖畫面不碰瀏覽器（音效走特效出口），不用假的 window / document 就能載入
+import { mapViewFor } from '../client/map-views/index.js';
+import { addBees } from '../client/map-views/hive.js';
 
 const results = [];
 function test(name, fn) {
@@ -745,9 +742,15 @@ test('客戶端：蜜蜂的回合腳本（待機套用結果；衝刺時角色�
   const r = sm.resolveShot(p, 'sniper', exactAngle(p, hive), 100);
   const specs = JSON.parse(JSON.stringify(r.events.find(e => e.bees).bees));
   const floats = [];
-  const view = {
-    match: cm, time: 0, projectiles: [], particles: [], shake: 0, banner: null,
-    showBanner(t) { this.banner = t; }, spawnParticles() {}, floatText(e, t) { floats.push([e.id, t]); },
+  // 小心擊發的地圖畫面（client/map-views/hive.js）；c = 掛勾拿到的那一小塊 GameView，特效出口記下橫幅與飄字
+  const hv = mapViewFor(cm);
+  assert(hv.type === 'hive', 'hive map view: ' + hv.type);
+  const c = {
+    match: cm, time: 0, currentId: null, projectiles: [], banner: null, state: hv.create(cm),
+    fx: {
+      particles() {}, particle() {}, sound() {}, shake() {}, splash() {}, wither() {},
+      banner(t) { c.banner = t; }, float(e, t) { floats.push([e.id, t]); },
+    },
     // shotScript：真的照事件重播（shared/volley.js，跟 game-view.js 同一份；畫面掛勾都不給）→ 套伺服器結果 → 等 24 幀（跟 game-view.js 的順序一樣）。
     // 這裡沒有人代步進：模組在每次 next() 自己跑 match.step
     *shotScript(shot, extra = {}) {
@@ -761,35 +764,38 @@ test('客戶端：蜜蜂的回合腳本（待機套用結果；衝刺時角色�
       yield { frames: 24 };
     },
   };
-  addBees(view, specs);
-  addBees(view, specs);
+  // 衝出去的蜜蜂（角色本身不畫）：記在地圖畫面自己的狀態裡，不在 Entity 上
+  const charging = (e) => !!(c.state.bees.get(e.id) || {}).charging;
+  addBees(c, specs);
+  addBees(c, specs);
   assert(bees(cm).length === 1 && floats.filter(f => f[1] === '蜜蜂飛出來了！').length === 1, 'bee built once from the spec');
   const cb = cm.byId('b1'), sb = sm.byId('b1');
   assert(cb.x === sb.x && cb.y === sb.y && cb.hp === sb.hp && cb.waitTurns === sb.waitTurns, 'client bee = server bee');
   const play = (boss, onStep = () => {}) => {
-    const g = beeTurnScript(view, { actorId: 'b1', boss: JSON.parse(JSON.stringify(boss)) });
+    const g = hv.turnScript(c, { actorId: 'b1', boss: JSON.parse(JSON.stringify(boss)) });
     for (let it = g.next(); !it.done; it = g.next()) onStep();
   };
   play(sm.planAiTurn(sb).boss);
-  assert(cb.waitTurns === 0 && /蓄勢待發/.test(view.banner), 'wait step applied: wt ' + cb.waitTurns + ' ' + view.banner);
+  assert(cb.waitTurns === 0 && /蓄勢待發/.test(c.banner), 'wait step applied: wt ' + cb.waitTurns + ' ' + c.banner);
   const sting = sm.planAiTurn(sb).boss;
   assert(sting.steps[0].action === 'sting', 'sting');
   const states = [];
   play(sting, () => {
-    const flying = view.projectiles.length > 0;
+    const flying = c.projectiles.length > 0;
     const at = cb.x === sb.x && cb.y === sb.y;
-    const s = `${flying ? 'fly' : 'still'}:${cb.charging ? 'hidden' : 'shown'}:${at ? 'hover' : 'origin'}`;
+    const s = `${flying ? 'fly' : 'still'}:${charging(cb) ? 'hidden' : 'shown'}:${at ? 'hover' : 'origin'}`;
     if (states.at(-1) !== s) states.push(s);
   });
   // 預兆時在原地 → 衝出去（角色不畫）→ 飛行物一消失就出現在停的位置（不用等後面的落地等待）
   assert(states.join() === 'still:shown:origin,fly:hidden:origin,still:shown:hover', 'charging / hover sequence: ' + states);
-  assert(!cb.charging && cb.x === sb.x && cb.y === sb.y && /衝刺螫擊/.test(view.banner), 'ends shown at the hover spot');
+  assert(!charging(cb) && cb.x === sb.x && cb.y === sb.y && /衝刺螫擊/.test(c.banner), 'ends shown at the hover spot');
+  assert(!('charging' in cb) && !('windup' in cb) && !('windDir' in cb), 'no view-only fields on the bee entity');
   // 死亡的處理：螫完力竭（diesOnSting）不播被擊倒的橫幅；打掉蜂巢有自己的橫幅；被打死的蜜蜂照一般規則
   cb.deathCause = 'sting';
-  assert(onHiveDeath(view, cb) === true && floats.some(f => f[0] === 'b1' && f[1] === '螫完力竭'), 'sting death handled');
+  assert(hv.onDeath(c, cb) === true && floats.some(f => f[0] === 'b1' && f[1] === '螫完力竭'), 'sting death handled');
   cb.deathCause = 'hit';
-  assert(onHiveDeath(view, cb) === false, 'a bee shot dead uses the normal banner');
-  assert(onHiveDeath(view, cm.byId('hive')) === true && /蜂巢/.test(view.banner), 'hive banner');
+  assert(hv.onDeath(c, cb) === false, 'a bee shot dead uses the normal banner');
+  assert(hv.onDeath(c, cm.byId('hive')) === true && /蜂巢/.test(c.banner), 'hive banner');
   return { states };
 }));
 

@@ -138,8 +138,8 @@ function biteShot(match, snake, target) {
 // ---- 蛇血 ----
 
 // 把掉出來的蛇血（事件 / 回合結束效果帶來的 drops）加進場上：已經有同 id 的就跳過。回傳這次新加的
-// （複製出來的物件，不會改到 drops 本身；畫面可以在上面加自己的欄位，例如拋物線動畫）。
-// 客戶端重播（shared/volley.js）與 client/snake-boss-view.js 的 addDrops 都用這個
+// （複製出來的物件，不會改到 drops 本身）。
+// 客戶端重播（shared/volley.js 經地圖機制的 replayEvent）與 client/map-views/snake.js 的回合結束掉蛇血都用這個
 export function takeDrops(match, drops) {
   const made = [];
   for (const d of drops || []) {

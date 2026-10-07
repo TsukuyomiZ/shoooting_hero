@@ -85,7 +85,7 @@ npm start
 小關放 `assets/music/canyon-echoes.mp3`，狂熱生效（4 人第 8 輪、2 ~ 3 人第 9 輪、1 人第 10 輪起）的那一刻交叉淡入 `canyon-fever.mp3`；
 古樹之庭放 `guardian-of-the-canopy.mp3`（原曲；`client/ambience.js` 有合成樹葉聲可以疊上去，在 `TRACKS.tree` 加 `leaves: 1` 就會開）；叢林巨蟒放 `savage-jungle-menace.mp3`，進關時前一首很快收掉，先播一聲合成的蛇哈氣（`sfx.js` 的 `snakeHiss`，吃「音樂」音量），音樂接著淡入（時間和音量在 `music.js` 的 `HISS`）。
 整首循環播放（曲尾本身有淡出，直接接回開頭）；切到別的分頁、縮小視窗時音樂和音效照樣播（同時開好幾個分頁測多人時，把其他分頁的音量拉到 0，免得好幾份聲音疊在一起）。
-換曲、調曲子的相對音量、樹葉聲大小（`leaves`）改 `client/music.js` 最上面的 `TRACKS`；風多久一陣、葉子 / 風聲 / 脆響各多大聲在 `ambience.js` 最上面；哪一關放哪首在 `GameView.musicTrack()`。
+換曲、調曲子的相對音量、樹葉聲大小（`leaves`）改 `client/music.js` 最上面的 `TRACKS`；風多久一陣、葉子 / 風聲 / 脆響各多大聲在 `ambience.js` 最上面；哪一關放哪首在 `GameView.musicTrack()`（Boss 關問地圖畫面的 `musicTrack`，見 `client/map-views/`）。
 
 音效全部用 Web Audio 即時合成（沒有音檔），在 `client/sfx.js` 的 `SOUNDS`：腳步、跳躍、大砲（等離子飛彈、迴力鏢也用這個）、
 狙擊槍（後面帶兩聲山谷回聲）、爆炸（大坑 / 小坑兩種）、砲彈落水、角色落水、被打中。聲音會照發生的位置分左右聲道。
@@ -424,6 +424,9 @@ npm test
   等離子每發傷害、抽牌過濾（含肉鴿流程裡的單人 / 沒人可連）。
 - `test/mechanics.js`：地圖機制——每張地圖拿到對的機制（一般小關是 plain）、不認得的 type / 舊格式（tree / snake / hive 直接掛在關卡上）會報錯、plain 的掛勾什麼都不做、
   Match 呼叫掛勾的時間點與順序、客戶端用到的匯出都還在、架構檢查（match.js 不 import 也不提任何一張地圖、volley.js 不 import hive / snake-boss、沒有循環 import）。
+- `test/map-views.js`：地圖畫面——每張地圖拿到對的畫面（一般小關是 plain，掛勾什麼都不做、不畫）、寫錯名字的掛勾 / 沒有畫面的機制會報錯、
+  架構檢查（render.js / game-view.js 不提任何一張地圖、只透過 map-views/index.js；地圖畫面不 import 音效 / 畫面模組、不碰 GameView 的粒子 / 震動…；
+  只給畫面用的欄位不寫在角色 / 道具上），以及真的 GameView 把每種地圖從開場播一段（含 render）。
 - `test/version.js`：版本號設定與版本履歷——版本號格式、最上面一筆 = 目前版本、由新到舊不重複、日期合法不倒退、每筆都有內容、
   `package.json` 的 version 對得上、大廳需要的元素都在 `index.html`。
 - `test/log.js`：紀錄（LOG）——檔案格式（欄位順序、資料蓋不掉時間、跨午夜換檔、寫不進去不當掉）、一關裡每一步都有記
@@ -465,9 +468,13 @@ client/
   render.js     畫面與 HUD
   terrain-painter.js  把地形遮罩畫成草皮 / 土壤 / 焦黑坑洞 / 樹皮 / 平台（石頭或樹枝）
   decor.js      關卡的純裝飾圖案（樹影重重的大樹、小心擊發的樹冠與枝葉）
-  tree-boss-view.js   古樹出招的動畫腳本，古樹 / 樹妖 / 招式 / 森林背景的繪圖
-  snake-boss-view.js  巨蟒出招的動畫腳本，巨蟒 / 藤蔓 / 蛇血 / 招式 / 叢林背景的繪圖
-  hive-view.js  蜜蜂回合的動畫腳本、蜜蜂飛出蜂巢，蜂巢 / 蜜蜂 / 衝刺螫擊的繪圖
+  backgrounds.js  地圖主題（level.theme）的背景：黃昏、森林、叢林
+  weapon-art.js   沒有內建畫法的武器拿在手上的樣子（長矛）
+  map-views/    地圖畫面（見 GLOSSARY.md）：render.js / game-view.js 在固定位置呼叫的掛勾與特效出口（index.js），照地圖機制選
+    tree.js       古樹出招的動畫腳本，古樹 / 樹妖 / 招式的繪圖、嘴巴閉上 / 張開的飄字
+    snake.js      巨蟒出招的動畫腳本，巨蟒 / 藤蔓 / 蛇血 / 招式的繪圖、蛇血掉出來 / 喝到
+    hive.js       蜜蜂回合的動畫腳本、蜜蜂飛出蜂巢，蜂巢 / 蜜蜂 / 衝刺螫擊的繪圖
+    plain.js      一般小關（什麼都不演）
 ```
 
 ### 同步方式（一回合）

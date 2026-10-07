@@ -1,56 +1,136 @@
-import { CONFIG } from '../shared/config.js';
-import { SNAKE_ACTION_NAMES, chargeLane, takeDrops } from '../shared/snake-boss.js';
-import { VINE_HAND } from '../shared/entities.js';
-import { clamp } from '../shared/utils.js';
-import { text } from './draw.js';
+import { CONFIG } from '../../shared/config.js';
+import { SNAKE_ACTION_NAMES, chargeLane, takeDrops, pickupAlong } from '../../shared/snake-boss.js';
+import { clamp } from '../../shared/utils.js';
 
-// 叢林巨蟒的客戶端：巨蟒回合的動畫腳本（照伺服器廣播的招式播）與巨蟒 / 藤蔓 / 蛇血 / 招式 / 叢林背景的繪圖。
+// 叢林巨蟒的地圖畫面：巨蟒回合的動畫腳本（照伺服器廣播的招式播）、巨蟒倒下的特效、蛇血（掉出來、喝到、自己走過去先喝），
+// 與巨蟒 / 藤蔓 / 蛇血 / 招式的繪圖。掛勾的說明見 index.js
 const FPS = 60;
 const SCALE = '#5f7a2c', SCALE_DARK = '#3b4a1a', BELLY = '#c8b878', BLOTCH = '#2f2a14';
 const POISON = '#c084fc';
+
+export const snake = {
+  type: 'snake',
+
+  // 這一場的畫面狀態：
+  //   fx     巨蟒出招的預兆動畫 { action, t, phase: 'cast' | 'act', targetId }（巨蟒回合播完就清掉）
+  //   head   頭畫面上的位移（id → { dx, dy, t }：衝出去 / 縮回來 / 抬頭，照 c.time 慢慢回原位）
+  //   anims  剛掉出來、還在飛的蛇血（道具 id → { x, y, t0 }：從嘴裡沿拋物線飛到落點，飛完就刪掉）。
+  //          照 id 對：GameView 換成伺服器版本的道具（setItems）也接得上；道具的 id 不會重複用
+  create: () => ({ fx: null, head: new Map(), anims: new Map() }),
+
+  musicTrack: () => 'snake',   // 先一聲蛇的哈氣再淡入（見 music.js）
+  turnScript: snakeTurnScript,
+  onDeath: onSnakeDeath,
+
+  // 打到巨蟒跨過門檻：掉蛇血
+  showEvent(c, ev, made) {
+    if (ev.drops) showDrops(c, ev.drops, made.items);
+  },
+
+  // 巨蟒被燒到跨過門檻，掉出蛇血
+  turnFx(c, e, fx) {
+    if (fx.type !== 'drops') return false;
+    addDrops(c, fx.items);
+    return true;
+  },
+
+  statusFx,
+
+  // 行動玩家走路途中喝到蛇血（伺服器廣播的 pickup）：改上限與血量（位置照他自己 / 他的 move 回報）。
+  // 自己的血量照本地的（喝完之後可能已經在本地掉過水），伺服器帶的 hp 是喝的那一刻：自己已經先喝過（預測）就什麼都不用改，
+  // 沒預測到（伺服器的直線判到、自己的路線沒碰到）才在本地補上回的血
+  onPickup(c, e, msg, self) {
+    const predicted = self && !c.match.items.some(it => it.id === msg.item);
+    e.maxHp = msg.mhp;
+    e.poisonLock = msg.lk;
+    e.poison = 0;   // 喝了蛇血就解毒
+    if (!self) e.hp = msg.hp;
+    else if (!predicted) e.hp = Math.min(e.maxHp, e.hp + (msg.heal || 0));
+    if (!predicted) statusFx(c, e, msg);
+  },
+
+  // 自己的回合這一幀從 (px, py) 走到現在的位置，路上碰到蛇血（有被鎖住的上限或血沒滿）就先在本地喝掉（跟伺服器同一套判斷）；
+  // 回傳 true = 喝到了，GameView 馬上回報位置：伺服器檢查的線段就停在蛇血上，一定也會判到（之後的 pickup 只是確認）
+  predictMove(c, me, px, py) {
+    const got = pickupAlong(c.match, me, px, py, me.x, me.y);
+    if (!got) return false;
+    statusFx(c, me, got);
+    return true;
+  },
+
+  drawScene: drawSnakeScene,
+
+  // 巨蟒的頭先畫：被大地震擊甩到嘴前的人要畫在牠前面，不會像是鑽進牠的頭裡
+  drawEntityFirst: (c, e) => e.part === 'snake',
+
+  // 巨蟒沉進水裡（自己淡出、沒有血條）
+  drawEntityBare(ctx, c, e) {
+    if (e.part !== 'snake' || e.alive) return false;
+    drawSnake(ctx, c, e);
+    return true;
+  },
+
+  // 叢林巨蟒的頭
+  drawEntity(ctx, c, e) {
+    if (e.part !== 'snake') return false;
+    drawSnake(ctx, c, e);
+    return 'body';
+  },
+
+  // 巨蟒的血條比較長，每 bloodEveryPct%（掉蛇血的門檻）一道刻度
+  hpBar: (c, e) => (e.part === 'snake' ? { w: 170, h: 8, ticks: CONFIG.SNAKE_BOSS.bloodEveryPct } : null),
+
+  drawProjectile: drawSnakeProjectile,
+
+  // 隊伍名單下面：巨蟒的血量
+  hud(c) {
+    const s = c.match.byId('snake');
+    return [[`叢林巨蟒 ${s.hp} / ${s.maxHp}`, '#fca5a5']];
+  },
+};
 
 // ---------- 動畫腳本 ----------
 
 // 巨蟒的回合：預兆（衝撞：往後縮、警示帶快閃；噴灑：抬頭張嘴；震擊：抬頭再砸進水裡；撕咬：往後縮、眼睛發光）
 // → 出招（照 shotScript 重播；衝撞 / 撕咬時頭跟著飛行物衝出去）→ 校正成伺服器結果。
-// view.snakeFx 給畫面用：{ action, t, phase: 'cast' | 'act', targetId }。
+// c.state.fx 給畫面用：{ action, t, phase: 'cast' | 'act', targetId }。
 // 全部播完才換上伺服器預定的下一招（msg.boss.next）：衝撞的警示帶留到真的撞下去，新的在巨蟒回合之後才出現
-export function* snakeTurnScript(view, msg) {
+function* snakeTurnScript(c, msg) {
   yield { frames: Math.round(CONFIG.TIMING.aiThink * FPS) };
-  for (const step of msg.boss.steps) yield* snakeStepScript(view, step);
-  view.snakeFx = null;
-  if (view.match.snake && msg.boss.next !== undefined) view.match.snake.next = msg.boss.next;
+  for (const step of msg.boss.steps) yield* snakeStepScript(c, step);
+  c.state.fx = null;
+  if (c.match.snake && msg.boss.next !== undefined) c.match.snake.next = msg.boss.next;
 }
 
-function* snakeStepScript(view, b) {
-  const match = view.match;
+function* snakeStepScript(c, b) {
+  const match = c.match;
   const def = match.snake ? match.snake.def : null;
-  const fx = view.snakeFx = { action: b.action, t: 0, phase: 'cast', targetId: b.targetId ?? null };
+  const fx = c.state.fx = { action: b.action, t: 0, phase: 'cast', targetId: b.targetId ?? null };
   const cast = Math.round(CONFIG.TIMING.bossCast * FPS);
   const name = SNAKE_ACTION_NAMES[b.action] || '';
   const target = b.targetId ? match.byId(b.targetId) : null;
-  if (b.action === 'idle') view.showBanner(SNAKE_ACTION_NAMES.idle, '#d9f99d');
-  else view.showBanner(`巨蟒：${name}${target ? ` → ${target.name}` : ''}！`, b.action === 'charge' ? '#fca5a5' : b.action === 'quake' ? '#fdba74' : POISON);
+  if (b.action === 'idle') c.fx.banner(SNAKE_ACTION_NAMES.idle, '#d9f99d');
+  else c.fx.banner(`巨蟒：${name}${target ? ` → ${target.name}` : ''}！`, b.action === 'charge' ? '#fca5a5' : b.action === 'quake' ? '#fdba74' : POISON);
   const slam = Math.round(cast * 0.78);
   for (let i = 0; i < cast; i++) {
     fx.t = i / FPS;
-    if (b.action === 'charge' && i % 8 === 0) view.shake = Math.max(view.shake, 2);
+    if (b.action === 'charge' && i % 8 === 0) c.fx.shake(2);
     if (b.action === 'spray' && def && i % 3 === 0) {   // 毒液在嘴邊聚起來
       const a = Math.random() * Math.PI * 2, r = 30 + Math.random() * 25;
       const o = def.mouth;
-      view.particles.push({ x: o.x + Math.cos(a) * r, y: o.y + Math.sin(a) * r, vx: -Math.cos(a) * r * 2.2, vy: -Math.sin(a) * r * 2.2, life: 0.4, maxLife: 0.4, size: 3, color: Math.random() < 0.5 ? '#a855f7' : '#86efac', gravity: 0 });
+      c.fx.particle({ x: o.x + Math.cos(a) * r, y: o.y + Math.sin(a) * r, vx: -Math.cos(a) * r * 2.2, vy: -Math.sin(a) * r * 2.2, life: 0.4, maxLife: 0.4, size: 3, color: Math.random() < 0.5 ? '#a855f7' : '#86efac', gravity: 0 });
     }
     if (b.action === 'quake' && i === slam) {   // 頭砸進水裡：大水花、整個畫面震
-      view.shake = Math.max(view.shake, 16);
-      for (let x = 620; x <= 1000; x += 60) view.splash(x);
-      if (def) view.spawnParticles(def.bridge.x1 - 10, def.bridge.y, 16, { speed: 160, life: 0.6, size: 3, color: '#4d7c0f', gravity: 500 });
+      c.fx.shake(16);
+      for (let x = 620; x <= 1000; x += 60) c.fx.splash(x);
+      if (def) c.fx.particles(def.bridge.x1 - 10, def.bridge.y, 16, { speed: 160, life: 0.6, size: 3, color: '#4d7c0f', gravity: 500 });
     }
     yield { frames: 1 };
   }
   fx.phase = 'act';
-  if (b.action === 'quake') view.shake = Math.max(view.shake, 10);
+  if (b.action === 'quake') c.fx.shake(10);
   if (b.shot) {
-    yield* view.shotScript(b.shot);
+    yield* c.shotScript(b.shot);
   } else if (b.still) {
     yield { until: () => match.isSettled(), max: b.still.settleFrames + 60 };
     match.applyEntities(b.still.results);
@@ -59,53 +139,65 @@ function* snakeStepScript(view, b) {
 }
 
 // 巨蟒倒下：回傳 true 表示處理過了（不要再顯示一般的「被擊倒」橫幅）
-export function onSnakeDeath(view, e) {
+function onSnakeDeath(c, e) {
   if (e.part !== 'snake') return false;
-  view.showBanner('叢林巨蟒倒下了！', '#fde047');
-  view.shake = Math.max(view.shake, 14);
-  view.spawnParticles(e.x - e.hw * 0.6, e.cy, 40, { speed: 240, life: 1.2, size: 4, color: '#65a30d', gravity: 250 });
-  for (let x = 620; x <= 1000; x += 50) view.splash(x);
+  c.fx.banner('叢林巨蟒倒下了！', '#fde047');
+  c.fx.shake(14);
+  c.fx.particles(e.x - e.hw * 0.6, e.cy, 40, { speed: 240, life: 1.2, size: 4, color: '#65a30d', gravity: 250 });
+  for (let x = 620; x <= 1000; x += 50) c.fx.splash(x);
   return true;
 }
 
 // 蛇血從巨蟒嘴裡掉出來（回合結束效果帶來的 drops）：加進場上（已經有的跳過），再播出來
-export function addDrops(view, drops) {
-  if (!view.match || !drops) return;
-  showDrops(view, drops, takeDrops(view.match, drops));
+function addDrops(c, drops) {
+  if (!c.match || !drops) return;
+  showDrops(c, drops, takeDrops(c.match, drops));
 }
 
 // 掉出來的蛇血的畫面：items = 這次新加進場上的（重播時由 shared/volley.js 加），用 0.7 秒的拋物線飛到落點；
 // 好幾瓶時照 drops 裡的順序一瓶一瓶飛出來
-export function showDrops(view, drops, items) {
-  const match = view.match;
+function showDrops(c, drops, items) {
+  const match = c.match;
   const from = match.snake ? match.snake.def.mouth : { x: 600, y: 500 };
   for (const it of items) {
     const k = Math.max(0, drops.findIndex(d => d.id === it.id));
-    it.anim = { x: from.x, y: from.y - 20, t0: view.time + k * 0.12 };
+    c.state.anims.set(it.id, { x: from.x, y: from.y - 20, t0: c.time + k * 0.12 });
   }
-  view.floatText(match.byId('snake') || { cx: from.x, y: from.y, h: 0, id: 'snake' }, drops.length > 1 ? `掉出蛇血 ×${drops.length}` : '掉出蛇血', '#f87171', 16);
+  c.fx.float(match.byId('snake') || { cx: from.x, y: from.y, h: 0, id: 'snake' }, drops.length > 1 ? `掉出蛇血 ×${drops.length}` : '掉出蛇血', '#f87171', 16);
+}
+
+// 喝到蛇血的飄字與特效（回合開始的 fx、回合沒開始的 turnFx、走路喝到的 pickup、自己先喝的預測都用這個）：蛇血從場上拿掉
+function statusFx(c, e, fx) {
+  if (fx.type !== 'snakeBlood') return;
+  c.match.items = c.match.items.filter(it => it.id !== fx.item);
+  c.state.anims.delete(fx.item);   // 還沒飛完的拋物線跟著蛇血一起不見
+  c.fx.float(e, fx.heal > 0 ? `蛇血！+${fx.heal}` : '蛇血！', '#f87171');
+  if (fx.cured > 0) c.fx.float(e, '解毒', '#e9d5ff', 15);
+  if (fx.unlocked > 0) c.fx.float(e, `上限 +${fx.unlocked}`, '#fca5a5', 15);
+  c.fx.particles(e.cx, e.cy, 18, { speed: 120, life: 0.8, size: 3, color: '#ef4444', gravity: -60 });
 }
 
 // ---------- 繪圖：場景 ----------
 
-// 藤蔓、水裡的蛇身、蛇血、預定衝撞的警示帶（地形之後、角色之前畫）
-export function drawSnakeScene(ctx, view) {
-  const match = view.match;
+// 藤蔓、水裡的蛇身、蛇血、預定衝撞的警示帶（地形之後、角色之前畫）。
+// 藤蔓是地形（不分地圖），但目前只有這張地圖有，所以畫在這裡
+function drawSnakeScene(ctx, c) {
+  const match = c.match;
   if (!match || !match.snake) return;
-  drawCoils(ctx, view);
+  drawCoils(ctx, c);
   drawCanopy(ctx);
-  match.terrain.vines.forEach((v, i) => drawVine(ctx, v, i, view.time));
-  for (const it of match.items) drawItem(ctx, it, view);
+  match.terrain.vines.forEach((v, i) => drawVine(ctx, v, i, c.time));
+  for (const it of match.items) drawItem(ctx, c, it);
 
   const snake = match.byId('snake');
   const next = match.snake.next;
-  const fx = view.snakeFx;
+  const fx = c.state.fx;
   if (!snake || !snake.alive) return;
   // 預定的巨蟒衝撞：玩家回合一直標著範圍（慢慢呼吸），巨蟒出招前快閃；真的衝出去之後就不畫了（頭本身就是範圍）
   if (fx && fx.action === 'charge') {
-    if (fx.phase === 'cast') drawChargeBand(ctx, match, 0.22 + 0.14 * Math.sin(fx.t * 16), 1, view.time);
+    if (fx.phase === 'cast') drawChargeBand(ctx, match, 0.22 + 0.14 * Math.sin(fx.t * 16), 1, c.time);
   } else if (next && next.action === 'charge') {
-    drawChargeBand(ctx, match, 0.16 + 0.06 * Math.sin(view.time * 3), 0.9, view.time);
+    drawChargeBand(ctx, match, 0.16 + 0.06 * Math.sin(c.time * 3), 0.9, c.time);
   }
 }
 
@@ -167,13 +259,13 @@ function drawVine(ctx, v, i, time) {
 }
 
 // 水裡露出來的蛇身（一段段拱起來的身體，只畫水面以上；不是判定，子彈打到水就沒了）
-function drawCoils(ctx, view) {
-  const snake = view.match.byId('snake');
+function drawCoils(ctx, c) {
+  const snake = c.match.byId('snake');
   const sink = snake && !snake.alive ? Math.min(60, snake.deathTimer * 40) : 0;
   ctx.save();
   ctx.beginPath(); ctx.rect(0, 0, CONFIG.WORLD_W, CONFIG.WATER_LEVEL + 2); ctx.clip();
   for (const [x, r, ph] of [[700, 46, 0], [835, 58, 1.3], [985, 64, 2.4]]) {
-    const y = CONFIG.WATER_LEVEL + 22 + Math.sin(view.time * 1.4 + ph) * 3 + sink;
+    const y = CONFIG.WATER_LEVEL + 22 + Math.sin(c.time * 1.4 + ph) * 3 + sink;
     const g = ctx.createLinearGradient(0, y - r, 0, y);
     g.addColorStop(0, '#7a9638');
     g.addColorStop(1, SCALE_DARK);
@@ -185,23 +277,24 @@ function drawCoils(ctx, view) {
   ctx.restore();
 }
 
-// 蛇血瓶：玻璃瓶 + 發亮的紅色蛇血 + 軟木塞，輕輕上下浮動。剛掉出來的沿拋物線飛過去（it.anim）
-function drawItem(ctx, it, view) {
+// 蛇血瓶：玻璃瓶 + 發亮的紅色蛇血 + 軟木塞，輕輕上下浮動。剛掉出來的沿拋物線飛過去（c.state.anims）
+function drawItem(ctx, c, it) {
   let x = it.x, y = it.y;
-  if (it.anim) {   // 照 view.time 算進度（跟畫面更新率無關）
-    const raw = (view.time - it.anim.t0) / 0.7;
-    if (raw >= 1) delete it.anim;
+  let anim = c.state.anims.get(it.id);
+  if (anim) {   // 照 c.time 算進度（跟畫面更新率無關）
+    const raw = (c.time - anim.t0) / 0.7;
+    if (raw >= 1) { c.state.anims.delete(it.id); anim = undefined; }
     else {
       if (raw <= 0) return;
       const t = clamp(raw, 0, 1);
-      x = it.anim.x + (it.x - it.anim.x) * t;
-      y = it.anim.y + (it.y - it.anim.y) * t - Math.sin(t * Math.PI) * 110;
+      x = anim.x + (it.x - anim.x) * t;
+      y = anim.y + (it.y - anim.y) * t - Math.sin(t * Math.PI) * 110;
     }
   }
-  drawSnakeBlood(ctx, x, y - 2 + (it.anim ? 0 : Math.sin(view.time * 3 + it.x) * 1.5), view.time);
+  drawSnakeBlood(ctx, x, y - 2 + (anim ? 0 : Math.sin(c.time * 3 + it.x) * 1.5), c.time);
 }
 
-export function drawSnakeBlood(ctx, x, y, time) {
+function drawSnakeBlood(ctx, x, y, time) {
   const glow = 0.35 + 0.25 * Math.sin(time * 4 + x);
   ctx.save();
   ctx.fillStyle = `rgba(239,68,68,${glow * 0.5})`;
@@ -223,52 +316,20 @@ export function drawSnakeBlood(ctx, x, y, time) {
   ctx.restore();
 }
 
-// 血條旁的中毒標記：紫色毒液滴 + 層數（每個自己的回合開始都會結算，喝蛇血才解除）
-export function drawPoisonMark(ctx, x, y, stacks) {
-  ctx.save();
-  ctx.fillStyle = '#a855f7';
-  ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(x, y - 7);
-  ctx.quadraticCurveTo(x + 5.5, y - 0.5, x + 4, y + 3);
-  ctx.arc(x, y + 2, 4.2, 0.2, Math.PI - 0.2);
-  ctx.quadraticCurveTo(x - 5.5, y - 0.5, x, y - 7);
-  ctx.fill(); ctx.stroke();
-  ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.beginPath(); ctx.arc(x - 1.5, y + 1, 1.2, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
-  text(ctx, String(stacks), x + 6, y + 5, { size: 11, bold: true, color: '#e9d5ff', outline: 'rgba(0,0,0,0.9)' });
-}
-
-// 抓著藤蔓的人：兩隻手往上握住藤蔓（在角色座標裡，跟身體一起縮放）
-export function drawVineHands(ctx, e) {
-  const s = e.h / 30;
-  ctx.save();
-  ctx.translate(e.x, e.y);
-  ctx.scale(s, s);
-  ctx.strokeStyle = '#ffd9b3';
-  ctx.lineCap = 'round';
-  ctx.lineWidth = 3;
-  const hy = -30 + VINE_HAND / s;
-  ctx.beginPath(); ctx.moveTo(-7, -16); ctx.lineTo(-2, hy - 2); ctx.moveTo(7, -16); ctx.lineTo(2, hy + 3); ctx.stroke();
-  ctx.fillStyle = '#ffd9b3';
-  ctx.beginPath(); ctx.arc(-2, hy - 2, 2.4, 0, Math.PI * 2); ctx.arc(2, hy + 3, 2.4, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
-}
-
 // ---------- 繪圖：巨蟒 ----------
 
-// 頭的位移：衝撞 / 撕咬時跟著飛行物（嘴 = 飛行物的出發點往前移了多少），預兆時往後縮 / 抬頭，其他時候慢慢回原位
-function headOffset(e, view) {
-  const lunge = view.projectiles.find(p => p.weapon && (p.weapon.id === 'snakeCharge' || p.weapon.id === 'snakeBite'));
+// 頭的位移：衝撞 / 撕咬時跟著飛行物（嘴 = 飛行物的出發點往前移了多少），預兆時往後縮 / 抬頭，其他時候慢慢回原位。回傳 { dx, dy }
+function headOffset(c, e) {
+  let h = c.state.head.get(e.id);
+  if (!h) c.state.head.set(e.id, h = {});
+  const lunge = c.projectiles.find(p => p.weapon && (p.weapon.id === 'snakeCharge' || p.weapon.id === 'snakeBite'));
   if (lunge && lunge.x0 !== undefined) {
-    e.viewDx = lunge.x - lunge.x0;
-    e.viewDy = lunge.y - lunge.y0;
-    return;
+    h.dx = lunge.x - lunge.x0;
+    h.dy = lunge.y - lunge.y0;
+    return h;
   }
-  const fx = view.snakeFx;
-  let tx = 0, ty = Math.sin(view.time * 1.6) * 3;
+  const fx = c.state.fx;
+  let tx = 0, ty = Math.sin(c.time * 1.6) * 3;
   if (!e.alive) ty = Math.min(160, e.deathTimer * 120);
   else if (fx && fx.phase === 'cast') {
     const k = clamp(fx.t / CONFIG.TIMING.bossCast, 0, 1);
@@ -277,20 +338,21 @@ function headOffset(e, view) {
     else if (fx.action === 'spray') ty = -34 * Math.min(1, k * 2);
     else if (fx.action === 'quake') ty = k < 0.78 ? -80 * Math.min(1, k * 1.6) : 26;
   }
-  // 照經過的時間（view.time，固定步長推進）慢慢回原位，跟畫面更新率無關
-  const dt = e.viewT === undefined ? 0 : Math.max(0, view.time - e.viewT);
-  e.viewT = view.time;
+  // 照經過的時間（c.time，固定步長推進）慢慢回原位，跟畫面更新率無關
+  const dt = h.t === undefined ? 0 : Math.max(0, c.time - h.t);
+  h.t = c.time;
   const ease = e.alive ? 1 - Math.pow(0.84, dt * FPS) : 1;
-  e.viewDx = (e.viewDx ?? 0) + (tx - (e.viewDx ?? 0)) * ease;
-  e.viewDy = (e.viewDy ?? 0) + (ty - (e.viewDy ?? 0)) * ease;
+  h.dx = (h.dx ?? 0) + (tx - (h.dx ?? 0)) * ease;
+  h.dy = (h.dy ?? 0) + (ty - (h.dy ?? 0)) * ease;
+  return h;
 }
 
 // 巨蟒：脖子（頭衝出去才看得到）→ 頭（橢圓，跟判定一樣大）、斑紋、嘴、眼睛、蛇信
-export function drawSnake(ctx, e, view) {
-  headOffset(e, view);
-  const fx = view.snakeFx;
+function drawSnake(ctx, c, e) {
+  const head = headOffset(c, e);
+  const fx = c.state.fx;
   const rx = e.hw, ry = e.h / 2;
-  const hx = e.x + e.viewDx, hy = e.cy + e.viewDy;
+  const hx = e.x + head.dx, hy = e.cy + head.dy;
   const hurt = e.hurtTimer > 0;
   ctx.save();
   // 只畫水面以上：倒下時、大地震擊砸下去時，頭是沉進水裡（不是蓋在水面與下方狀態列上）
@@ -300,7 +362,7 @@ export function drawSnake(ctx, e, view) {
     if (ctx.globalAlpha <= 0) { ctx.restore(); return; }
   }
   // 脖子：從畫面右邊外面接到頭的後半段（倒下沉下去的時候不畫）
-  const moved = e.alive && (Math.abs(e.viewDx) > 4 || Math.abs(e.viewDy) > 4);
+  const moved = e.alive && (Math.abs(head.dx) > 4 || Math.abs(head.dy) > 4);
   if (moved) {
     ctx.strokeStyle = SCALE;
     ctx.lineCap = 'round';
@@ -369,7 +431,7 @@ export function drawSnake(ctx, e, view) {
   ctx.fillStyle = '#1c1a0c';
   ctx.beginPath(); ctx.ellipse(tipX + 18, hy - 22, 4, 2.5, -0.3, 0, Math.PI * 2); ctx.fill();
   // 眼睛：紅色、直立的瞳孔，看著目標（撕咬 / 現在行動的人 / 最近的玩家）
-  const eyeAt = view.match.snake ? view.match.snake.def.eye : { x: e.x - 185, y: e.cy - 60 };
+  const eyeAt = c.match.snake ? c.match.snake.def.eye : { x: e.x - 185, y: e.cy - 60 };
   const ex = hx + eyeAt.x - e.x, ey = hy + eyeAt.y - e.cy;
   ctx.fillStyle = SCALE_DARK;
   ctx.beginPath(); ctx.ellipse(ex + 2, ey - 6, 26, 12, -0.15, Math.PI, 0); ctx.fill();   // 眉骨
@@ -380,7 +442,7 @@ export function drawSnake(ctx, e, view) {
   ctx.lineWidth = 2;
   ctx.stroke();
   if (e.alive) {
-    const lp = lookPoint(e, view);
+    const lp = lookPoint(c);
     let ox = -4, oy = 2;
     if (lp) { const dx = lp.x - ex, dy = lp.y - ey, d = Math.hypot(dx, dy) || 1; ox = dx / d * 6; oy = dy / d * 4; }
     ctx.fillStyle = '#111';
@@ -393,7 +455,7 @@ export function drawSnake(ctx, e, view) {
     ctx.beginPath(); ctx.moveTo(ex - 10, ey - 8); ctx.lineTo(ex + 10, ey + 8); ctx.moveTo(ex + 10, ey - 8); ctx.lineTo(ex - 10, ey + 8); ctx.stroke();
   }
   // 蛇信：平常每隔一陣子吐一下，噴灑 / 撕咬的預兆時一直吐
-  const flick = (view.time + e.x * 0.01) % 2.6;
+  const flick = (c.time + e.x * 0.01) % 2.6;
   const out = e.alive && !mouthOpen ? (flick < 0.45 ? Math.sin(flick / 0.45 * Math.PI) : 0) : 0;
   if (out > 0.02) {
     const len = 44 * out;
@@ -402,19 +464,19 @@ export function drawSnake(ctx, e, view) {
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(tipX + 4, my);
-    ctx.lineTo(tipX - len, my + Math.sin(view.time * 30) * 2);
+    ctx.lineTo(tipX - len, my + Math.sin(c.time * 30) * 2);
     ctx.lineTo(tipX - len - 10, my - 7);
-    ctx.moveTo(tipX - len, my + Math.sin(view.time * 30) * 2);
+    ctx.moveTo(tipX - len, my + Math.sin(c.time * 30) * 2);
     ctx.lineTo(tipX - len - 10, my + 7);
     ctx.stroke();
   }
   ctx.restore();
 }
 
-function lookPoint(e, view) {
-  const match = view.match;
-  const fx = view.snakeFx;
-  const target = (fx && fx.targetId && match.byId(fx.targetId)) || (view.currentId && match.byId(view.currentId));
+function lookPoint(c) {
+  const match = c.match;
+  const fx = c.state.fx;
+  const target = (fx && fx.targetId && match.byId(fx.targetId)) || (c.currentId && match.byId(c.currentId));
   if (target && target.team === 'players' && target.alive) return { x: target.cx, y: target.cy };
   const alive = match.players.filter(p => p.alive);
   if (!alive.length) return null;
@@ -424,7 +486,7 @@ function lookPoint(e, view) {
 }
 
 // 巨蟒的招式。衝撞 / 撕咬的飛行物不畫（頭本身就跟著衝出去了）。處理了就回傳 true
-export function drawSnakeProjectile(ctx, p, view) {
+function drawSnakeProjectile(ctx, c, p) {
   const w = p.weapon;
   if (w.id === 'snakeCharge' || w.id === 'snakeBite') return true;
   if (w.id === 'snakeVenom') {
@@ -450,66 +512,12 @@ export function drawSnakeProjectile(ctx, p, view) {
     }
     ctx.fillStyle = 'rgba(254,215,170,0.85)';
     ctx.beginPath(); ctx.ellipse(p.x, p.y + 4, 16, 10, 0, Math.PI, 0); ctx.fill();
-    const tick = Math.floor(view.time * 36);   // 每秒 36 顆碎屑（照時間，不照畫面更新次數）
+    const tick = Math.floor(c.time * 36);   // 每秒 36 顆碎屑（照時間，不照畫面更新次數）
     if (tick !== p.debrisTick) {
       p.debrisTick = tick;
-      view.particles.push({ x: p.x, y: p.y, vx: (Math.random() - 0.2) * 120, vy: -120 - Math.random() * 160, life: 0.5, maxLife: 0.5, size: 3, color: Math.random() < 0.5 ? '#65a30d' : '#a16207', gravity: 600 });
+      c.fx.particle({ x: p.x, y: p.y, vx: (Math.random() - 0.2) * 120, vy: -120 - Math.random() * 160, life: 0.5, maxLife: 0.5, size: 3, color: Math.random() < 0.5 ? '#65a30d' : '#a16207', gravity: 600 });
     }
     return true;
   }
   return false;
-}
-
-// ---------- 背景 ----------
-
-// 叢林背景：深綠的樹海、垂下來的藤影、水面上的霧
-export function buildJungleBackground(W, H) {
-  const c = document.createElement('canvas');
-  c.width = W; c.height = H;
-  const ctx = c.getContext('2d');
-  const sky = ctx.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0, '#071a12');
-  sky.addColorStop(0.45, '#123826');
-  sky.addColorStop(0.8, '#2f5a36');
-  sky.addColorStop(1, '#4f7a46');
-  ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, W, H);
-  // 遠方的樹幹（兩層）與垂下來的藤影
-  const layers = [
-    { trunk: 'rgba(12,36,22,0.55)', leaf: 'rgba(20,56,32,0.55)', seed: 5 },
-    { trunk: 'rgba(6,24,14,0.8)', leaf: 'rgba(10,38,22,0.75)', seed: 11 },
-  ];
-  for (const L of layers) {
-    for (let x = -10; x < W; x += 90 + ((x * L.seed) % 50)) {
-      const w = 14 + ((x * L.seed) % 18);
-      ctx.fillStyle = L.trunk;
-      ctx.fillRect(x - w / 2, 0, w, H);
-      ctx.strokeStyle = L.leaf;
-      ctx.lineWidth = 2;
-      for (let k = 0; k < 2; k++) {
-        const vx = x + 20 + k * 26, len = 160 + ((x + k * 37) % 220);
-        ctx.beginPath(); ctx.moveTo(vx, 0); ctx.quadraticCurveTo(vx + 12, len / 2, vx - 4, len); ctx.stroke();
-      }
-    }
-  }
-  // 大片的葉子剪影（畫面兩側）
-  ctx.fillStyle = 'rgba(8,30,16,0.85)';
-  for (const [x, y, r, a] of [[30, 300, 90, 0.6], [-10, 470, 110, -0.3], [990, 260, 80, 2.4], [1020, 420, 100, 3.3], [520, 40, 70, 1.4]]) {
-    ctx.save(); ctx.translate(x, y); ctx.rotate(a);
-    ctx.beginPath(); ctx.moveTo(-r, 0); ctx.quadraticCurveTo(0, -r * 0.45, r, 0); ctx.quadraticCurveTo(0, r * 0.45, -r, 0); ctx.fill();
-    ctx.restore();
-  }
-  // 水面上的霧
-  const mist = ctx.createLinearGradient(0, 520, 0, 660);
-  mist.addColorStop(0, 'rgba(200,230,200,0)');
-  mist.addColorStop(1, 'rgba(200,230,200,0.22)');
-  ctx.fillStyle = mist;
-  ctx.fillRect(0, 520, W, 140);
-  // 螢火蟲
-  for (let i = 0; i < 36; i++) {
-    const x = (i * 211) % W, y = 120 + (i * 149) % (H - 300);
-    ctx.fillStyle = `rgba(217,249,157,${0.12 + (i % 5) * 0.07})`;
-    ctx.beginPath(); ctx.arc(x, y, 1.4 + (i % 3), 0, Math.PI * 2); ctx.fill();
-  }
-  return c;
 }

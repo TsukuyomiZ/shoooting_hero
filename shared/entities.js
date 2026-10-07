@@ -103,7 +103,6 @@ export class Entity {
     this.alive = true;
     this.deathTimer = 0;
     this.deathCause = null;
-    this.deathHandled = false;   // 客戶端是否已播過死亡特效 / 橫幅
     this.hurtTimer = 0;
     // 落水重生：最後站穩的地方（腳底），掉進水裡就回到這裡（見 fallInWater）
     this.safeX = o.x;
@@ -567,7 +566,6 @@ export class Entity {
       this.alive = true;
       this.deathTimer = 0;
       this.deathCause = null;
-      this.deathHandled = false;
     }
   }
 }

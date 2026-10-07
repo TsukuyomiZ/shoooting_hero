@@ -4,10 +4,7 @@ import { replayVolley } from '../shared/volley.js';
 import { clamp, lerpAngle } from '../shared/utils.js';
 import { Renderer } from './render.js';
 import { TerrainPainter } from './terrain-painter.js';
-import { treeTurnScript, onTreeDeath } from './tree-boss-view.js';
-import { snakeTurnScript, onSnakeDeath, addDrops, showDrops } from './snake-boss-view.js';
-import { beeTurnScript, showBees, onHiveDeath } from './hive-view.js';
-import { pickupAlong } from '../shared/snake-boss.js';
+import { mapViewFor } from './map-views/index.js';
 import { Music } from './music.js';
 import { audio } from './audio.js';
 import { sfx } from './sfx.js';
@@ -22,6 +19,7 @@ const STEP_STRIDE = 34;   // 走多少 px 踩一步（移動速度 130 px/s ≈ 
 // - 其他事件（turn / aiTurn / shot / skip / turnFx / gameOver）排隊依序播放；
 //   砲彈照伺服器給的出發點與事件逐幀重播（撞到什麼、傷害多少全聽伺服器的）
 // - 每次 turn / shot 結果都會把角色狀態校正成伺服器的版本
+// - 某一張地圖特有的演出（Boss 出招的動畫、死亡特效、選曲…）交給地圖畫面（this.mapView，見 client/map-views/index.js）
 export class GameView {
   constructor(canvas) {
     this.canvas = canvas;
@@ -48,8 +46,9 @@ export class GameView {
     this.flashes = [];
     this.linkFlashes = [];             // 攜手之伴分擔傷害時，兩人之間閃一下的連線 { a, b, life }
     this.floatTexts = [];
-    this.treeFx = null;                // 古樹出招的預兆動畫（見 tree-boss-view.js）
-    this.snakeFx = null;               // 巨蟒出招的預兆動畫（見 snake-boss-view.js）
+    this.mapView = null;               // 這張地圖的地圖畫面（setup 時照地圖機制選，見 client/map-views/index.js）
+    this.mapCtx = null;                // 給地圖畫面的掛勾用的 c（見 mapContext）
+    this.looks = new WeakMap();        // 角色 → 只給畫面用的狀態（見 look）
     this.keys = {};
     this.mouse = { x: 0, y: 0, down: false };
     this.slowMo = false;               // 慢動作中（自己的回合在空中瞄準，見 frame）
@@ -74,6 +73,19 @@ export class GameView {
   }
 
   get me() { return this.match ? this.match.byId(this.myId) : null; }
+
+  // 角色在這個畫面上的狀態（不是遊戲狀態，所以不放在 Entity 上；每次 setup 重來）：
+  //   netTarget    遠端玩家插值的目標（他最後回報的位置）；netVy = 他回報的垂直速度（看他是不是剛起跳）
+  //   slowMo       他開著慢動作（畫光環）
+  //   splashShown  已經播過的那一次落水（Entity.splash）
+  //   stepDist     走了多遠（踩腳步聲用）
+  //   poisonDeath  是被毒倒的（換成「中毒倒下」的橫幅）
+  //   deathHandled 這次倒下已經播過死亡特效 / 橫幅（伺服器的狀態說他又活著 = 下次倒下再播）
+  look(e) {
+    let v = this.looks.get(e);
+    if (!v) this.looks.set(e, v = { netTarget: null, netVy: 0, slowMo: false, splashShown: null, stepDist: 0, poisonDeath: false, deathHandled: false });
+    return v;
+  }
 
   // 上方的武器按鈕：照自己的武器欄排，第 N 格對應快捷鍵 N
   weaponButtons() {
@@ -129,13 +141,14 @@ export class GameView {
   applyMove(msg) {
     const e = this.match && this.match.byId(msg.id);
     if (e && msg.id !== this.myId) {
-      e.netTarget = { x: msg.x, y: msg.y };
+      const v = this.look(e);
+      v.netTarget = { x: msg.x, y: msg.y };
       e.onVine = Number.isInteger(msg.vine) ? msg.vine : -1;   // 抓著藤蔓的姿勢
       if (msg.facing) e.facing = msg.facing;
       if (Number.isFinite(msg.stamina)) e.stamina = msg.stamina;
       if (Number.isFinite(msg.vy)) {   // 往上的速度突然變大 = 他剛起跳（含空中再跳一次）
-        if (msg.vy < -200 && msg.vy < (e.netVy || 0) - 150) sfx.play('jump', { x: msg.x, vol: 0.7 });
-        e.netVy = msg.vy;
+        if (msg.vy < -200 && msg.vy < (v.netVy || 0) - 150) sfx.play('jump', { x: msg.x, vol: 0.7 });
+        v.netVy = msg.vy;
       }
     }
   }
@@ -152,12 +165,15 @@ export class GameView {
     if (this.slowMo) this.setSlowMo(false);
     this.match = new Match({ levelId: msg.levelId, players: msg.players, seed: msg.seed, carry: msg.carry || {}, stage: msg.stage || 1 });
     this.match.applySnapshot(msg.snapshot);
+    this.looks = new WeakMap();
+    this.mapView = mapViewFor(this.match);   // 一般小關 = plain（什麼都不演）
+    this.mapCtx = this.mapContext(this.mapView.create(this.match));
     this.stageInfo = msg.stageInfo || msg.run || null;
     this.runOver = null;
     if (this.stageInfo) {
       this.showBanner(this.stageInfo.isBoss ? `Boss 關：${this.stageInfo.levelName}` : `第 ${this.stageInfo.stage} 關：${this.stageInfo.levelName}`, this.stageInfo.isBoss ? '#f87171' : '#fde047');
     }
-    for (const e of this.match.entities) if (!e.alive) e.deathHandled = true;   // 重連時不要重播死亡特效
+    for (const e of this.match.entities) if (!e.alive) this.look(e).deathHandled = true;   // 重連時不要重播死亡特效
     this.players = msg.players;
     for (const p of msg.players) this.playerStatus.set(p.id, p.connected !== false);
     this.painter = new TerrainPainter(this.match.terrain, { platformStyle: this.match.level.platformStyle });
@@ -170,8 +186,6 @@ export class GameView {
     this.flashes = [];
     this.linkFlashes = [];
     this.floatTexts = [];
-    this.treeFx = null;
-    this.snakeFx = null;
     this.result = null;
     this.canAct = false;
     this.waiting = false;
@@ -180,6 +194,30 @@ export class GameView {
     this.round = msg.round || 0;   // 新的一關從第 0 輪開始（重連的 state 會帶目前的輪數）
     this.feverShown = this.match.feverAt(this.round);
     this.started = true;
+  }
+
+  // 地圖畫面的掛勾拿到的 c：只開放這幾樣（說明見 client/map-views/index.js）。state = 地圖畫面自己這一場的狀態
+  mapContext(state) {
+    const view = this;
+    return {
+      get match() { return view.match; },
+      get time() { return view.time; },
+      get currentId() { return view.currentId; },
+      get projectiles() { return view.projectiles; },
+      shotScript: (shot, extra) => view.shotScript(shot, extra),
+      state,
+      // 特效出口：地圖畫面不直接動粒子、震動、橫幅、音效
+      fx: {
+        particles: (x, y, n, o) => view.spawnParticles(x, y, n, o),
+        particle: (p) => { view.particles.push(p); },
+        sound: (name, o) => sfx.play(name, o),
+        banner: (str, color) => view.showBanner(str, color),
+        float: (e, str, color, size) => view.floatText(e, str, color, size),
+        shake: (n) => { view.shake = Math.max(view.shake, n); },
+        splash: (x) => view.splash(x),
+        wither: () => { if (view.painter) view.painter.setWithered(true); },
+      },
+    };
   }
 
   // 重連：直接回到目前的回合
@@ -195,7 +233,7 @@ export class GameView {
     // 是別人 → 在他身上畫光環
     if (msg.slowOn && msg.phase === 'turn') {
       if (mine) this.transport.send({ t: 'slow', on: false, why: 'reconnect' });
-      else { const a = this.match.byId(msg.currentId); if (a) a.slowMo = true; }
+      else { const a = this.match.byId(msg.currentId); if (a) this.look(a).slowMo = true; }
     }
   }
 
@@ -203,7 +241,7 @@ export class GameView {
   onSlow(msg) {
     const e = this.match.byId(msg.id);
     if (!e || msg.id === this.myId) return;
-    e.slowMo = !!msg.on;
+    this.look(e).slowMo = !!msg.on;
     if (msg.on) sfx.play('slowIn', { x: e.x, vol: 0.5 });
   }
 
@@ -286,7 +324,11 @@ export class GameView {
   beginTurn(msg) {
     this.match.applyEntities(msg.entities);
     if (msg.items) this.setItems(msg.items);
-    for (const e of this.match.entities) { e.moveDir = 0; e.vineDir = 0; e.aiming = false; e.netTarget = null; e.slowMo = false; }
+    for (const e of this.match.entities) {
+      e.moveDir = 0; e.vineDir = 0; e.aiming = false;
+      const v = this.look(e);
+      v.netTarget = null; v.slowMo = false;
+    }
     this.currentId = msg.actorId;
     this.round = msg.round;
     this.currentIsAi = !!msg.ai;
@@ -332,13 +374,12 @@ export class GameView {
     return `狂熱！所有角色的傷害 +${n * CONFIG.FEVER.damagePct}%`;
   }
 
-  // 背景音樂：小關放山谷曲，狂熱生效後換狂熱版（跟狂熱橫幅同一刻）；曲目表在 music.js 的 TRACKS
+  // 背景音樂：小關放山谷曲，狂熱生效後換狂熱版（跟狂熱橫幅同一刻）；Boss 關由地圖畫面決定（例如古樹之庭、叢林巨蟒）。
+  // 曲目表在 music.js 的 TRACKS
   musicTrack() {
     if (!this.started || !this.match) return null;
     if (this.match.level.pool === 'normal') return this.match.feverAt(this.round) > 0 ? 'fever' : 'normal';
-    if (this.match.tree) return 'tree';     // 古樹之庭
-    if (this.match.snake) return 'snake';   // 叢林巨蟒（先一聲蛇的哈氣再淡入）
-    return null;
+    return this.mapView.musicTrack(this.mapCtx);
   }
 
   *aiTurnScript(msg) {
@@ -347,12 +388,13 @@ export class GameView {
     const splashes = this.serverSplashes(msg.splashes);   // 斷線代打：伺服器先讓他落地，途中掉進水裡的那一次
     if (msg.entities) this.match.applyEntities(msg.entities);
     for (const s of splashes) this.onSplash(this.match.byId(s.id), s);
-    if (msg.boss) {   // Boss 出招：古樹之庭 / 叢林巨蟒；小心擊發的蜜蜂也用同一個格式
-      yield* (actor.kind === 'bee' ? beeTurnScript(this, msg) : this.match.snake ? snakeTurnScript(this, msg) : treeTurnScript(this, msg));
+    if (msg.boss) {   // 由地圖機制出招（例如古樹、巨蟒、小心擊發的蜜蜂）：動畫由地圖畫面播
+      yield* this.mapView.turnScript(this.mapCtx, msg);
       return;
     }
-    actor.netTarget = null;
-    actor.slowMo = false;   // 開著慢動作時斷線、AI 代打：光環清掉
+    const v = this.look(actor);
+    v.netTarget = null;
+    v.slowMo = false;   // 開著慢動作時斷線、AI 代打：光環清掉
     yield { frames: CONFIG.TIMING.aiThink * FPS };
     if (msg.walk && actor.alive) {
       actor.moveDir = msg.walk.dir;
@@ -388,15 +430,16 @@ export class GameView {
       this.showBanner(`${actor ? actor.name : ''} 的無差別轟炸！`, '#fb7185', this.feverNotice());
     } else if (actor) {
       // 射手的位置 / 血量 / 藤蔓由重播模組照 shot.actor 擺好（第一個 next()）；這裡只清客戶端自己的狀態
-      actor.netTarget = null;
-      actor.slowMo = false;
+      const v = this.look(actor);
+      v.netTarget = null;
+      v.slowMo = false;
       if (actor.id === this.myId) this.waiting = false;   // 結果到了，射手接著照伺服器的狀態動
     }
 
     // 重播中隊友的 move 先收著（見 onMessage 的 'move'）：他照物理跑、跟伺服器一致，播完才套最新的那筆
     this.holdMoves = true;
     this.heldMoves ||= new Map();
-    this.projectiles = run.live;   // 同一個陣列：模組原地更新（巨蟒的頭、蜜蜂、render 都讀它）
+    this.projectiles = run.live;   // 同一個陣列：模組原地更新（render、地圖畫面的 c.projectiles 都讀它）
     let played = false;
     try {
       yield* run.frames({
@@ -437,8 +480,8 @@ export class GameView {
     this.shake = Math.max(this.shake, weapon.gravity > 0 ? 5 : 2);
   }
 
-  // 一個飛行事件的畫面（狀態已經由 shared/volley.js 套好：飛行物、挖坑、角色的事件狀態、蛇血、蜜蜂）：
-  // 特效、重畫挖掉的地形（made.rect）、蛇血 / 蜜蜂飛出來（made.items / made.bees）、傷害飄字
+  // 一個飛行事件的畫面（狀態已經由 shared/volley.js 套好：飛行物、挖坑、角色的事件狀態、地圖機制建的道具 / 角色）：
+  // 特效、重畫挖掉的地形（made.rect）、地圖畫面的演出（例如蛇血 / 蜜蜂飛出來：made.items / made.bees）、傷害飄字
   showShotEvent(shot, weapon, ev, made) {
     switch (ev.type) {
       case 'bounce':
@@ -468,8 +511,7 @@ export class GameView {
         break;
       }
     }
-    if (ev.drops) showDrops(this, ev.drops, made.items);   // 打到巨蟒跨過門檻：掉蛇血
-    if (ev.bees) showBees(this, made.bees);                // 打到蜂巢：飛出蜜蜂
+    this.mapView.showEvent(this.mapCtx, ev, made);   // 例如打到巨蟒跨過門檻掉蛇血、打到蜂巢飛出蜜蜂
     for (const d of ev.damages || []) {
       const e = this.match.byId(d.id);
       if (!e) continue;
@@ -478,13 +520,7 @@ export class GameView {
         this.spawnParticles(e.cx, e.cy, 12, { speed: 140, life: 0.5, size: 3, color: '#fde68a', gravity: 0 });
         continue;
       }
-      if (d.closed) {   // 古樹之口被打到閉上（不扣血）
-        e.hurtTimer = 0.35;   // 閉著的嘴被打到會抖一下
-        if (!e.floatedClosed) this.floatText(e, '閉上了！', '#fdba74');
-        e.floatedClosed = true;
-        this.spawnParticles(e.cx, e.cy, 10, { speed: 120, life: 0.5, size: 3, color: '#8b5a2b', gravity: 300 });
-        continue;
-      }
+      if (this.mapView.showDamage(this.mapCtx, e, d)) continue;   // 地圖畫面自己演的（例如古樹之口被打到閉上，不扣血）
       if (d.shared) {   // 攜手之伴：連結的隊友被打，分到的那一份
         if (d.dmg > 0) {
           e.hurtTimer = 0.35;
@@ -501,7 +537,7 @@ export class GameView {
         this.floatText(e, `-${d.dmg}${d.friendly ? ' 誤傷' : ''}`, color);
       }
       if (d.burn) this.floatText(e, `燃燒 +${d.burn}`, '#fb923c', 15);
-      if (d.poison) {   // 叢林巨蟒：上毒（傷害 0 的衝撞 / 噴灑也會有）
+      if (d.poison) {   // 上毒（例如巨蟒、蜜蜂；傷害 0 的衝撞 / 噴灑也會有）
         e.hurtTimer = 0.35;
         this.floatText(e, `中毒 +${d.poison}`, '#c084fc', 16);
       }
@@ -543,12 +579,7 @@ export class GameView {
         banners.push([`${e.name} 的時間扭曲：再來一回合！`, '#c4b5fd']);
         this.floatText(e, '額外回合', '#c4b5fd');
         this.spawnParticles(e.cx, e.cy, 16, { speed: 120, life: 0.7, size: 3, color: '#c4b5fd', gravity: -30 });
-      } else if (fx.type === 'mouthOpen') {   // 古樹之口撐過一回合，又張開了
-        this.floatText(e, '張開了', '#fca5a5');
-        e.floatedClosed = false;
-      } else if (fx.type === 'drops') {       // 巨蟒被燒到跨過門檻，掉出蛇血
-        addDrops(this, fx.items);
-      } else {
+      } else if (!this.mapView.turnFx(this.mapCtx, e, fx)) {   // 地圖畫面的（例如古樹之口又張開了、巨蟒被燒到掉出蛇血）
         this.statusFx(e, fx);   // 中毒結算把人毒倒了（回合開始時，這回合就不開始了）
       }
     }
@@ -558,52 +589,29 @@ export class GameView {
     yield { frames: Math.round(CONFIG.TIMING.fxDelay * FPS * 0.6) };
   }
 
-  // 中毒結算 / 喝到蛇血的飄字與特效（回合開始的 fx、回合沒開始就被毒倒的 turnFx、走路喝到的 pickup 都用這個）
+  // 中毒結算的飄字與特效（回合開始的 fx、回合沒開始就被毒倒的 turnFx 都用這個）；其他狀態效果（例如喝到蛇血）交給地圖畫面
   statusFx(e, fx) {
     if (fx.type === 'poison') {
       e.hurtTimer = 0.35;
-      if (fx.died) e.poisonDeath = true;   // onDeath 換成「中毒倒下」的橫幅
+      if (fx.died) this.look(e).poisonDeath = true;   // onDeath 換成「中毒倒下」的橫幅
       this.floatText(e, fx.dmg > 0 ? `-${fx.dmg} 中毒` : '中毒', '#c084fc');
       if (fx.lock > 0) this.floatText(e, `上限 -${fx.lock}`, '#9ca3af', 15);
       this.spawnParticles(e.cx, e.cy, 14, { speed: 80, life: 0.7, size: 4, color: '#a855f7', gravity: -120 });
-    } else if (fx.type === 'snakeBlood') {
-      this.match.items = this.match.items.filter(it => it.id !== fx.item);
-      this.floatText(e, fx.heal > 0 ? `蛇血！+${fx.heal}` : '蛇血！', '#f87171');
-      if (fx.cured > 0) this.floatText(e, '解毒', '#e9d5ff', 15);
-      if (fx.unlocked > 0) this.floatText(e, `上限 +${fx.unlocked}`, '#fca5a5', 15);
-      this.spawnParticles(e.cx, e.cy, 18, { speed: 120, life: 0.8, size: 3, color: '#ef4444', gravity: -60 });
+    } else {
+      this.mapView.statusFx(this.mapCtx, e, fx);
     }
   }
 
-  // 場上的道具換成伺服器的版本（還在飛的蛇血動畫留著）
+  // 場上的道具換成伺服器的版本（還在飛的道具動畫在地圖畫面裡照 id 對，不用搬）
   setItems(items) {
-    const anims = new Map(this.match.items.filter(it => it.anim).map(it => [it.id, it.anim]));
-    this.match.items = items.map(it => (anims.has(it.id) ? { ...it, anim: anims.get(it.id) } : { ...it }));
+    this.match.items = items.map(it => ({ ...it }));
   }
 
-  // 行動玩家走路途中喝到蛇血：改上限與血量（位置照他自己 / 他的 move 回報）。
-  // 自己的血量照本地的（喝完之後可能已經在本地掉過水），伺服器帶的 hp 是喝的那一刻：自己已經先喝過（預測）就什麼都不用改，
-  // 沒預測到（伺服器的直線判到、自己的路線沒碰到）才在本地補上回的血
+  // 行動玩家走路途中撿到道具（伺服器廣播給所有人，包括他自己）：怎麼套由地圖畫面決定（例如喝到蛇血）
   onPickup(msg) {
     const e = this.match.byId(msg.id);
     if (!e) return;
-    const self = msg.id === this.myId;
-    const predicted = self && !this.match.items.some(it => it.id === msg.item);
-    e.maxHp = msg.mhp;
-    e.poisonLock = msg.lk;
-    e.poison = 0;   // 喝了蛇血就解毒
-    if (!self) e.hp = msg.hp;
-    else if (!predicted) e.hp = Math.min(e.maxHp, e.hp + (msg.heal || 0));
-    if (!predicted) this.statusFx(e, msg);
-  }
-
-  // 自己的回合這一幀從 (px, py) 走到現在的位置，路上碰到蛇血（有被鎖住的上限或血沒滿）就先在本地喝掉，並馬上回報位置：
-  // 伺服器檢查的線段就停在蛇血上，一定也會判到（之後的 pickup 只是確認）
-  predictPickup(me, px, py) {
-    const got = pickupAlong(this.match, me, px, py, me.x, me.y);
-    if (!got) return;
-    this.statusFx(me, got);
-    this.sendMove(me);
+    this.mapView.onPickup(this.mapCtx, e, msg, msg.id === this.myId);
   }
 
   // skip / aiTurn 帶來的水花：伺服器自己讓大家落地、客戶端沒有重播的那段，照伺服器給的播。淹死的由 onDeath 播；
@@ -621,7 +629,7 @@ export class GameView {
     const e = this.match.byId(msg.id);
     if (!e || msg.id === this.myId) return;   // 自己的畫面早就先算好了
     e.applyState(msg.state);
-    e.netTarget = null;
+    this.look(e).netTarget = null;
     this.onSplash(e, msg.splash);
   }
 
@@ -629,7 +637,7 @@ export class GameView {
     const splashes = this.serverSplashes(msg.splashes);
     if (msg.entities) this.match.applyEntities(msg.entities);
     const a = this.match.byId(msg.actorId);
-    if (a) { a.netTarget = null; a.slowMo = false; }   // 不要再滑回他最後回報的位置（例如掉進水裡的那一點）
+    if (a) { const v = this.look(a); v.netTarget = null; v.slowMo = false; }   // 不要再滑回他最後回報的位置（例如掉進水裡的那一點）
     const name = a ? a.name : '';
     // 淹死（water）的橫幅由 onDeath 播
     if (msg.reason === 'timeout') this.showBanner(msg.actorId === this.myId ? '時間到！' : `${name} 時間到`, '#fbbf24');
@@ -773,7 +781,7 @@ export class GameView {
     this.slowMo = on;
     if (!on) this.timeScale = 1;
     const me = this.me;
-    if (me) me.slowMo = on;
+    if (me) this.look(me).slowMo = on;
     this.music.setRate(on ? CONFIG.SLOWMO.musicRate : 1);
     if (on) sfx.play('slowIn', { x: me.x });
     else if (why && why !== 'fire') sfx.play('slowOut', { x: me.x });   // 開火的那次有砲聲
@@ -814,13 +822,15 @@ export class GameView {
     // 飛行物由 shotScript 逐幀推進（在下面的 tickScript 裡）
 
     for (const e of this.match.entities) {
-      if (e.splash && e.splash !== e.splashShown) {   // 本地物理裡掉進水裡（自己操作、重播開火 / AI 走路）
-        e.splashShown = e.splash;
+      const v = this.look(e);
+      if (e.splash && e.splash !== v.splashShown) {   // 本地物理裡掉進水裡（自己操作、重播開火 / AI 走路）
+        v.splashShown = e.splash;
         if (e.id === this.myId && this.canAct) this.reportWater(e);
         if (!e.splash.died) this.onSplash(e, e.splash);   // 淹死的由 onDeath 播
       }
-      if (!e.alive && !e.deathHandled) {
-        e.deathHandled = true;
+      if (e.alive) v.deathHandled = false;   // 伺服器的狀態把他救回來了（applyState）：下次倒下再播
+      else if (!v.deathHandled) {
+        v.deathHandled = true;
         this.onDeath(e);
       }
     }
@@ -830,9 +840,10 @@ export class GameView {
 
   // 遠端玩家：平滑插值到他回報的位置（不跑物理）
   followNet(e, dt) {
-    e.x += (e.netTarget.x - e.x) * 0.35;
-    e.y += (e.netTarget.y - e.y) * 0.35;
-    if (Math.abs(e.netTarget.x - e.x) < 0.3 && Math.abs(e.netTarget.y - e.y) < 0.3) { e.x = e.netTarget.x; e.y = e.netTarget.y; }
+    const t = this.look(e).netTarget;
+    e.x += (t.x - e.x) * 0.35;
+    e.y += (t.y - e.y) * 0.35;
+    if (Math.abs(t.x - e.x) < 0.3 && Math.abs(t.y - e.y) < 0.3) { e.x = t.x; e.y = t.y; }
     e.hurtTimer = Math.max(0, e.hurtTimer - dt);
   }
 
@@ -841,15 +852,16 @@ export class GameView {
     const world = this.match.world;
     for (const e of this.match.entities) {
       const px = e.x, py = e.y, wantedJump = e.wantJump;   // 給 moveSfx 比這一幀前後的差別
-      if (e.netTarget && e.id !== this.myId) {
+      if (this.look(e).netTarget && e.id !== this.myId) {
         this.followNet(e, dt);
       } else if (this.waiting && e.id === this.myId) {
         // 開火後等伺服器的結果：先停在出手的位置。空中開火時才不會自己先掉下去（甚至先淹死）再被拉回出手點
       } else {
         const falls = e.waterFalls;
         e.update(dt, world);
-        // 叢林巨蟒：自己的回合走過蛇血，先在本地喝掉（跟伺服器同一套判斷）——之後在本地掉水才會照解開後的上限扣，跟伺服器一樣
-        if (e.id === this.myId && this.canAct && e.waterFalls === falls) this.predictPickup(e, px, py);
+        // 自己的回合走過道具（例如蛇血），先在本地撿（跟伺服器同一套判斷）——之後在本地掉水才會照撿了之後的狀態算，跟伺服器一樣。
+        // 撿到了就馬上回報位置：伺服器檢查的線段就停在道具上，一定也會判到（之後的 pickup 只是確認）
+        if (e.id === this.myId && this.canAct && e.waterFalls === falls && this.mapView.predictMove(this.mapCtx, e, px, py)) this.sendMove(e);
       }
       this.moveSfx(e, px, py, wantedJump);
     }
@@ -873,12 +885,13 @@ export class GameView {
     if (!e.alive) return;
     if (wantedJump && !e.wantJump && e.vy < -e.jumpSpeed * 0.8) sfx.play('jump', { x: e.x });   // 真的跳起來了（體力不夠就沒跳）
     const dx = Math.abs(e.x - px);
+    const v = this.look(e);
     // 太大的位移是校正 / 重生瞬移，不算走路
-    const walking = dx > 0.2 && dx < 12 && (e.netTarget ? Math.abs(e.y - py) < 1.5 : e.moveDir !== 0 && e.onGround);
-    if (!walking) { e.stepDist = STEP_STRIDE * 0.7; return; }   // 停下來再起步時，很快就踩第一步
-    e.stepDist = (e.stepDist || 0) + dx;
-    if (e.stepDist < STEP_STRIDE) return;
-    e.stepDist -= STEP_STRIDE;
+    const walking = dx > 0.2 && dx < 12 && (v.netTarget ? Math.abs(e.y - py) < 1.5 : e.moveDir !== 0 && e.onGround);
+    if (!walking) { v.stepDist = STEP_STRIDE * 0.7; return; }   // 停下來再起步時，很快就踩第一步
+    v.stepDist = (v.stepDist || 0) + dx;
+    if (v.stepDist < STEP_STRIDE) return;
+    v.stepDist -= STEP_STRIDE;
     sfx.play('step', { x: e.x, vol: e.id === this.myId ? 1 : 0.6 });
   }
 
@@ -894,10 +907,8 @@ export class GameView {
   }
 
   onDeath(e) {
-    if (onTreeDeath(this, e)) return;   // 古樹倒下（嘴巴與樹妖跟著枯萎）
-    if (onSnakeDeath(this, e)) return;  // 叢林巨蟒倒下
-    if (onHiveDeath(this, e)) return;   // 蜂巢被打掉
-    if (e.poisonDeath) { this.showBanner(`${e.name} 中毒倒下了！`, '#c084fc'); return; }
+    if (this.mapView.onDeath(this.mapCtx, e)) return;   // 地圖畫面自己的死亡特效（例如古樹倒下、巨蟒倒下、蜂巢被打掉）
+    if (this.look(e).poisonDeath) { this.showBanner(`${e.name} 中毒倒下了！`, '#c084fc'); return; }
     if (e.deathCause === 'water') {
       this.splash(e.x);
       this.splash(e.x);

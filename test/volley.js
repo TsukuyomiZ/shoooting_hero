@@ -341,6 +341,7 @@ test('重播中收到隊友的 move：先收著（隊友照物理跑、不插值
   // p1（自己）開火；重播第 5 幀收到 p2 的兩筆 move：重播期間都不套，播完只套最新那筆
   fire('p1');
   const p2 = view.match.byId('p2');
+  const net = () => view.look(p2).netTarget;   // 插值的目標：GameView 自己的畫面狀態（不在 Entity 上）
   let n = 0, last = null, leaked = false;
   while (view.script && view.wait && view.wait.step) {
     if (n === 5) {
@@ -348,12 +349,13 @@ test('重播中收到隊友的 move：先收著（隊友照物理跑、不插值
       last = { x: p2.x + 20, y: p2.y };
       view.onMessage({ t: 'move', id: 'p2', ...last, facing: -1 });
     }
-    if (p2.netTarget) leaked = true;
+    if (net()) leaked = true;
     view.update(CONFIG.FIXED_DT);
     n++;
   }
   assert(n > 5 && !leaked, `held during the replay (${n} volley updates)`);
-  assert(p2.netTarget && p2.netTarget.x === last.x && p2.netTarget.y === last.y && p2.facing === -1, 'latest move applied after results: ' + JSON.stringify(p2.netTarget));
+  assert(net() && net().x === last.x && net().y === last.y && p2.facing === -1, 'latest move applied after results: ' + JSON.stringify(net()));
+  assert(!('netTarget' in p2), 'netTarget is not on the entity');
   assert(!view.holdMoves && view.heldMoves.size === 0, 'nothing left held');
   drive(view);
   // 輪到 p2 開火，重播到一半畫面掛勾丟錯：收著的 move 不會卡住
@@ -373,8 +375,8 @@ test('重播中收到隊友的 move：先收著（隊友照物理跑、不插值
       view.update(CONFIG.FIXED_DT);
     }
   } finally { console.error = err; view.showShotEvent = show; }
-  assert(held && !view.holdMoves && view.heldMoves.size === 0 && p2.netTarget && p2.netTarget.x === 123, 'flushed after the throw: ' + JSON.stringify(p2.netTarget));
-  return { volleyUpdates: n, applied: p2.netTarget };
+  assert(held && !view.holdMoves && view.heldMoves.size === 0 && net() && net().x === 123, 'flushed after the throw: ' + JSON.stringify(net()));
+  return { volleyUpdates: n, applied: net() };
 });
 
 const failed = results.filter(r => !r.ok).length;

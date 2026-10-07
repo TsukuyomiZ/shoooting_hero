@@ -12,7 +12,7 @@ import { planShot } from '../shared/ai.js';
 import { replayChecked } from './replay-check.js';
 import { VINE_HAND, poisonTick } from '../shared/entities.js';
 import { chargeLane, resolveSnakeTurn, rollSnakeAction, planSnakeNext, nearestPlayer, snakeDrops, pickupAlong } from '../shared/snake-boss.js';
-import { snakeTurnScript, drawSnakeScene } from '../client/snake-boss-view.js';
+import { mapViewFor } from '../client/map-views/index.js';
 
 const results = [];
 function test(name, fn) {
@@ -665,15 +665,19 @@ test('裁判：巨蟒的回合廣播 aiTurn（boss.steps 一招 + shot、boss.ne
 
 test('客戶端：預定衝撞時一直畫出警示帶（範圍 = chargeLane 到水面）；其他招式不畫；巨蟒出衝撞時預兆快閃、衝出去後不畫；預定等巨蟒回合播完才換', () => {
   const m = jungle(1, { seed: 4 });
-  const view = { match: m, time: 1.3, snakeFx: null, particles: [], projectiles: [], shake: 0,
-    showBanner() {}, spawnParticles() {}, floatText() {}, splash() {}, *shotScript() { yield { frames: 1 }; } };
-  const draw = () => { const r = recordingCtx(); drawSnakeScene(r.ctx, view); return r; };
+  // 叢林巨蟒的地圖畫面（client/map-views/snake.js）；c = 掛勾拿到的那一小塊 GameView（特效出口什麼都不做）
+  const sv = mapViewFor(m);
+  assert(sv.type === 'snake', 'snake map view: ' + sv.type);
+  const c = { match: m, time: 1.3, currentId: null, projectiles: [], state: sv.create(m),
+    fx: { particles() {}, particle() {}, sound() {}, banner() {}, float() {}, shake() {}, splash() {}, wither() {} },
+    *shotScript() { yield { frames: 1 }; } };
+  const draw = () => { const r = recordingCtx(); sv.drawScene(r.ctx, c); return r; };
   const lane = chargeLane(m);
   const rect = [lane.x0, lane.top, lane.x1 - lane.x0, CONFIG.WATER_LEVEL - lane.top].map(v => Math.round(v)).join();
   m.snake.next = { action: 'charge' };
   const r = draw();
   assert(redBands(r.calls).join('|') === rect, 'steady band: ' + redBands(r.calls) + ' vs ' + rect);
-  const dash = r.calls.filter(c => c.fn === 'setLineDash');
+  const dash = r.calls.filter(x => x.fn === 'setLineDash');
   assert(dash.length && dash.at(-1).args[0].length === 0, 'line dash reset');
   for (const action of ['spray', 'quake', 'bite', 'idle']) {
     m.snake.next = { action };
@@ -685,15 +689,15 @@ test('客戶端：預定衝撞時一直畫出警示帶（範圍 = chargeLane 到
   m.byId('snake').alive = true;
   const msg = { actorId: 'snake', boss: { steps: [{ action: 'charge', shot: {} }], next: { action: 'bite' } } };
   const seen = [];
-  const gen = snakeTurnScript(view, msg);
+  const gen = sv.turnScript(c, msg);
   for (let it = gen.next(); !it.done; it = gen.next()) {
     assert(m.snake.next.action === 'charge', 'old plan stays during the snake turn');
-    const fx = view.snakeFx;
+    const fx = c.state.fx;
     const bands = redBands(draw().calls);
     const phase = !fx ? 'think' : fx.phase;
     assert(phase === 'act' ? bands.length === 0 : bands.join('|') === rect, `${phase}: ${bands}`);
     if (seen.at(-1) !== phase) seen.push(phase);
-    view.time += 1 / 60;
+    c.time += 1 / 60;
   }
   assert(seen.join() === 'think,cast,act', 'phases ' + seen);
   assert(m.snake.next.action === 'bite' && redBands(draw().calls).length === 0, 'boss.next applied at the end');

@@ -311,13 +311,19 @@ test('客戶端用到的匯出都還在（client/ 沒改）', () => {
     hive: [Hive, ['BEE_ACTION_NAMES', 'hatchBees']],
   };
   for (const [file, [mod, names]] of Object.entries(need)) for (const n of names) assert(mod[n] !== undefined, `${file}.js lost export ${n}`);
-  // 客戶端實際 import 的名字（直接讀 client/ 的原始碼，不靠上面的清單）
-  for (const f of fs.readdirSync(path.join(ROOT, 'client')).filter(f => f.endsWith('.js'))) {
+  // 客戶端實際 import 的名字（直接讀 client/ 的原始碼，含子資料夾（例如 map-views/），不靠上面的清單）
+  const importers = new Set();
+  for (const f of fs.readdirSync(path.join(ROOT, 'client'), { recursive: true }).filter(f => f.endsWith('.js'))) {
     const src = fs.readFileSync(path.join(ROOT, 'client', f), 'utf8');
-    for (const [, names, file] of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\.\/shared\/(tree-boss|snake-boss|hive)\.js'/g)) {
+    for (const [, names, file] of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*'(?:\.\.\/)+shared\/(tree-boss|snake-boss|hive)\.js'/g)) {
       const mod = { 'tree-boss': TreeBoss, 'snake-boss': SnakeBoss, hive: Hive }[file];
+      importers.add(`${f.replace(/\\/g, '/')}→${file}`);
       for (const n of names.split(',').map(s => s.trim()).filter(Boolean)) assert(mod[n] !== undefined, `client/${f} imports ${n} from ${file}.js, which is gone`);
     }
+  }
+  // 掃描真的有掃到地圖畫面（檔案搬家時不會默默變成什麼都沒檢查）
+  for (const need of ['map-views/tree.js→tree-boss', 'map-views/snake.js→snake-boss', 'map-views/hive.js→hive']) {
+    assert(importers.has(need), `scan did not see ${need}: ${[...importers]}`);
   }
 });
 
