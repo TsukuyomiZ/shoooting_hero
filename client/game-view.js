@@ -33,7 +33,6 @@ export class GameView {
     this.playerStatus = new Map();     // id → connected
     this.currentId = null;
     this.currentIsAi = false;
-    this.round = 0;
     this.feverShown = 0;               // 已經用橫幅提示過的狂熱層數
     this.deadline = null;              // 本地時間 (performance.now)
     this.canAct = false;               // 現在能不能操作自己
@@ -193,8 +192,8 @@ export class GameView {
     this.waiting = false;
     this.currentId = null;
     this.deadline = null;
-    this.round = msg.round || 0;   // 新的一關從第 0 輪開始（重連的 state 會帶目前的輪數）
-    this.feverShown = this.match.feverAt(this.round);
+    this.match.round = msg.round || 0;   // 第幾輪記在 Match：新的一關從第 0 輪開始（重連的 state 會帶目前的輪數）
+    this.feverShown = this.match.fever;
     this.started = true;
   }
 
@@ -225,7 +224,7 @@ export class GameView {
   // 重連：直接回到目前的回合
   restoreTurn(msg) {
     this.currentId = msg.currentId;
-    this.round = msg.round;
+    this.match.round = msg.round;
     const mine = msg.currentId === this.myId && msg.phase === 'turn';
     this.currentIsAi = !mine;
     this.canAct = mine;
@@ -333,7 +332,7 @@ export class GameView {
       v.netTarget = null; v.slowMo = false;
     }
     this.currentId = msg.actorId;
-    this.round = msg.round;
+    this.match.round = msg.round;
     this.currentIsAi = !!msg.ai;
     const actor = this.match.byId(msg.actorId);
     const mine = msg.actorId === this.myId && !msg.ai;
@@ -371,17 +370,17 @@ export class GameView {
 
   // 狂熱剛疊上新的一層（新的一輪跨過門檻）：回傳橫幅底下的提示字，每層只提示一次。Boss 關一直是 0 層，不會提示
   feverNotice() {
-    const n = this.match.feverAt(this.round);
+    const n = this.match.fever;
     if (n <= this.feverShown) return null;
     this.feverShown = n;
-    return `狂熱！所有角色的傷害 +${n * CONFIG.FEVER.damagePct}%`;
+    return `狂熱！所有角色的傷害 +${n * this.match.rules.feverPct}%`;
   }
 
   // 背景音樂：小關放山谷曲，狂熱生效後換狂熱版（跟狂熱橫幅同一刻）；Boss 關由地圖畫面決定（例如古樹之庭、叢林巨蟒）。
   // 曲目表在 music.js 的 TRACKS
   musicTrack() {
     if (!this.started || !this.match) return null;
-    if (this.match.level.pool === 'normal') return this.match.feverAt(this.round) > 0 ? 'fever' : 'normal';
+    if (this.match.level.pool === 'normal') return this.match.fever > 0 ? 'fever' : 'normal';
     return this.mapView.musicTrack(this.mapCtx);
   }
 
@@ -428,7 +427,7 @@ export class GameView {
     if (look) {
       // 回合開始的效果攻擊：這時已經輪到持有者了（turn 訊息要等那一波播完才會來）
       this.currentId = shot.actorId;
-      if (shot.round) this.round = shot.round;
+      if (shot.round) this.match.round = shot.round;
       this.canAct = false;
       this.waiting = false;
       this.showBanner(look.banner(actor ? actor.name : ''), look.color, this.feverNotice());
@@ -549,7 +548,7 @@ export class GameView {
   *turnFxScript(msg) {
     if (msg.atStart) {   // 回合根本沒開始（回合開始就被毒倒）：現在是他的回合位置，HUD 不要還停在上一位
       this.currentId = msg.actorId;
-      if (msg.round) this.round = msg.round;
+      if (msg.round) this.match.round = msg.round;
       this.canAct = false;
       this.waiting = false;
     }

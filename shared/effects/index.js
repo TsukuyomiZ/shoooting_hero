@@ -129,7 +129,7 @@ import { link } from './link.js';
 //                              c = { alive0, shielded, block, friendly, damages }）
 //   shotLog: { group, field, value(e), on(e) }   開火紀錄（LOG 的 shot）附的欄位：同一群組任一個 on 就整組記 { group: { field: value } }
 // 畫面（客戶端；只給資料，畫法在 render.js / game-view.js / cards-ui.js）
-//   chip(e, c) → [文字, 顏色] | null   自己的狀態列一格（c = { match, round }）；chipOrder 決定位置（小的在前，一樣的照 LIST 的順序），
+//   chip(e, c) → [文字, 顏色] | null   自己的狀態列一格（c = { match }；第幾輪、狂熱看 match.round / match.fever）；chipOrder 決定位置（小的在前，一樣的照 LIST 的順序），
 //                              狀態（無敵、燃燒、中毒、生命鎖）排在 STATUS_CHIP_ORDER = 150。目前用到的（最準的是 grep chipOrder shared/effects/）：
 //                              ramp 10、soul 20、bossDamage 30、lifesteal 40、armor 50、regen 60、extraJumps 70、extraTurn 80、bombard 90、
 //                              teamShield 100、〔狀態 150〕、fever 200、fullArc 210、ready 220、hunt 230、adrenaline 240、lone 250、unity 260、link 270

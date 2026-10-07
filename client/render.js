@@ -579,7 +579,7 @@ export class Renderer {
     roundRect(ctx, 12, 12, 250, 66, 10); ctx.fill();
     const si = view.stageInfo;
     const stageLabel = si ? (si.isBoss ? `Boss 關 ${si.stage} / ${si.stageCount}` : `第 ${si.stage} / ${si.stageCount} 關`) : '';
-    text(ctx, `${stageLabel}　第 ${view.round} 輪`, 24, 38, { size: 18, bold: true, color: si && si.isBoss ? '#fca5a5' : '#fff' });
+    text(ctx, `${stageLabel}　第 ${match.round} 輪`, 24, 38, { size: 18, bold: true, color: si && si.isBoss ? '#fca5a5' : '#fff' });
     let sub = '', subColor = '#ddd';
     const actor = view.currentId ? match.byId(view.currentId) : null;
     if (view.canAct) {
@@ -593,9 +593,9 @@ export class Renderer {
       subColor = actor.team === 'players' ? '#86efac' : '#fca5a5';
     }
     text(ctx, sub, 24, 64, { size: 15, color: subColor });
-    const fever = match.feverAt(view.round);   // 狂熱：每過 N 輪，全體傷害再 +N%（Boss 關沒有）
+    const fever = match.fever;   // 狂熱：每過 N 輪，全體傷害再 +N%（Boss 關沒有；見 shared/stage-rules.js）
     if (fever > 0) {
-      const label = `狂熱　全體傷害 +${fever * CONFIG.FEVER.damagePct}%`;
+      const label = `狂熱　全體傷害 +${fever * match.rules.feverPct}%`;
       ctx.save();
       ctx.font = `bold 13px ${FONT}`;
       const w = ctx.measureText(label).width + 20;
@@ -697,7 +697,7 @@ export class Renderer {
     if (me.burn > 0) status.push([`燃燒 ${me.burn} 層`, '#fb923c']);
     if (me.poison > 0) status.push([`中毒 ${me.poison} 層`, '#c084fc']);
     if (me.poisonLock > 0) status.push([`生命鎖 -${me.poisonLock}`, '#9ca3af']);
-    const effects = effectChips(me, { match: this.view.match, round: this.view.round });
+    const effects = effectChips(me, { match: this.view.match });
     const chips = [
       ...effects.filter(c => c.order < STATUS_CHIP_ORDER).map(c => [c.label, c.color]),
       ...status,

@@ -6,9 +6,11 @@ import { Referee } from './referee.js';
 import { baseStats, drawOffers, applyCard, derivePlayerStats, needsDiscard, equipWeapon } from './cards.js';
 import * as Effects from './effects/index.js';
 import { logValue } from './utils.js';
+import { isBossStage } from './stage-rules.js';
 
 // 一場冒險（肉鴿流程）：
-//   共 RUN.stageCount 關，RUN.bossStages 那幾關是 Boss 關（同一場不重複同一隻王），其他是小關（每關隨機一張地圖）；
+//   共 RUN.stageCount 關，關卡規則說是 Boss 關的那幾關（RUN.bossStages，見 shared/stage-rules.js）從 Boss 池抽地圖（同一場不重複同一隻王），
+//   其他是小關（每關隨機一張地圖）；
 //   每關勝利後（Boss 關也是）每人三選一張牌 → 下一關 … → 打贏最後一關 = 通關；任何一關全滅 = 結束
 // 玩家的血量、牌、加成、武器欄在關與關之間帶著走。伺服器（Room）與單人模式（LocalTransport）都用這個。
 // 牌的效果（shared/effects/）在這裡只經過固定的時間點：選牌兩輪（順序在 finishPicks）、一關開始 / 算 carry / 打完；
@@ -16,15 +18,11 @@ import { logValue } from './utils.js';
 // 要指定隊友的牌（效果的 target，例如攜手之伴）：選牌訊息的 link = 指定的隊友，定下來交給效果（picked）記；
 // 攜手之伴的連結記在玩家的 links（雙向，見 linksOf）
 // io 同 Referee：{ broadcast(msg, exceptId), schedule(fn, ms), cancel(h), now() }
-
-// 第 stage 關是不是 Boss 關
-export function isBossStage(stage) {
-  return CONFIG.RUN.bossStages.includes(stage);
-}
-
+// config = 關卡規則讀的設定（總關數、哪幾關是王關，再一路傳給每一關的 Match；測試換自己的數字用，其他設定還是全域 CONFIG）
 export class Run {
-  constructor({ players, seed, io, cards }) {
+  constructor({ players, seed, io, cards, config = CONFIG }) {
     this.io = io;
+    this.config = config;
     this.cards = cards;
     this.seed = seed >>> 0;
     this.rng = new Rng(this.seed);
@@ -40,7 +38,7 @@ export class Run {
       return [p.id, rp];
     }));
     this.stage = 0;
-    this.stageCount = CONFIG.RUN.stageCount;
+    this.stageCount = config.RUN.stageCount;
     this.phase = 'idle';   // idle | battle | pick | over
     this.match = null;
     this.referee = null;
@@ -54,7 +52,7 @@ export class Run {
     this.result = null;
   }
 
-  get isBoss() { return isBossStage(this.stage); }
+  get isBoss() { return isBossStage(this.stage, this.config); }
   get isLastStage() { return this.stage >= this.stageCount; }
 
   // 寫一筆紀錄（玩家看不到）：io 有 record 才記（同 Referee.record）
@@ -144,7 +142,7 @@ export class Run {
       stage: this.stage, stageCount: this.stageCount, boss: this.isBoss, level: levelId,
       players: list.map(p => ({ pid: p.id, name: p.name, hp: carry[p.id].hp, maxHp: carry[p.id].maxHp, weapons: p.weapons.slice(), cards: p.cards.map(c => c.id) })),
     });
-    this.match = new Match({ levelId, players: list, seed: this.rng.int(0, 0xffffffff), carry, stage: this.stage });
+    this.match = new Match({ levelId, players: list, seed: this.rng.int(0, 0xffffffff), carry, stage: this.stage, config: this.config });
     this.referee = new Referee({
       match: this.match,
       humans: list.map(p => ({ id: p.id, name: p.name, connected: p.connected })),
@@ -305,7 +303,7 @@ export class Run {
     this.picks = null;
     this.discards = null;
     this.linkPicks = null;
-    this.io.broadcast({ t: 'picks', summary, nextStage: this.stage + 1, isBoss: isBossStage(this.stage + 1) });
+    this.io.broadcast({ t: 'picks', summary, nextStage: this.stage + 1, isBoss: isBossStage(this.stage + 1, this.config) });
     this.phase = 'between';
     this.schedule(() => this.nextStage(), 2.5);
   }

@@ -82,7 +82,7 @@ const OLD_EFFECT_KEYS = {
   loneLifestealPct: '場上沒有活著的隊友時（單人一直算），傷害吸血 +N%',
   allyDamagePct:    '場上每有一名活著的隊友，武器傷害 +N%',
   allyArmorPct:     '場上每有一名活著的隊友，受到的傷害 -N%（只算自己）',
-  feverDamagePct:   '狂熱生效時（一般小關第 11 輪起；Boss 關沒有狂熱），武器傷害再 +N%',
+  feverDamagePct:   '狂熱生效時（一般小關照人數每幾輪疊一層；Boss 關沒有狂熱），武器傷害再 +N%',   // 10-07 改：原本寫的「第 11 輪起」已過期
   fullArc:          '拋射武器（大砲等）的瞄準預覽畫出完整拋物線直到落點（填 1）',
   missDamagePct:    '每次射擊沒打中敵人得到一層「準備」，每層武器傷害 +N%；打中敵人就歸零',
   missMaxStacks:    '上面「準備」最多幾層',
@@ -318,7 +318,7 @@ await test('加一個假效果（一個新檔案 + 登記表一行）：牌庫�
   const m = run.match;
   const p1 = m.byId('p1');
   const W = CC.WEAPONS.cannon;
-  m.fever = 0;
+  assert(m.fever === 0, 'stage 2 just started: no fever');
   assert(Math.abs(m.damageMult(p1, W) - 1.5) < 1e-12, 'damage +50%: ' + m.damageMult(p1, W));
   // 打中敵人：自己的狀態 +1，toState 帶 th（排在 vn 後面），applyState 套得回去
   const target = m.enemies.find(e => e.alive);
@@ -338,7 +338,7 @@ await test('加一個假效果（一個新檔案 + 登記表一行）：牌庫�
   cm.applyEntities(shot.results);
   assert(cm.byId('p1').testHits === p1.testHits, 'client copy gets the state');
   // 狀態列：效果給的資料（客戶端照著畫），排在狀態之後
-  const chips = E.effectChips(p1, { match: m, round: 1 });
+  const chips = E.effectChips(p1, { match: m });
   const mine = chips.find(c => c.label === `試射 ${p1.testHits}`);
   assert(mine && mine.color === '#123456' && mine.order > E.STATUS_CHIP_ORDER, 'chip ' + J(chips));
   return { testHits: p1.testHits, chips: chips.map(c => c.label) };
@@ -368,9 +368,10 @@ await test('寫錯的效果狀態（跟角色的欄位 / toState 的同步欄位
 });
 
 // ---- 架構檢查 ----
-// 註解拿掉（行號不變；網址裡的 // 不是註解）；CONFIG 的設定（例如 CONFIG.FEVER.damagePct、CONFIG.WEAPONS.bombard）不算
+// 註解拿掉（行號不變；網址裡的 // 不是註解）；CONFIG 的設定（例如 CONFIG.FEVER.damagePct、CONFIG.WEAPONS.bombard）不算，
+// 關卡規則收進來的那份設定（config.FEVER.damagePct：config 後面接大寫的區塊名）也不算
 const codeOf = (src) => src.replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, '')).replace(/(?<!:)\/\/.*$/gm, '')
-  .replace(/CONFIG(\.\w+)+/g, 'CONFIG');
+  .replace(/CONFIG(\.\w+)+/g, 'CONFIG').replace(/\bconfig\.[A-Z][A-Z_]*(\.\w+)*/g, 'CONFIG');
 // 不准出現的字，從現在的登記表算（新的效果加進來就自動在內）：所有效果 key（含立即效果、基礎數值的 key）、效果的 extraMods、
 // 效果自己的狀態欄位；以前寫死的清單也併進來（萬一登記表漏了什麼）
 const WORDS = [...new Set([

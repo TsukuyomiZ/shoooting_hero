@@ -137,7 +137,7 @@ test('地圖：在 Boss 池裡；藤蔓橋炸不壞、子彈穿得過、站得�
   assert(s.maxHp === Math.round(CONFIG.SNAKE_BOSS.hp * scale), 'hp scales with players only: ' + s.maxHp);
   const one = new Match({ levelId: 'jungleSerpent', players: mkPlayers(1), seed: 1, stage: 5 });
   assert(one.byId('snake').maxHp === CONFIG.SNAKE_BOSS.hp, 'solo hp');
-  assert(m.feverAt(11) === 0 && m.feverAt(31) === 0, 'no fever in the boss stage');
+  assert(m.rules.feverAt(11) === 0 && m.rules.feverAt(31) === 0, 'no fever in the boss stage');
   return { snakeHp4p: s.maxHp };
 });
 

@@ -46,7 +46,6 @@ export class Referee {
     this.currentId = null;
     this.extraTurn = false;   // 目前這個回合是不是時間扭曲給的額外回合
     this.slowOn = false;      // 行動玩家現在是不是開著慢動作（他回報的；每個回合開始重設）
-    this.round = 0;
     this.phase = 'idle';   // idle | starting | turn | resolving | over
     this.timer = null;
     this.deadline = null;
@@ -70,6 +69,9 @@ export class Referee {
     this.cancelTimer();
     this.phase = 'over';
   }
+
+  // 第幾輪（記在 Match，裁判在 nextTurn 加一）
+  get round() { return this.match.round; }
 
   // 寫一筆紀錄（玩家看不到）：io 有 record 才記（伺服器的房間、單人練習；測試的假 io 沒有就不記）。
   // 每筆都帶第幾關、第幾輪
@@ -294,9 +296,9 @@ export class Referee {
     if (!actor) return this.gameOver('lose');
 
     // 回合順序繞回陣列前面（或第一個回合）= 新的一輪。不用「輪到第一位活著的玩家」判斷：
-    // 他在自己的回合開始被毒倒、或在自己的回合掉水淹死時，下一位不該又算成新的一輪
-    if (!extra && (prev < 0 || this.match.entities.indexOf(actor) <= prev)) this.round++;
-    this.match.fever = this.match.feverAt(this.round);   // 狂熱：每過 N 輪全體傷害再加成一次（Boss 關不套用）
+    // 他在自己的回合開始被毒倒、或在自己的回合掉水淹死時，下一位不該又算成新的一輪。
+    // 輪數記在 Match，狂熱層數跟著輪數走（match.fever，見 shared/stage-rules.js）
+    if (!extra && (prev < 0 || this.match.entities.indexOf(actor) <= prev)) this.match.round++;
     this.currentId = actor.id;
     this.extraTurn = extra;
     this.match.beginTurn(actor);

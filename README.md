@@ -112,6 +112,9 @@ npm start
 
   **Boss 關不套用**（Boss 關有自己的機制）。疊上新的一層時橫幅會提示，生效中左上會有「狂熱」標籤。
   參數在 `CONFIG.FEVER`（`everyRounds: { 人數: 輪數 }`，填一個數字 = 不分人數、`0` = 關掉；`inBoss: true` = Boss 關也套用）。
+- 上面的敵人血量 / 傷害倍率、狂熱，加上哪幾關是王關（`RUN.bossStages`）與王關的血量成長（`RUN.bossHpPerStage`），合起來是**關卡規則**（見 GLOSSARY.md）：
+  數值照樣在 `shared/config.js`，算法全在 `shared/stage-rules.js` 一個檔案。一關開場就算好（`match.rules`）；第幾輪記在 `match.round`，
+  狂熱層數 `match.fever` 由它推出，伺服器、畫面（HUD、橫幅、換狂熱曲、狀態列）都讀同一個。
 - 有人斷線：輪到他時由 AI 代打（用他武器欄裡的武器）；重新整理頁面會用 token 自動回到原本的遊戲。
 - 地形可破壞。**落水**：敵人（含樹妖）直接淹死。玩家扣最大血量的 30%（不吃狂熱、減傷、神佑之石），扣完沒血才會淹死；
   撐得住就馬上回到最後站穩的地方，那裡被炸掉了就找最近站得住的地面。自己的回合掉下去回合**不會結束**：
@@ -334,7 +337,7 @@ npm start
 | `loneLifestealPct` | 場上沒有活著的隊友時（單人一直算），傷害吸血 +N% |  |
 | `allyDamagePct` | 場上每有一名活著的隊友，武器傷害 +N% |  |
 | `allyArmorPct` | 場上每有一名活著的隊友，受到的傷害 -N%（只算自己） |  |
-| `feverDamagePct` | 狂熱生效時（一般小關第 11 輪起；Boss 關沒有狂熱），武器傷害再 +N% | 實際幾輪開始依人數，見上面「狂熱」（說明裡的「第 11 輪」是舊的，待改） |
+| `feverDamagePct` | 狂熱生效時（一般小關照人數每幾輪疊一層；Boss 關沒有狂熱），武器傷害再 +N% | 幾輪一層見上面「狂熱」 |
 | `fullArc` | 拋射武器（大砲等）的瞄準預覽畫出完整拋物線直到落點（填 1） |  |
 | `missDamagePct` | 每次射擊沒打中敵人得到一層「準備」，每層武器傷害 +N%；打中敵人就歸零 |  |
 | `missMaxStacks` | 上面「準備」最多幾層 |  |
@@ -461,6 +464,9 @@ npm test
   跟效果鍵同名的通用欄位 / 同步訊息的欄位名（角色的 `maxHp`、`Match.heal`、選牌訊息的 `link`、回合訊息的 `turnTime`、
   裁判的 `extraTurn`、武器 id `bombard`）只准照測試裡列的固定寫法出現；不讀 `mods.<鍵>`（entities.js 每一幀讀的二段跳次數除外）、
   run.js 不讀選牌的 `now.<鍵>`；entities.js 不寫效果自己的狀態欄位；效果不往上 import）。
+- `test/stage-rules.js`：關卡規則——照一份測試自己的設定算出血量倍率（小關 / 王）、敵人傷害倍率、狂熱、哪幾關是王關；
+  `Match` / `Run` 收 `config` 一路傳下去、開場算一次、不讀也不改全域 `CONFIG`；`match.fever` 由 `match.round` 推出、不能直接寫，裁判的輪數就是 `match.round`；
+  架構檢查（關卡規則的設定只有 `stage-rules.js` 讀、沒有人自己算狂熱或寫 `fever`、客戶端不自己數輪）。
 - `test/version.js`：版本號設定與版本履歷——版本號格式、最上面一筆 = 目前版本、由新到舊不重複、日期合法不倒退、每筆都有內容、
   `package.json` 的 version 對得上、大廳需要的元素都在 `index.html`。
 - `test/log.js`：紀錄（LOG）——檔案格式（欄位順序、資料蓋不掉時間、跨午夜換檔、寫不進去不當掉）、一關裡每一步都有記
@@ -491,7 +497,8 @@ shared/     伺服器與瀏覽器共用（純邏輯，不碰 DOM / 網路）
   weapons.js    彈道模擬（結算、預覽、AI 共用同一套），效果給的飛行物特性（彈射、穿透）與爆炸半徑
   ai.js         AI 瞄準（試射找最佳角度與力量）
   stickers.js   反應貼圖清單與洗版限制
-  match.js      一場遊戲的狀態與規則：回合順序、開火結算、爆炸、快照
+  stage-rules.js 關卡規則（見 GLOSSARY.md）：從第幾關、人數、地圖池算出敵人血量 / 傷害倍率、狂熱，與哪幾關是王關
+  match.js      一場遊戲的狀態與規則：回合順序、第幾輪、開火結算、爆炸、快照
   referee.js    裁判：誰的回合、計時、AI 回合腳本、斷線代打、勝負
 server/
   server.js     靜態檔 + WebSocket + 收單人練習的紀錄（POST /log）

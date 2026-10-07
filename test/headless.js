@@ -4,7 +4,8 @@ import { performance } from 'node:perf_hooks';
 import { CONFIG } from '../shared/config.js';
 import { LEVELS, levelsInPool } from '../shared/level.js';
 import { Terrain } from '../shared/terrain.js';
-import { Match, feverStacks, feverEvery } from '../shared/match.js';
+import { Match } from '../shared/match.js';
+import { stageRules } from '../shared/stage-rules.js';
 import { Referee } from '../shared/referee.js';
 import { planShot } from '../shared/ai.js';
 import { Rng } from '../shared/rng.js';
@@ -66,6 +67,12 @@ function pointInPoly(poly, x, y) {
   return inside;
 }
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
+// 關卡規則的測試設定（見 shared/stage-rules.js）：照 config.js，只換 patch 列的區塊裡的值；傳給 stageRules / Match / Run，不改全域 CONFIG
+const rulesCfg = (patch) => {
+  const c = { ...CONFIG };
+  for (const [k, v] of Object.entries(patch)) c[k] = { ...CONFIG[k], ...v };
+  return c;
+};
 
 test('地形遮罩與多邊形內外判定一致；挖洞、用洞清單重建都可重現', () => {
   const lvl = LEVELS.level1;
@@ -262,11 +269,12 @@ test('位置回報檢查：瞬移 / 卡進地形 / 增加體力都被拒絕；�
 }));
 
 test('落水：扣最大血量 30%（不吃狂熱 / 減傷 / 無敵）；站的地方被炸掉就找最近站得住的地面；回報帶的站穩點要站得住才採用', () => withWater(() => {
-  const m = matchWith({ armorPct: 50 }, { hp: 1000 });
+  const m = matchWith({ armorPct: 50 }, { hp: 1000, config: rulesCfg({ FEVER: { everyRounds: 1, damagePct: 50, inBoss: false } }) });
   const p1 = m.players[0];
   const x0 = p1.x, y0 = p1.y;
   assert(p1.safeX === x0 && p1.safeY === y0, 'standing: the safe spot follows him');
-  m.fever = 2;
+  m.round = 3;   // 每輪一層：第 3 輪 = 狂熱 2 層
+  assert(m.fever === 2, 'fever 2: ' + m.fever);
   p1.shield = 1;
   const drop = () => { p1.x = 440; p1.y = 600; p1.vx = 0; p1.vy = 0; p1.onGround = false; m.settle(300); };   // 丟到斷崖之間的水面上空
   drop();
@@ -446,21 +454,13 @@ test('牌庫 JSON 可載入且無警告；抽牌不重複、稀有度合法、un
 
 test('肉鴿流程：10 關（第 5、10 關是 Boss，兩隻王各一次不重複；小關地圖不連續重複）→ 每關選牌帶加成 → 打贏最後一關通關', () => {
   // 關數 / Boss 關的位置照這個測試自己設的（使用者會改 config）
-  const savedRun = { stageCount: CONFIG.RUN.stageCount, bossStages: CONFIG.RUN.bossStages, bossHpPerStage: CONFIG.RUN.bossHpPerStage };
-  CONFIG.RUN.stageCount = 10;
-  CONFIG.RUN.bossStages = [5, 10];
-  CONFIG.RUN.bossHpPerStage = 0.15;
-  try {
-    return runTenStages();
-  } finally {
-    Object.assign(CONFIG.RUN, savedRun);
-  }
+  return runTenStages(rulesCfg({ RUN: { stageCount: 10, bossStages: [5, 10], bossHpPerStage: 0.15 } }));
 });
 
-function runTenStages() {
+function runTenStages(config) {
   const io = new FakeIo();
   const players = mkPlayers(2);
-  const run = new Run({ players, seed: 3, io, cards: CARDS.cards });
+  const run = new Run({ players, seed: 3, io, cards: CARDS.cards, config });
   run.start();
   const levels = [];
   let guard = 0;
@@ -514,51 +514,44 @@ function runTenStages() {
 }
 
 test('肉鴿流程：Boss 關比 Boss 池多的時候，王都打過一輪才重複，而且不會連續同一隻', () => {
-  const savedRun = { stageCount: CONFIG.RUN.stageCount, bossStages: CONFIG.RUN.bossStages };
-  CONFIG.RUN.stageCount = 6;
-  CONFIG.RUN.bossStages = [1, 2, 3, 4, 5, 6];
-  try {
-    const pool = levelsInPool('boss');
-    for (let seed = 1; seed <= 20; seed++) {
-      const run = new Run({ players: mkPlayers(1), seed, io: new FakeIo(), cards: CARDS.cards });
-      const picked = [];
-      for (let s = 1; s <= 6; s++) {
-        run.stage = s;
-        const id = run.pickLevel();
-        run.lastLevelId = id;
-        run.bossesUsed.push(id);
-        picked.push(id);
-      }
-      assert(new Set(picked.slice(0, pool.length)).size === pool.length, `seed ${seed}: first round of bosses repeats: ${picked}`);
-      for (let i = 1; i < picked.length; i++) assert(picked[i] !== picked[i - 1], `seed ${seed}: same boss twice in a row: ${picked}`);
+  const allBoss = rulesCfg({ RUN: { stageCount: 6, bossStages: [1, 2, 3, 4, 5, 6] } });
+  const pool = levelsInPool('boss');
+  for (let seed = 1; seed <= 20; seed++) {
+    const run = new Run({ players: mkPlayers(1), seed, io: new FakeIo(), cards: CARDS.cards, config: allBoss });
+    const picked = [];
+    for (let s = 1; s <= 6; s++) {
+      run.stage = s;
+      const id = run.pickLevel();
+      run.lastLevelId = id;
+      run.bossesUsed.push(id);
+      picked.push(id);
     }
-    // 正式的排法（第 5、10 關）：第 10 關的前一關是小關，也一定抽到第 5 關沒打過的那隻
-    CONFIG.RUN.stageCount = 10;
-    CONFIG.RUN.bossStages = [5, 10];
-    for (let seed = 1; seed <= 40; seed++) {
-      const run = new Run({ players: mkPlayers(1), seed, io: new FakeIo(), cards: CARDS.cards });
-      run.stage = 5;
-      const first = run.pickLevel();
-      run.bossesUsed.push(first);
-      run.stage = 10;
-      run.lastLevelId = 'level1';   // 第 9 關是小關
-      const second = run.pickLevel();
-      assert(pool.includes(first) && pool.includes(second) && first !== second, `seed ${seed}: bosses ${first} → ${second}`);
-    }
-  } finally {
-    Object.assign(CONFIG.RUN, savedRun);
+    assert(new Set(picked.slice(0, pool.length)).size === pool.length, `seed ${seed}: first round of bosses repeats: ${picked}`);
+    for (let i = 1; i < picked.length; i++) assert(picked[i] !== picked[i - 1], `seed ${seed}: same boss twice in a row: ${picked}`);
+  }
+  // 正式的排法（第 5、10 關）：第 10 關的前一關是小關，也一定抽到第 5 關沒打過的那隻
+  const two = rulesCfg({ RUN: { stageCount: 10, bossStages: [5, 10] } });
+  for (let seed = 1; seed <= 40; seed++) {
+    const run = new Run({ players: mkPlayers(1), seed, io: new FakeIo(), cards: CARDS.cards, config: two });
+    run.stage = 5;
+    const first = run.pickLevel();
+    run.bossesUsed.push(first);
+    run.stage = 10;
+    run.lastLevelId = 'level1';   // 第 9 關是小關
+    const second = run.pickLevel();
+    assert(pool.includes(first) && pool.includes(second) && first !== second, `seed ${seed}: bosses ${first} → ${second}`);
   }
 });
 
 test('Boss 關血量：第一個王關照原本的，之後每多一關 +bossHpPerStage（第 10 關 ×1.75）；樹妖一起放大；不是排定的王關、或成長設 0 就不變', () => {
-  const savedRun = { stageCount: CONFIG.RUN.stageCount, bossStages: CONFIG.RUN.bossStages, bossHpPerStage: CONFIG.RUN.bossHpPerStage };
+  // 王本身的血量是地圖機制的設定（還是改全域、跑完還原）；關數與成長走關卡規則的設定
   const savedHp = { eye: CONFIG.TREE_BOSS.eyeHp, snake: CONFIG.SNAKE_BOSS.hp, treant: CONFIG.TREANT.hp };
-  Object.assign(CONFIG.RUN, { stageCount: 10, bossStages: [5, 10], bossHpPerStage: 0.15 });
+  const rules = rulesCfg({ RUN: { stageCount: 10, bossStages: [5, 10], bossHpPerStage: 0.15 } });
   CONFIG.TREE_BOSS.eyeHp = 300; CONFIG.SNAKE_BOSS.hp = 400; CONFIG.TREANT.hp = 15;
   try {
     const p2 = 1 + CONFIG.ENEMY_HP_PER_EXTRA_PLAYER;   // 2 人
-    const hpAt = (levelId, stage) => {
-      const m = new Match({ levelId, players: mkPlayers(2), seed: 4, stage });
+    const hpAt = (levelId, stage, config = rules) => {
+      const m = new Match({ levelId, players: mkPlayers(2), seed: 4, stage, config });
       return m.byId(levelId === 'treeGarden' ? 'eye' : 'snake');
     };
     const out = {};
@@ -571,16 +564,15 @@ test('Boss 關血量：第一個王關照原本的，之後每多一關 +bossHpP
       }
     }
     // 第 10 關古樹召喚的樹妖也 ×1.75
-    const m = new Match({ levelId: 'treeGarden', players: mkPlayers(2), seed: 4, stage: 10 });
+    const m = new Match({ levelId: 'treeGarden', players: mkPlayers(2), seed: 4, stage: 10, config: rules });
     const summon = m.planAiTurn(m.byId('eye')).boss.steps.find(s => s.action === 'summon');
     assert(summon && summon.spawns.length && summon.spawns.every(s => s.hp === Math.round(15 * p2 * 1.75)), 'treant hp: ' + JSON.stringify(summon && summon.spawns));
     assert(Math.abs(m.mechState.hpScale - p2 * 1.75) < 1e-9, 'tree hpScale (meditate heal) ' + m.mechState.hpScale);
     // 成長設 0：兩個王關一樣
-    CONFIG.RUN.bossHpPerStage = 0;
-    assert(hpAt('treeGarden', 10).hp === Math.round(300 * p2), 'bossHpPerStage 0 → no growth');
+    const flat = rulesCfg({ RUN: { stageCount: 10, bossStages: [5, 10], bossHpPerStage: 0 } });
+    assert(hpAt('treeGarden', 10, flat).hp === Math.round(300 * p2), 'bossHpPerStage 0 → no growth');
     return out;
   } finally {
-    Object.assign(CONFIG.RUN, savedRun);
     CONFIG.TREE_BOSS.eyeHp = savedHp.eye; CONFIG.SNAKE_BOSS.hp = savedHp.snake; CONFIG.TREANT.hp = savedHp.treant;
   }
 });
@@ -678,12 +670,12 @@ import { replayChecked } from './replay-check.js';
 
 const cardById = (id) => CARDS.cards.find(c => c.id === id);
 // p1 帶指定效果（直接加在 stats 上）的測試戰鬥；所有人血量拉到 hp，數字不受 config 的血量影響
-function matchWith(effects = {}, { players = 1, levelId = 'level1', seed = 1, weapons, hp = 5000 } = {}) {
+function matchWith(effects = {}, { players = 1, levelId = 'level1', seed = 1, weapons, hp = 5000, config = CONFIG } = {}) {
   const stats = baseStats();
   for (const [k, v] of Object.entries(effects)) stats[k] += v;
   const d = derivePlayerStats(stats);
   const carry = { p1: { hp, maxHp: hp, maxStamina: d.maxStamina, moveSpeed: d.moveSpeed, jumpSpeed: d.jumpSpeed, size: d.size, mods: d.mods, weapons } };
-  const m = new Match({ levelId, players: mkPlayers(players), seed, carry });
+  const m = new Match({ levelId, players: mkPlayers(players), seed, carry, config });
   for (const e of m.entities) { e.maxHp = hp; e.hp = hp; }
   return m;
 }
@@ -1399,189 +1391,168 @@ test('時間扭曲：普通回合結束後再給一個額外回合（不算新�
 });
 
 test('狂熱：每過 10 輪，所有角色（含敵人、誤傷、燃燒）的傷害 +50%，會疊加；裁判每輪更新、每關重算', () => {
-  const saved = { ...CONFIG.FEVER };
-  Object.assign(CONFIG.FEVER, { everyRounds: 10, damagePct: 50, inBoss: false });   // 測試不受使用者在 config 調的數值影響
-  try {
-    const stacks = [0, 1, 10, 11, 20, 21, 31].map(feverStacks);
-    assert(stacks.join() === '0,0,0,1,1,2,3', 'stacks by round ' + stacks.join());
-    CONFIG.FEVER.everyRounds = 0;   // 0 = 關掉狂熱（不能變成除以 0 的無限層）
-    assert([11, 100].every(r => feverStacks(r) === 0), 'everyRounds 0 disables fever: ' + feverStacks(100));
-    CONFIG.FEVER.everyRounds = 10;
-    const w = CONFIG.WEAPONS.cannon;
-    const m = matchWith({}, { players: 2, hp: 10000 });
-    const [p1, p2] = m.players;
-    const e1 = m.enemies[0];
-    const hit = (target, attacker) => { const h = target.hp; m.applyExplosion(target.cx, target.cy, w, attacker, target); return h - target.hp; };
-    assert(hit(e1, p1) === w.damage, 'no fever: base damage');
-    m.fever = 1;
-    assert(hit(e1, p1) === Math.round(w.damage * 1.5), 'fever 1: player → enemy +50%');
-    assert(hit(p1, e1) === Math.round(w.damage * 1.5), 'fever 1: enemy → player +50%');
-    assert(hit(p2, p1) === Math.round(w.damage * CONFIG.FRIENDLY_FIRE * 1.5), 'fever 1: friendly fire +50%');
-    m.fever = 2;
-    assert(hit(e1, p1) === Math.round(w.damage * 2), 'fever 2: +100% (additive stacking)');
-    // 燃燒：45 層 × 0.1% × 10000 = 450，狂熱 1 層 → 675
-    m.fever = 1;
-    const B = CONFIG.EQUIP.burn;
-    const e2 = m.enemies[1];
-    e2.burn = 45; e2.burnFrac = 0; e2.movedThisTurn = 0;
-    const hp0 = e2.hp;
-    m.endTurn(e2);
-    assert(hp0 - e2.hp === Math.floor(45 * B.pctPerStack / 100 * e2.maxHp * 1.5), 'burn tick with fever: ' + (hp0 - e2.hp));
-    // 裁判：輪數一跨過門檻就更新 match.fever（第 1~10 輪 0 層、第 11 輪起 1 層）
-    const rm = matchWith({});
-    rm.planAiTurn = () => ({ walk: null, plan: null });   // 敵人只發呆：只是要快轉輪數，不能有人被打進水裡提早結束
-    const io = new FakeIo();
-    const feverAt = [];
-    const broadcast = io.broadcast.bind(io);
-    io.broadcast = (msg, ex) => { if (msg.t === 'turn') feverAt.push([msg.round, rm.fever]); broadcast(msg, ex); };
-    const ref = new Referee({ match: rm, humans: mkPlayers(1), io });
-    ref.start();
-    assert(advanceUntil(io, () => ref.round >= 12, 3_000_000), 'reach round 12');
-    const wrong = feverAt.filter(([r, f]) => f !== (r > 10 ? 1 : 0));
-    assert(!wrong.length && feverAt.some(([r]) => r === 11), 'fever per round: ' + JSON.stringify(wrong.slice(0, 3)));
-    const next = new Match({ players: mkPlayers(1), seed: 1 });
-    assert(next.fever === 0, 'a new stage starts without fever');
-    return { stacks };
-  } finally {
-    Object.assign(CONFIG.FEVER, saved);
-  }
+  const C10 = rulesCfg({ FEVER: { everyRounds: 10, damagePct: 50, inBoss: false } });   // 測試不受使用者在 config 調的數值影響
+  const stacks = [0, 1, 10, 11, 20, 21, 31].map(r => stageRules({}, C10).feverAt(r));
+  assert(stacks.join() === '0,0,0,1,1,2,3', 'stacks by round ' + stacks.join());
+  const off = stageRules({}, rulesCfg({ FEVER: { everyRounds: 0 } }));   // 0 = 關掉狂熱（不能變成除以 0 的無限層）
+  assert([11, 100].every(r => off.feverAt(r) === 0), 'everyRounds 0 disables fever: ' + off.feverAt(100));
+  const w = CONFIG.WEAPONS.cannon;
+  const m = matchWith({}, { players: 2, hp: 10000, config: C10 });
+  const [p1, p2] = m.players;
+  const e1 = m.enemies[0];
+  const hit = (target, attacker) => { const h = target.hp; m.applyExplosion(target.cx, target.cy, w, attacker, target); return h - target.hp; };
+  assert(hit(e1, p1) === w.damage, 'no fever: base damage');
+  m.round = 11;   // 狂熱 1 層（match.fever 由輪數推出）
+  assert(m.fever === 1, 'round 11 → fever 1: ' + m.fever);
+  assert(hit(e1, p1) === Math.round(w.damage * 1.5), 'fever 1: player → enemy +50%');
+  assert(hit(p1, e1) === Math.round(w.damage * 1.5), 'fever 1: enemy → player +50%');
+  assert(hit(p2, p1) === Math.round(w.damage * CONFIG.FRIENDLY_FIRE * 1.5), 'fever 1: friendly fire +50%');
+  m.round = 21;
+  assert(hit(e1, p1) === Math.round(w.damage * 2), 'fever 2: +100% (additive stacking)');
+  // 燃燒：45 層 × 0.1% × 10000 = 450，狂熱 1 層 → 675
+  m.round = 11;
+  const B = CONFIG.EQUIP.burn;
+  const e2 = m.enemies[1];
+  e2.burn = 45; e2.burnFrac = 0; e2.movedThisTurn = 0;
+  const hp0 = e2.hp;
+  m.endTurn(e2);
+  assert(hp0 - e2.hp === Math.floor(45 * B.pctPerStack / 100 * e2.maxHp * 1.5), 'burn tick with fever: ' + (hp0 - e2.hp));
+  // 裁判：每一輪開始時 match.round 加一，輪數一跨過門檻 match.fever 就跟著變（第 1~10 輪 0 層、第 11 輪起 1 層）
+  const rm = matchWith({}, { config: C10 });
+  rm.planAiTurn = () => ({ walk: null, plan: null });   // 敵人只發呆：只是要快轉輪數，不能有人被打進水裡提早結束
+  const io = new FakeIo();
+  const feverAt = [];
+  const broadcast = io.broadcast.bind(io);
+  io.broadcast = (msg, ex) => { if (msg.t === 'turn') feverAt.push([msg.round, rm.fever, rm.round]); broadcast(msg, ex); };
+  const ref = new Referee({ match: rm, humans: mkPlayers(1), io });
+  ref.start();
+  assert(advanceUntil(io, () => ref.round >= 12, 3_000_000), 'reach round 12');
+  const wrong = feverAt.filter(([r, f, mr]) => f !== (r > 10 ? 1 : 0) || mr !== r);
+  assert(!wrong.length && feverAt.some(([r]) => r === 11), 'fever per round: ' + JSON.stringify(wrong.slice(0, 3)));
+  const next = new Match({ players: mkPlayers(1), seed: 1, config: C10 });
+  assert(next.round === 0 && next.fever === 0, 'a new stage starts at round 0 without fever');
+  return { stacks };
 });
 
 test('狂熱幾輪一層照人數：4 人每 7 輪、2 ~ 3 人每 8 輪、1 人每 9 輪；表上沒有的人數照比它少、最接近的那格；填數字 = 不分人數', () => {
-  const saved = { ...CONFIG.FEVER };
   const TABLE = { 1: 9, 2: 8, 3: 8, 4: 7 };
-  Object.assign(CONFIG.FEVER, { everyRounds: TABLE, damagePct: 50, inBoss: false });
-  try {
-    const every = [1, 2, 3, 4].map(n => feverEvery(n));
-    assert(every.join() === '9,8,8,7', 'every by players ' + every.join());
-    // 第一層：1 人第 10 輪、2 ~ 3 人第 9 輪、4 人第 8 輪起；再過同樣輪數疊第二層
-    const firsts = {};
-    for (const n of [1, 2, 3, 4]) {
-      const m = new Match({ players: mkPlayers(n), seed: 3 });
-      const k = TABLE[n];
-      assert(m.playerCount === n, `${n}p playerCount ${m.playerCount}`);
-      const got = [k, k + 1, 2 * k, 2 * k + 1].map(r => m.feverAt(r));
-      assert(got.join() === '0,1,1,2', `${n}p stacks at rounds ${[k, k + 1, 2 * k, 2 * k + 1]}: ${got}`);
-      firsts[n] = k + 1;
-    }
-    assert(feverEvery(6) === 7 && feverEvery(0) === 9, `out-of-table counts: ${feverEvery(6)} / ${feverEvery(0)}`);
-    CONFIG.FEVER.everyRounds = { 2: 8, 4: 6 };
-    assert(feverEvery(1) === 8 && feverEvery(3) === 8 && feverEvery(5) === 6, 'gaps use the nearest smaller entry');
-    CONFIG.FEVER.everyRounds = 10;
-    assert([1, 4].every(n => feverEvery(n) === 10) && new Match({ players: mkPlayers(4), seed: 3 }).feverAt(11) === 1, 'a number applies to every count');
-    CONFIG.FEVER.everyRounds = { 1: 0, 4: 7 };
-    assert(feverStacks(50, 1) === 0 && feverStacks(8, 4) === 1, '0 in the table disables fever for that count');
-    CONFIG.FEVER.everyRounds = TABLE;
-    // 裁判：4 人的關卡第 8 輪起 match.fever = 1（大家都超時、敵人只發呆，只是要快轉輪數）
-    const rm = matchWith({}, { players: 4 });
-    rm.planAiTurn = () => ({ walk: null, plan: null });
-    const io = new FakeIo();
-    const feverAt = [];
-    const broadcast = io.broadcast.bind(io);
-    io.broadcast = (msg, ex) => { if (msg.t === 'turn') feverAt.push([msg.round, rm.fever]); broadcast(msg, ex); };
-    const ref = new Referee({ match: rm, humans: mkPlayers(4), io });
-    ref.start();
-    assert(advanceUntil(io, () => ref.round >= 9, 6_000_000), 'reach round 9 with 4 players');
-    const wrong = feverAt.filter(([r, f]) => f !== (r > 7 ? 1 : 0));
-    assert(!wrong.length && feverAt.some(([r]) => r === 8), '4p fever per round: ' + JSON.stringify(wrong.slice(0, 3)));
-    return { firsts };
-  } finally {
-    Object.assign(CONFIG.FEVER, saved);
+  const T = rulesCfg({ FEVER: { everyRounds: TABLE, damagePct: 50, inBoss: false } });
+  const every = (players, config = T) => stageRules({ players }, config).feverEvery;
+  assert([1, 2, 3, 4].map(n => every(n)).join() === '9,8,8,7', 'every by players ' + [1, 2, 3, 4].map(n => every(n)).join());
+  // 第一層：1 人第 10 輪、2 ~ 3 人第 9 輪、4 人第 8 輪起；再過同樣輪數疊第二層
+  const firsts = {};
+  for (const n of [1, 2, 3, 4]) {
+    const m = new Match({ players: mkPlayers(n), seed: 3, config: T });
+    const k = TABLE[n];
+    assert(m.rules.players === n, `${n}p rules.players ${m.rules.players}`);
+    const got = [k, k + 1, 2 * k, 2 * k + 1].map(r => { m.round = r; return m.fever; });
+    assert(got.join() === '0,1,1,2', `${n}p stacks at rounds ${[k, k + 1, 2 * k, 2 * k + 1]}: ${got}`);
+    firsts[n] = k + 1;
   }
+  assert(every(6) === 7 && every(0) === 9, `out-of-table counts: ${every(6)} / ${every(0)}`);
+  const gaps = rulesCfg({ FEVER: { everyRounds: { 2: 8, 4: 6 } } });
+  assert(every(1, gaps) === 8 && every(3, gaps) === 8 && every(5, gaps) === 6, 'gaps use the nearest smaller entry');
+  const num = rulesCfg({ FEVER: { everyRounds: 10 } });
+  assert([1, 4].every(n => every(n, num) === 10) && new Match({ players: mkPlayers(4), seed: 3, config: num }).rules.feverAt(11) === 1, 'a number applies to every count');
+  const off1 = rulesCfg({ FEVER: { everyRounds: { 1: 0, 4: 7 } } });
+  assert(stageRules({ players: 1 }, off1).feverAt(50) === 0 && stageRules({ players: 4 }, off1).feverAt(8) === 1, '0 in the table disables fever for that count');
+  // 裁判：4 人的關卡第 8 輪起 match.fever = 1（大家都超時、敵人只發呆，只是要快轉輪數）
+  const rm = matchWith({}, { players: 4, config: T });
+  rm.planAiTurn = () => ({ walk: null, plan: null });
+  const io = new FakeIo();
+  const feverAt = [];
+  const broadcast = io.broadcast.bind(io);
+  io.broadcast = (msg, ex) => { if (msg.t === 'turn') feverAt.push([msg.round, rm.fever]); broadcast(msg, ex); };
+  const ref = new Referee({ match: rm, humans: mkPlayers(4), io });
+  ref.start();
+  assert(advanceUntil(io, () => ref.round >= 9, 6_000_000), 'reach round 9 with 4 players');
+  const wrong = feverAt.filter(([r, f]) => f !== (r > 7 ? 1 : 0));
+  assert(!wrong.length && feverAt.some(([r]) => r === 8), '4p fever per round: ' + JSON.stringify(wrong.slice(0, 3)));
+  return { firsts };
 });
 
 test('狂熱：Boss 關不套用（過了第 10 輪還是 0 層，古樹的攻擊照原本傷害）；FEVER.inBoss 打開才會套用', () => {
-  const saved = { ...CONFIG.FEVER };
-  Object.assign(CONFIG.FEVER, { everyRounds: 10, damagePct: 50, inBoss: false });
-  try {
-    const normal = matchWith({});
-    const boss = matchWith({}, { levelId: 'treeGarden' });
-    assert(boss.level.pool === 'boss' && normal.level.pool === 'normal', 'level pools');
-    assert(normal.feverAt(11) === 1 && normal.feverAt(21) === 2, 'normal stage gets fever');
-    assert([1, 10, 11, 21, 51].every(r => boss.feverAt(r) === 0), 'boss stage never gets fever');
-    // 裁判實際跑到第 12 輪：Boss 關每個回合 match.fever 都是 0
-    boss.planAiTurn = () => ({ walk: null, plan: null });   // 古樹 / 樹妖只發呆：只是要快轉輪數
-    const io = new FakeIo();
-    const feverAt = [];
-    const broadcast = io.broadcast.bind(io);
-    io.broadcast = (msg, ex) => { if (msg.t === 'turn') feverAt.push([msg.round, boss.fever]); broadcast(msg, ex); };
-    const ref = new Referee({ match: boss, humans: mkPlayers(1), io });
-    ref.start();
-    assert(advanceUntil(io, () => ref.round >= 12, 3_000_000), 'reach round 12 in the boss stage');
-    assert(feverAt.some(([r]) => r === 11) && feverAt.every(([, f]) => f === 0), 'boss fever per round: ' + JSON.stringify(feverAt.filter(([, f]) => f !== 0).slice(0, 3)));
-    // 第 12 輪時古樹的落葉打玩家：照原本的傷害
-    const leaf = CONFIG.WEAPONS.treeLeaf;
-    const p1 = boss.players[0], eye = boss.byId('eye');
-    const hp0 = p1.hp;
-    boss.applyExplosion(p1.cx, p1.cy, leaf, eye, p1, { directOnly: true });
-    assert(hp0 - p1.hp === leaf.damage, `boss leaf damage at round 12: ${hp0 - p1.hp} vs ${leaf.damage}`);
-    CONFIG.FEVER.inBoss = true;
-    assert(boss.feverAt(11) === 1, 'FEVER.inBoss = true turns it back on');
-    return { bossRounds: ref.round };
-  } finally {
-    Object.assign(CONFIG.FEVER, saved);
-  }
+  const C10 = rulesCfg({ FEVER: { everyRounds: 10, damagePct: 50, inBoss: false } });
+  const normal = matchWith({}, { config: C10 });
+  const boss = matchWith({}, { levelId: 'treeGarden', config: C10 });
+  assert(boss.level.pool === 'boss' && normal.level.pool === 'normal', 'level pools');
+  assert(normal.rules.feverAt(11) === 1 && normal.rules.feverAt(21) === 2, 'normal stage gets fever');
+  assert(boss.rules.feverEvery === 0 && [1, 10, 11, 21, 51].every(r => boss.rules.feverAt(r) === 0), 'boss stage never gets fever');
+  // 裁判實際跑到第 12 輪：Boss 關每個回合 match.fever 都是 0
+  boss.planAiTurn = () => ({ walk: null, plan: null });   // 古樹 / 樹妖只發呆：只是要快轉輪數
+  const io = new FakeIo();
+  const feverAt = [];
+  const broadcast = io.broadcast.bind(io);
+  io.broadcast = (msg, ex) => { if (msg.t === 'turn') feverAt.push([msg.round, boss.fever]); broadcast(msg, ex); };
+  const ref = new Referee({ match: boss, humans: mkPlayers(1), io });
+  ref.start();
+  assert(advanceUntil(io, () => ref.round >= 12, 3_000_000), 'reach round 12 in the boss stage');
+  assert(feverAt.some(([r]) => r === 11) && feverAt.every(([, f]) => f === 0), 'boss fever per round: ' + JSON.stringify(feverAt.filter(([, f]) => f !== 0).slice(0, 3)));
+  // 第 12 輪時古樹的落葉打玩家：照原本的傷害
+  const leaf = CONFIG.WEAPONS.treeLeaf;
+  const p1 = boss.players[0], eye = boss.byId('eye');
+  const hp0 = p1.hp;
+  boss.applyExplosion(p1.cx, p1.cy, leaf, eye, p1, { directOnly: true });
+  assert(hp0 - p1.hp === leaf.damage, `boss leaf damage at round 12: ${hp0 - p1.hp} vs ${leaf.damage}`);
+  const inBoss = matchWith({}, { levelId: 'treeGarden', config: rulesCfg({ FEVER: { everyRounds: 10, damagePct: 50, inBoss: true } }) });
+  assert(inBoss.rules.feverAt(11) === 1, 'FEVER.inBoss = true turns it back on');
+  return { bossRounds: ref.round };
 });
 
 test('敵人傷害倍率：敵人打人 = 武器傷害 × ENEMY.damageMult（再吃狂熱）；玩家打敵人不受影響', () => {
-  CONFIG.ENEMY.damageMult = ENEMY_DAMAGE_MULT;
-  try {
-    assert(ENEMY_DAMAGE_MULT === 0.7, 'config is 0.7: ' + ENEMY_DAMAGE_MULT);
-    const w = CONFIG.WEAPONS.cannon;
-    const m = matchWith({}, { players: 2, hp: 10000 });
-    const [p1] = m.players;
-    const e1 = m.enemies[0];
-    const hit = (target, attacker) => { const h = target.hp; m.applyExplosion(target.cx, target.cy, w, attacker, target); return h - target.hp; };
-    assert(hit(e1, p1) === w.damage, 'player → enemy unchanged');
-    const d = hit(p1, e1);
-    assert(d === Math.round(w.damage * 0.7), 'enemy → player ×0.7: ' + d);
-    m.fever = 1;
-    assert(hit(p1, e1) === Math.round(w.damage * (0.7 * 1.5)), 'fever stacks on top');
-    return { cannon: w.damage, enemyHit: d };
-  } finally { CONFIG.ENEMY.damageMult = 1; }
+  assert(ENEMY_DAMAGE_MULT === 0.7, 'config is 0.7: ' + ENEMY_DAMAGE_MULT);
+  const w = CONFIG.WEAPONS.cannon;
+  const config = rulesCfg({ ENEMY: { damageMult: 0.7, lateFromStage: 6, damageMultLate: 1 }, FEVER: { everyRounds: 1, damagePct: 50, inBoss: false } });
+  const m = matchWith({}, { players: 2, hp: 10000, config });
+  const [p1] = m.players;
+  const e1 = m.enemies[0];
+  const hit = (target, attacker) => { const h = target.hp; m.applyExplosion(target.cx, target.cy, w, attacker, target); return h - target.hp; };
+  assert(hit(e1, p1) === w.damage, 'player → enemy unchanged');
+  const d = hit(p1, e1);
+  assert(d === Math.round(w.damage * 0.7), 'enemy → player ×0.7: ' + d);
+  m.round = 2;   // 每輪一層：第 2 輪 = 狂熱 1 層
+  assert(hit(p1, e1) === Math.round(w.damage * (0.7 * 1.5)), 'fever stacks on top');
+  return { cannon: w.damage, enemyHit: d };
 });
 
 test('敵人傷害倍率的第二輪：第 1 ~ 5 關 ×damageMult（0.7），第 6 關起 ×damageMultLate（1，不再抑制）；Boss、蜜蜂也一樣；lateFromStage 0 = 整場都 0.7', () => {
-  const saved = { damageMult: CONFIG.ENEMY.damageMult, lateFromStage: CONFIG.ENEMY.lateFromStage, damageMultLate: CONFIG.ENEMY.damageMultLate };
-  Object.assign(CONFIG.ENEMY, { damageMult: 0.7, lateFromStage: 6, damageMultLate: 1 });
-  try {
-    const w = CONFIG.WEAPONS.cannon;
-    const dealt = (levelId, stage, attackerId = null) => {
-      const m = new Match({ levelId, players: mkPlayers(1), seed: 2, stage });
-      const p = m.players[0];
-      p.hp = p.maxHp = 10000;
-      const e = attackerId ? m.byId(attackerId) : m.enemies[0];
-      const h = p.hp;
-      m.applyExplosion(p.cx, p.cy, w, e, p);
-      return { d: h - p.hp, mult: m.enemyDamageMult() };
-    };
-    const out = {};
-    for (const [stage, k] of [[1, 0.7], [5, 0.7], [6, 1], [9, 1]]) {
-      const r = dealt('level1', stage);
-      assert(r.mult === k && r.d === Math.round(w.damage * k), `stage ${stage}: ×${r.mult}, dealt ${r.d}`);
-      out[stage] = r.d;
-    }
-    // 王關：第 5 關的王照第一輪、第 10 關的王照第二輪
-    assert(dealt('jungleSerpent', 5, 'snake').d === Math.round(w.damage * 0.7), 'boss at stage 5 ×0.7');
-    assert(dealt('treeGarden', 10, 'eye').d === Math.round(w.damage * 1), 'boss at stage 10 ×1');
-    // 小心擊發的蜜蜂：第 7 關螫人照第二輪（15 × 1）
-    const hm = new Match({ levelId: 'beehive', players: mkPlayers(1), seed: 2, stage: 7 });
-    const hp1 = hm.players[0];
-    hp1.hp = hp1.maxHp = 10000;
-    const hive = hm.byId('hive');
-    hm.applyExplosion(hive.x, hive.cy, CONFIG.WEAPONS.sniper, hp1, hive);
-    const bee = hm.byId('b1');
-    bee.waitTurns = 0;
-    const before = hp1.hp;
-    hm.planAiTurn(bee);
-    assert(before - hp1.hp === Math.round(CONFIG.WEAPONS.beeSting.damage * 1), 'bee sting at stage 7 ×1: ' + (before - hp1.hp));
-    // 玩家打敵人不受影響
-    const m = new Match({ levelId: 'level1', players: mkPlayers(1), seed: 2, stage: 8 });
-    assert(m.damageMult(m.players[0], w) === 1, 'players unaffected');
-    CONFIG.ENEMY.lateFromStage = 0;
-    assert(dealt('level1', 9).mult === 0.7, 'lateFromStage 0 → 0.7 all run');
-    return out;
-  } finally { Object.assign(CONFIG.ENEMY, saved); }
+  const config = rulesCfg({ ENEMY: { damageMult: 0.7, lateFromStage: 6, damageMultLate: 1 } });
+  const w = CONFIG.WEAPONS.cannon;
+  const dealt = (levelId, stage, attackerId = null, cfg = config) => {
+    const m = new Match({ levelId, players: mkPlayers(1), seed: 2, stage, config: cfg });
+    const p = m.players[0];
+    p.hp = p.maxHp = 10000;
+    const e = attackerId ? m.byId(attackerId) : m.enemies[0];
+    const h = p.hp;
+    m.applyExplosion(p.cx, p.cy, w, e, p);
+    return { d: h - p.hp, mult: m.rules.enemyDamage };
+  };
+  const out = {};
+  for (const [stage, k] of [[1, 0.7], [5, 0.7], [6, 1], [9, 1]]) {
+    const r = dealt('level1', stage);
+    assert(r.mult === k && r.d === Math.round(w.damage * k), `stage ${stage}: ×${r.mult}, dealt ${r.d}`);
+    out[stage] = r.d;
+  }
+  // 王關：第 5 關的王照第一輪、第 10 關的王照第二輪
+  assert(dealt('jungleSerpent', 5, 'snake').d === Math.round(w.damage * 0.7), 'boss at stage 5 ×0.7');
+  assert(dealt('treeGarden', 10, 'eye').d === Math.round(w.damage * 1), 'boss at stage 10 ×1');
+  // 小心擊發的蜜蜂：第 7 關螫人照第二輪（15 × 1）
+  const hm = new Match({ levelId: 'beehive', players: mkPlayers(1), seed: 2, stage: 7, config });
+  const hp1 = hm.players[0];
+  hp1.hp = hp1.maxHp = 10000;
+  const hive = hm.byId('hive');
+  hm.applyExplosion(hive.x, hive.cy, CONFIG.WEAPONS.sniper, hp1, hive);
+  const bee = hm.byId('b1');
+  bee.waitTurns = 0;
+  const before = hp1.hp;
+  hm.planAiTurn(bee);
+  assert(before - hp1.hp === Math.round(CONFIG.WEAPONS.beeSting.damage * 1), 'bee sting at stage 7 ×1: ' + (before - hp1.hp));
+  // 玩家打敵人不受影響
+  const m = new Match({ levelId: 'level1', players: mkPlayers(1), seed: 2, stage: 8, config });
+  assert(m.damageMult(m.players[0], w) === 1, 'players unaffected');
+  const flat = rulesCfg({ ENEMY: { damageMult: 0.7, lateFromStage: 0, damageMultLate: 1 } });
+  assert(dealt('level1', 9, null, flat).mult === 0.7, 'lateFromStage 0 → 0.7 all run');
+  return out;
 });
 
 test('新武器與裝備也維持確定性：同 seed 同輸入兩次結果完全一樣', () => {

@@ -9,6 +9,7 @@ import { planShot } from './ai.js';
 import { clamp } from './utils.js';
 import { mechanicFor, snapshotOf } from './mechanics/index.js';
 import * as Effects from './effects/index.js';
+import { stageRules } from './stage-rules.js';
 
 // 關卡 enemySpawns 的 type → config 裡的數值區塊（沒寫 type = 一般敵人 CONFIG.ENEMY）
 const ENEMY_TYPES = { sniper: 'SNIPER', artillery: 'ARTILLERY' };
@@ -19,8 +20,9 @@ export const ENEMY_LABELS = { normal: '敵人', sniper: '狙擊手', artillery: 
 // 牌的效果（shared/effects/）只在這裡固定的槽與時間點貢獻數字 / 做事，怎麼組合、照什麼順序在這裡決定；Match 不認得任何一個效果。
 // 不碰 DOM、不碰網路；伺服器拿它當唯一的真相，客戶端拿同一份程式播動畫。
 // carry[playerId] = { hp, maxHp, maxStamina, moveSpeed, jumpSpeed, size, mods, weapons, …效果帶著走的狀態, links }：肉鴿流程中玩家帶著跑的數值
+// config = 關卡規則讀的設定（見 shared/stage-rules.js；測試換自己的數字用，其他設定還是全域 CONFIG）
 export class Match {
-  constructor({ levelId = 'level1', players, seed, carry = {}, stage = 1 }) {
+  constructor({ levelId = 'level1', players, seed, carry = {}, stage = 1, config = CONFIG }) {
     this.levelId = levelId;
     this.level = LEVELS[levelId];
     if (!this.level) throw new Error('unknown level: ' + levelId);
@@ -38,8 +40,9 @@ export class Match {
     // 一般小關 = null（見 shared/mechanics/index.js）
     this.mechState = null;
     this.pickups = [];  // 位置回報途中撿到的道具（fx），裁判拿去廣播（見 takePickups）
-    this.fever = 0;     // 狂熱層數：裁判每輪開始時照輪數更新（見 feverStacks）
-    this.playerCount = players.length;   // 這一關的玩家人數（含倒下的隊友）：狂熱幾輪一層照這個（敵人血量也照開場人數）
+    // 關卡規則（見 shared/stage-rules.js）：這一關的血量倍率、敵人傷害倍率、狂熱。人數 = 開場的玩家人數（含之後倒下的隊友）
+    this.rules = stageRules({ stage, players: players.length, pool: this.level.pool }, config);
+    this.round = 0;     // 第幾輪：裁判在新的一輪開始時加一，客戶端照伺服器的訊息設；狂熱層數照這個算（見 fever）
 
     players.forEach((p, i) => {
       const spawn = this.level.playerSpawns[i % this.level.playerSpawns.length];
@@ -58,9 +61,8 @@ export class Match {
     // 攜手之伴的連結只認這一關真的有的隊友
     for (const e of this.entities) e.links = e.links.filter(id => id !== e.id && this.entities.some(f => f.id === id && f.team === e.team));
 
-    // 敵人血量：每多一位玩家 +50%，一般關卡每過一關再 +15%。Boss 的血量照各自的設定，吃人數放大與 bossStageScale（bossScale）
-    const playerScale = 1 + CONFIG.ENEMY_HP_PER_EXTRA_PLAYER * Math.max(0, players.length - 1);
-    const hpScale = playerScale * (1 + CONFIG.RUN.enemyHpPerStage * Math.max(0, stage - 1));
+    // 敵人血量照關卡規則放大：一般敵人 enemyHp（人數 × 關數）；王與地圖機制的角色 bossHp（人數 × 第幾個王關），交給機制的 build
+    const { enemyHp: hpScale, bossHp: bossScale } = this.rules;
     this.level.enemySpawns.forEach((s, i) => {
       // type: 'random'（大亂鬥）：這一場隨機抽一種（用這一關的 seed，伺服器與客戶端抽到的一樣），名字照抽到的種類取，x 再隨機偏移
       let type = s.type || null, name = s.name, x = s.x;
@@ -79,7 +81,6 @@ export class Match {
         x, y: s.y, facing: s.facing || -1, hp: Math.round(def.hp * hpScale), boss: !!s.boss,
       }));
     });
-    const bossScale = playerScale * bossStageScale(this.level, stage);   // 第二個王關以後血量變多
     // 地圖機制的角色排在關卡的敵人後面（陣列順序 = 回合順序）；回傳的是這一場機制的狀態
     this.mechState = this.mechanic.build(this, { hpScale, bossScale }) ?? null;
 
@@ -277,15 +278,15 @@ export class Match {
     return n;
   }
 
-  // 狂熱：所有傷害的倍率（不分敵我、不分攻擊來源）
-  feverMult() {
-    return 1 + this.fever * CONFIG.FEVER.damagePct / 100;
+  // 狂熱層數：照關卡規則與現在第幾輪算（幾輪一層看這一關的玩家人數；Boss 關沒有，除非 FEVER.inBoss 打開）。
+  // 伺服器、客戶端、效果都讀這個，沒有人另外寫
+  get fever() {
+    return this.rules.feverAt(this.round);
   }
 
-  // 這一關第 round 輪的狂熱層數（幾輪一層看這一關的玩家人數）。Boss 關有自己的機制，不套用狂熱（除非 FEVER.inBoss 打開）
-  feverAt(round) {
-    if (this.level.pool === 'boss' && !CONFIG.FEVER.inBoss) return 0;
-    return feverStacks(round, this.playerCount);
+  // 狂熱：所有傷害的倍率（不分敵我、不分攻擊來源）
+  feverMult() {
+    return 1 + this.fever * this.rules.feverPct / 100;
   }
 
   // 場上還活著的隊友有幾個（不含自己）：看隊友人數的效果（孤狼傳說、團結力量大）看這個
@@ -319,18 +320,12 @@ export class Match {
     return out;
   }
 
-  // 敵人（含 Boss、樹妖、蜜蜂）的傷害倍率：第一輪 ENEMY.damageMult（0.7），第二輪（第 ENEMY.lateFromStage 關起）ENEMY.damageMultLate（1）
-  enemyDamageMult() {
-    const E = CONFIG.ENEMY;
-    return E.lateFromStage > 0 && this.stage >= E.lateFromStage ? (E.damageMultLate ?? E.damageMult) : E.damageMult;
-  }
-
-  // 攻擊者對某武器的傷害倍率（效果的加成）。裝備產生的攻擊（轟炸）不吃武器傷害加成。
+  // 攻擊者對某武器的傷害倍率（效果的加成）。敵人（含 Boss、樹妖、蜜蜂）照關卡規則的 enemyDamage。裝備產生的攻擊（轟炸）不吃武器傷害加成。
   // 效果的武器傷害 % 分三個槽、照這個順序相加：damage（自己的加成：所有武器 / 這把武器 → 每回合成長 → 擊殺累積）
   // → situation（看場上：這一關的暫時加成、隊友人數）→ state（看自己的狀態：狂熱、層數）
   damageMult(attacker, weapon) {
     if (!attacker || weapon.fromEquip) return 1;
-    if (attacker.team === 'enemies') return this.enemyDamageMult();
+    if (attacker.team === 'enemies') return this.rules.enemyDamage;
     const c = { match: this, weaponId: weapon.id, allies: this.alliesAlive(attacker) };
     const pct = (slot) => Effects.effectSum(slot, attacker, c);
     return Math.max(0, 1 + (pct('damage') + pct('damageSituation') + pct('damageState')) / 100);
@@ -595,31 +590,6 @@ export class Match {
     this.mechanic.restore(this, s);
     this.applyEntities(s.entities);
   }
-}
-
-// Boss 關的血量倍率（不含人數）：從第一個 Boss 關開始算，之後每多一關 +RUN.bossHpPerStage
-// （bossStages [5, 10]、15%：第 5 關 ×1、第 10 關 ×1.75）。不是排定的 Boss 關（測試直接建的 Boss 地圖）就照原本的血量
-export function bossStageScale(level, stage) {
-  const B = CONFIG.RUN.bossStages || [];
-  if (level.pool !== 'boss' || !B.includes(stage)) return 1;
-  return 1 + (CONFIG.RUN.bossHpPerStage || 0) * Math.max(0, stage - Math.min(...B));
-}
-
-// 狂熱：players 人的關卡每幾輪疊一層。FEVER.everyRounds 是一個數字（不分人數），或 { 人數: 輪數 }
-// （表上沒有的人數照比它少、最接近的那一格；比表上都少就用最少人數那格）。0 = 關掉
-export function feverEvery(players = 1) {
-  const e = CONFIG.FEVER.everyRounds;
-  if (typeof e === 'number') return e;
-  const keys = Object.keys(e || {}).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
-  if (!keys.length) return 0;
-  const k = keys.filter(n => n <= players).pop() ?? keys[0];
-  return Number(e[k]) || 0;
-}
-
-// 狂熱：players 人的關卡第 round 輪時疊了幾層（每過 n = feverEvery(players) 輪 +1 層，第 1 ~ n 輪是 0 層）
-export function feverStacks(round, players = 1) {
-  const n = feverEvery(players);
-  return n > 0 ? Math.max(0, Math.floor((round - 1) / n)) : 0;
 }
 
 // 第一顆飛行物最後停在哪（terrain / entity / water / out），給記錄與相容用

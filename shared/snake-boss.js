@@ -29,7 +29,7 @@ export const SNAKE_ACTION_NAMES = {
 };
 
 // 建立巨蟒，回傳這一場巨蟒的狀態（地圖機制的 build 回傳給 Match，存成 match.mechState）。
-// hpScale = 血量倍率（每多一位玩家 +50%，第二個王關以後再乘 bossStageScale，見 match.js）
+// hpScale = 血量倍率（關卡規則的 bossHp：每多一位玩家 +50%，第二個王關以後再放大，見 shared/stage-rules.js）
 export function buildSnake(match, hpScale) {
   const def = match.level.mechanic;
   const h = def.head;

@@ -1,6 +1,7 @@
 import { CONFIG } from '../shared/config.js';
 import { needsDiscard } from '../shared/cards.js';
 import { teammateEffect } from '../shared/effects/index.js';
+import { isBossStage } from '../shared/stage-rules.js';
 
 // 過關選牌畫面（DOM）：三張牌選一張，顯示倒數與其他玩家是否已選。
 // 武器牌：武器欄滿了（最多 EQUIP.maxWeapons 把）要先選一把丟掉才能拿，也可以取消改選別張
@@ -34,7 +35,7 @@ export class CardsUi {
     this.picked = new Set();
     this.root.hidden = false;
     this.$('#cards-title').textContent = `第 ${stage} 關通過！`;
-    this.$('#cards-sub').textContent = CONFIG.RUN.bossStages.includes(stage + 1)
+    this.$('#cards-sub').textContent = isBossStage(stage + 1)
       ? `選一張牌，接下來是 Boss 關（第 ${stage + 1} / ${stageCount} 關）`
       : `選一張牌，接著進入第 ${stage + 1} / ${stageCount} 關`;
     const list = this.$('#cards-list');

@@ -33,7 +33,7 @@ export const TREE_ACTION_NAMES = {
 };
 
 // 建立古樹的兩個部位，回傳這一場古樹的狀態（地圖機制的 build 回傳給 Match，存成 match.mechState）。
-// hpScale = 血量倍率（每多一位玩家 +50%，第二個王關以後再乘 bossStageScale，見 match.js）；樹妖、閉目養神也照這個
+// hpScale = 血量倍率（關卡規則的 bossHp：每多一位玩家 +50%，第二個王關以後再放大，見 shared/stage-rules.js）；樹妖、閉目養神也照這個
 export function buildTree(match, hpScale) {
   const T = CONFIG.TREE_BOSS;
   const def = match.level.mechanic;

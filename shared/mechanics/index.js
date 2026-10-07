@@ -13,7 +13,8 @@ import { hive } from './hive.js';
 //
 // 每個掛勾都可以不寫（不寫 = 下面的預設：什麼都不做）：
 //   build(match, { hpScale, bossScale }) → state  建構：關卡的敵人之後，加上這個機制的角色（開場落地之前）；
-//                                         回傳這一場的狀態，Match 存成 match.mechState（不寫 / 回傳 null = 沒有狀態）
+//                                         回傳這一場的狀態，Match 存成 match.mechState（不寫 / 回傳 null = 沒有狀態）。
+//                                         hpScale / bossScale = 關卡規則的 enemyHp / bossHp（一般敵人 / 王的血量倍率，見 shared/stage-rules.js）
 //   ready(match)                          建構：開場落地之後（決定 Boss 的第一招；會抽亂數，順序不能動）
 //   cascade(match)                        勝負判定前、一波結算完算擊殺前：這個機制連帶造成的死亡（古樹之眼倒下 → 整棵樹枯萎）。要能重複呼叫
 //   moved(match, e, x0, y0, x, y) → fx|null   玩家回報位置（落水檢查之前）：路上撿到的道具，Match 收進 pickups

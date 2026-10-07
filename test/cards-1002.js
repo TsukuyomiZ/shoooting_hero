@@ -27,14 +27,18 @@ const cardById = (id) => CARDS.cards.find(c => c.id === id);
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
 const W = CONFIG.WEAPONS;
 const NEW = ['fever_high', 'all_seeing_eye', 'whetstone', 'battle_hardened'];
+// 狂熱的測試設定（關卡規則讀的，見 shared/stage-rules.js）：每輪疊一層、每層 +50%，不受使用者調 config 影響。
+// match.fever 由輪數推出：第 n 層 = 第 n + 1 輪
+const FEVER_CFG = { ...CONFIG, FEVER: { everyRounds: 1, damagePct: 50, inBoss: false } };
+const setFever = (m, n) => { m.round = n + 1; };
 
 // p1 帶某張牌的效果的測試戰鬥；所有人血量拉到 hp
-function matchWith(effects = {}, { players = 1, levelId = 'level1', seed = 1, hp = 5000 } = {}) {
+function matchWith(effects = {}, { players = 1, levelId = 'level1', seed = 1, hp = 5000, config = CONFIG } = {}) {
   const stats = baseStats();
   for (const [k, v] of Object.entries(effects)) stats[k] += v;
   const d = derivePlayerStats(stats);
   const carry = { p1: { hp, maxHp: hp, maxStamina: d.maxStamina, moveSpeed: d.moveSpeed, jumpSpeed: d.jumpSpeed, size: d.size, mods: d.mods } };
-  const m = new Match({ levelId, players: mkPlayers(players), seed, carry });
+  const m = new Match({ levelId, players: mkPlayers(players), seed, carry, config });
   for (const e of m.entities) { e.maxHp = hp; e.hp = hp; }
   return m;
 }
@@ -68,32 +72,32 @@ test('牌庫：四張新牌都通過驗證、稀有度與效果照使用者給�
 });
 
 test('嗨到最高點：狂熱生效時武器傷害 +50%（不隨狂熱層數加倍），沒狂熱時沒效果', () => {
-  const m = withCard('fever_high');
+  const m = withCard('fever_high', { config: FEVER_CFG });
   const p = m.players[0];
   const base = m.damageMult(p, W.cannon);
   assert(Math.abs(base - 1) < 1e-12, 'no fever → no bonus ' + base);
-  m.fever = 1;
+  setFever(m, 1);
   assert(Math.abs(m.damageMult(p, W.cannon) - 1.5) < 1e-12, 'fever 1 → ×1.5');
-  m.fever = 2;
+  setFever(m, 2);
   assert(Math.abs(m.damageMult(p, W.cannon) - 1.5) < 1e-12, 'fever 2 → still ×1.5 (fever itself handles stacking)');
   // 實際打一下：牌的 +50% 與狂熱本身的 +100% 相乘
   const e1 = m.enemies[0], hp0 = e1.hp;
   m.applyExplosion(e1.cx, e1.cy, W.cannon, p, e1);
-  const want = Math.round(W.cannon.damage * 1.5 * (1 + 2 * CONFIG.FEVER.damagePct / 100));
+  const want = Math.round(W.cannon.damage * 1.5 * (1 + 2 * FEVER_CFG.FEVER.damagePct / 100));
   assert(hp0 - e1.hp === want, `dmg ${hp0 - e1.hp} want ${want}`);
   // 轟炸不吃武器傷害加成
   assert(m.damageMult(p, W.bombard) === 1, 'bombard unaffected');
   // 沒這張牌的人在狂熱裡沒有額外加成
-  const plain = matchWith();
-  plain.fever = 1;
+  const plain = matchWith({}, { config: FEVER_CFG });
+  setFever(plain, 1);
   assert(Math.abs(plain.damageMult(plain.players[0], W.cannon) - 1) < 1e-12, 'plain player unaffected');
 });
 
 test('嗨到最高點：Boss 關沒有狂熱，所以不會生效', () => {
   const bossId = levelsInPool('boss')[0];
   assert(bossId, 'a boss level exists');
-  const m = withCard('fever_high', { levelId: bossId });
-  m.fever = m.feverAt(25);
+  const m = withCard('fever_high', { levelId: bossId, config: FEVER_CFG });
+  m.round = 25;
   assert(m.fever === 0, 'boss has no fever');
   assert(Math.abs(m.damageMult(m.players[0], W.cannon) - 1) < 1e-12, 'no bonus in boss');
 });
@@ -186,8 +190,8 @@ test('層數同步：toState / applyState 帶 rd / hu，客戶端拿得到', () 
 
 test('新牌也維持確定性：同 seed 同輸入兩次結果完全一樣', () => {
   const once = () => {
-    const m = matchWith({ missDamagePct: 10, missMaxStacks: 5, hitDamagePct: 10, hitMaxStacks: 10, feverDamagePct: 50, fullArc: 1 }, { hp: 200 });
-    m.fever = 1;
+    const m = matchWith({ missDamagePct: 10, missMaxStacks: 5, hitDamagePct: 10, hitMaxStacks: 10, feverDamagePct: 50, fullArc: 1 }, { hp: 200, config: FEVER_CFG });
+    setFever(m, 1);
     const log = [];
     log.push(m.resolveShot(m.players[0], 'cannon', 70, 30));
     log.push(m.resolveShot(m.players[0], 'cannon', 90, 20));
