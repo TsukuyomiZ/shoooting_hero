@@ -105,12 +105,11 @@ export class Referee {
           this.record('move.reject', { pid: actor.id, name: actor.name, x: logValue(msg.x), y: logValue(msg.y), from: [r1(actor.x), r1(actor.y)] });
           break;
         }
-        if (CONFIG.LOG && CONFIG.LOG.moves) {
-          this.record('move', {
-            pid: actor.id, name: actor.name, x: r1(msg.x), y: r1(msg.y), facing: actor.facing, stamina: r1(actor.stamina),
-            ...(actor.onVine >= 0 ? { vine: actor.onVine } : {}),
-          });
-        }
+        // 每一次都記（LOG.moves 關掉時由寫檔的地方不寫，見 logWanted）
+        this.record('move', {
+          pid: actor.id, name: actor.name, x: r1(msg.x), y: r1(msg.y), facing: actor.facing, stamina: r1(actor.stamina),
+          ...(actor.onVine >= 0 ? { vine: actor.onVine } : {}),
+        });
         this.announcePickup(report.pickup);
         if (report.water) { this.actorFellInWater(actor); break; }   // 自己走 / 跳進水裡
         this.io.broadcast({ t: 'move', id: actor.id, x: actor.x, y: actor.y, facing: actor.facing, stamina: actor.stamina, vine: actor.onVine }, playerId);

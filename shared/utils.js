@@ -9,6 +9,12 @@ export function logValue(v, max = 20) {
   return typeof v === 'object' ? (Array.isArray(v) ? 'array' : 'object') : typeof v;
 }
 
+// 這種紀錄要不要寫進檔案（LOG = CONFIG.LOG）：裁判每個動作都照樣記，由寫檔的地方（伺服器的 RoomManager.record、
+// 單人練習的 SoloLog.record）決定寫不寫。目前只有量最大的移動回報（move）可以用 LOG.moves 關掉
+export function logWanted(ev, LOG) {
+  return ev !== 'move' || !!(LOG && LOG.moves);
+}
+
 // 角度插補（處理 -180~180 的環繞）
 export function lerpAngle(a, b, t) {
   const d = ((b - a + 540) % 360) - 180;

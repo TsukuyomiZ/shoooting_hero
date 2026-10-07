@@ -2,6 +2,7 @@ import { Run } from '../shared/run.js';
 import { validateCards } from '../shared/cards.js';
 import { SoloLog } from './solo-log.js';
 import { VERSION, versionLabel } from '../shared/version.js';
+import { logValue } from '../shared/utils.js';
 
 // 兩種傳輸層，介面一樣：send(msg)、onMessage(cb)
 // - WsTransport：連到 Node 伺服器（多人）
@@ -80,6 +81,7 @@ export class LocalTransport {
     this.connected = true;
     // 紀錄（玩家看不到，送回伺服器寫檔，見 solo-log.js）。單人沒有離開按鈕，關分頁 / 重新整理就是結束：記一筆 solo.end 再送最後一批
     this.log = new SoloLog();
+    this.recorded = 0;   // 呼叫過幾次 record：send 用來檢查每則訊息都有記
     this.ended = false;
     addEventListener('pagehide', () => this.end('pagehide'));
   }
@@ -115,7 +117,7 @@ export class LocalTransport {
       schedule: (fn, ms) => setTimeout(fn, ms),
       cancel: (h) => clearTimeout(h),
       now: () => Date.now(),
-      record: (ev, data) => this.log.record(ev, data),   // 紀錄（玩家看不到，送回伺服器寫檔）
+      record: (ev, data) => this.record(ev, data),   // 紀錄（玩家看不到，送回伺服器寫檔）
     };
     this.log.record('solo.start', { version: versionLabel(VERSION), name, seed, cards: cards.length });
     this.run = new Run({ players, seed, io, cards });
@@ -123,12 +125,27 @@ export class LocalTransport {
     this.run.start();
   }
 
+  // 寫一筆紀錄（玩家看不到，送回伺服器寫檔；要不要寫由 SoloLog 決定）
+  record(ev, data) {
+    this.recorded++;
+    this.log.record(ev, data);
+  }
+
+  // 收到自己的一則訊息（單人的「收訊息的地方」，同伺服器的 RoomManager.onMessage）：每一則都要留下至少一筆紀錄，
+  // 處理途中一筆都沒記就補一筆 msg.unlogged
   send(msg) {
+    const before = this.recorded;
+    this.dispatch(msg);
+    if (this.recorded === before) this.record('msg.unlogged', { pid: 'me', t: logValue(msg && msg.t) });
+  }
+
+  dispatch(msg) {
     if (msg.t === 'sticker') {   // 貼圖在畫面上已經先播了，單人沒有別人要轉
-      this.log.record('sticker', { pid: 'me', sticker: msg.id });
+      this.record('sticker', { pid: 'me', sticker: logValue(msg.id) });
       return;
     }
     if (this.run) this.run.handle('me', JSON.parse(JSON.stringify(msg)));
+    else this.record('action.ignored', { pid: 'me', t: logValue(msg.t), reason: 'noRun' });
   }
 
   close() {

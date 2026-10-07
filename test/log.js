@@ -315,7 +315,7 @@ await test('輪到他時斷線 → turn.takeover + ai.turn（takeover）；全�
   assert(ro.result === 'lose' && ro.stage === 1 && ro.players.length === 2 && ro.players.every(p => Array.isArray(p.cards)), 'run.over: ' + JSON.stringify(ro));
 });
 
-await test('CONFIG.LOG.moves = false：移動不逐筆記，其他照記；io 沒有 record（舊的 io / 其他測試）完全不受影響', () => {
+await test('CONFIG.LOG.moves = false：移動不逐筆寫進檔案（裁判照樣記，由寫檔的地方 RoomManager / SoloLog 不寫），其他照寫；io 沒有 record（舊的 io / 其他測試）完全不受影響', () => {
   const saved = CONFIG.LOG.moves;
   CONFIG.LOG.moves = false;
   try {
@@ -326,9 +326,21 @@ await test('CONFIG.LOG.moves = false：移動不逐筆記，其他照記；io �
     io.advance(2000);
     const me = run.match.byId('p1');
     run.handle('p1', { t: 'move', x: me.x, y: me.y, facing: 1, stamina: me.stamina - 1 });
-    assert(!io.evs('move').length && io.msgs.length > 0, 'no move records');
+    assert(io.evs('move').length === 1, 'the referee still records the move (so every message leaves a record)');
     run.handle('p1', { t: 'fire', weapon: 'cannon', angle: 60, power: 40, x: me.x, y: me.y, facing: 1, stamina: me.stamina });
     assert(io.last('fire') && io.last('shot'), 'fire still recorded');
+    // 寫檔的地方：伺服器的 RoomManager.record、單人的 SoloLog.record
+    const lines = [];
+    const mgr = new RoomManager({ log: { write: (e) => lines.push(e) } });
+    for (const r of io.records) mgr.record(r.ev, r);
+    assert(!lines.some(l => l.ev === 'move') && lines.some(l => l.ev === 'fire') && lines.some(l => l.ev === 'shot'), 'server writes everything but moves');
+    const sl = new SoloLog({ send: async () => 204, schedule: () => null, cancel: () => {} });
+    for (const r of io.records) sl.record(r.ev, r);
+    assert(!sl.buf.some(e => e.ev === 'move') && sl.buf.some(e => e.ev === 'fire'), 'solo log keeps everything but moves');
+    CONFIG.LOG.moves = true;
+    mgr.record('move', { pid: 'p1' });
+    sl.record('move', { pid: 'p1' });
+    assert(lines.at(-1).ev === 'move' && sl.buf.at(-1).ev === 'move', 'moves written again when LOG.moves is on');
   } finally {
     CONFIG.LOG.moves = saved;
   }

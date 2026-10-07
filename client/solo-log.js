@@ -1,4 +1,5 @@
 import { CONFIG } from '../shared/config.js';
+import { logWanted } from '../shared/utils.js';
 
 // 單人練習的紀錄（LOG）：裁判在瀏覽器裡跑，紀錄攢一批（每 2 秒）送回伺服器寫檔（POST /log），玩家看不到。
 // - 一次只送一批，回來了才送下一批；網路錯誤 / 429 / 5xx（例如伺服器正在重開）就放回最前面，晚點重送；
@@ -30,8 +31,9 @@ export class SoloLog {
     this.inflight = false;
   }
 
+  // 要不要寫由這裡決定（同伺服器的 RoomManager.record）：關掉紀錄就不記；LOG.moves 關掉時不記移動（見 logWanted）
   record(ev, data) {
-    if (!CONFIG.LOG.enabled) return;
+    if (!CONFIG.LOG.enabled || !logWanted(ev, CONFIG.LOG)) return;
     this.buf.push({ ev, at: this.now(), ...data });
     this.trim();
     this.later();

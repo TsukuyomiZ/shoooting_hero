@@ -368,6 +368,9 @@ npm start
 單人練習的裁判在瀏覽器裡跑，紀錄每 2 秒（或離開頁面時）送回伺服器（`POST /log`）寫進同一個檔，房號標成 `SOLO-xxxx`；
 伺服器正在重開時會先攢著、晚點重送（最多 5000 筆，再多丟最舊的並記一筆 `log.dropped`）。
 開關在 `shared/config.js` 的 `LOG`：`enabled` 總開關、`moves` 移動回報要不要逐筆記（量最大，每人每秒最多 10 筆）、`dir` 資料夾。
+**每個動作都要記**：收訊息的兩個入口（伺服器的 `RoomManager.onMessage`、單人的 `LocalTransport.send`）會檢查每一則訊息都留下至少一筆紀錄，
+處理途中一筆都沒記就補一筆 `msg.unlogged`；客戶端送來的值寫進紀錄前一律經過 `logValue`（截短、物件只記型別）。
+裁判照樣記每一次移動，`moves` 關掉時由寫檔的地方（`RoomManager.record`、`SoloLog.record`）不寫。
 寫的時候檔案或資料夾被刪掉，一秒內會自己重建。
 
 每行一筆 JSON，前三個欄位固定是 `ts`（時間，到毫秒）、`ev`（事件）、`room`（房號）；玩家用 `pid`（玩家 id）＋ `name`（暱稱）表示。
@@ -411,7 +414,8 @@ npm start
 | `battle.over` | 一關打完（`win` / `lose`、每位玩家剩多少血、擊殺數） |
 | `pick.offer` / `pick` / `pick.done` | 發牌（每人三選一的牌）/ 某人選了（`discard` 丟掉的武器、`link` 連結對象）/ 選牌結果（`auto` = 超時或斷線由系統隨機選） |
 | `run.over` | 整場冒險結束（`win` / `lose`、打到第幾關、每個人最後的牌、結算統計 dealt / taken / shots / hits） |
-| `action.ignored` / `msg.ignored` | 收到但不處理的操作（`reason`：`notYourTurn`、`phase:resolving`、`dead`、`weaponNotOwned`、`cardNotOffered`…，連他送來的武器 / 角度 / 力量 / 牌一起記），查「有按卻沒反應」用 |
+| `action.ignored` / `msg.ignored` | 收到但不處理的操作（`reason`：`notYourTurn`、`phase:resolving`、`dead`、`weaponNotOwned`、`cardNotOffered`、`unchanged`（公開 / 私人沒變）、`noRun`（遊戲還沒建好）、`notMember`…，連他送來的武器 / 角度 / 力量 / 牌一起記），查「有按卻沒反應」用 |
+| `msg.unlogged` | 收到的訊息處理完卻一筆紀錄都沒寫（`t` = 訊息種類）：入口補的保底，出現就代表某條路徑漏記了，要補上 |
 | `msg.bad` / `msg.error` | 解析不了的訊息 / 處理訊息時出錯（含 stack 與訊息內容前 500 字） |
 | `error` / `crash` | 計時器、斷線處理裡出錯（`where`：`timer`、`close`、`idle`）/ 沒接住的錯誤讓伺服器當掉（都會先記下來再當掉） |
 | `log.suppressed` | 亂送 / 被擋下的訊息太多（每條連線 10 秒超過 30 筆），少記了幾筆（`count`） |
@@ -472,6 +476,10 @@ npm test
 - `test/log.js`：紀錄（LOG）——檔案格式（欄位順序、資料蓋不掉時間、跨午夜換檔、寫不進去不當掉）、一關裡每一步都有記
   （開始、回合、移動、換武器、開火與結果、不處理的操作、超時、AI、斷線代打、過關、選牌含系統代選、全滅）、`LOG.moves` 開關、
   單人練習的 `POST /log`（房號蓋成 `SOLO-xxxx`、壞掉 / 太大的拒收、關掉紀錄就不寫）。
+- `test/log-coverage.js`：「每個動作都要記」的結構保證——客戶端會送的訊息種類從 `client/` 的原始碼抓（新加的訊息自動被測到），
+  每一種在每個階段（還沒 hello、大廳、房間裡、遊戲中；戰鬥輪到自己 / 別人、結算中、選牌、選完、結束）都有處理的程式自己記的紀錄；
+  入口的保底 `msg.unlogged`（伺服器、單人）；模糊測試（一次把一個欄位換成超長字串、`toString` 壞掉的物件、陣列、`NaN`：
+  照樣有紀錄、紀錄裡不會原封不動帶著亂送的值、處理的程式不丟錯）。
 - `test/e2e-ws.js`：真的開伺服器，用 WebSocket 客戶端跑大廳列表（公開房間即時更新、私人房間不列但能用房號進、只有房主能切換）→ 建房 → 加入 → 開始 → 移動 → 反應貼圖（轉發、洗版上限）→ 開火 →
   斷線 AI 代打 → token 重連，最後檢查紀錄檔把這些都記到了（寫在暫存資料夾）。
 
