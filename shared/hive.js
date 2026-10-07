@@ -4,7 +4,7 @@ import { clamp } from './utils.js';
 import { nearestPlayerAt, bossProjectile, bossShot, stillResult } from './mechanics/common.js';
 
 // 小關「小心擊發」的蜂巢與蜜蜂（伺服器與客戶端共用；蜜蜂的回合只在伺服器算，客戶端照廣播播動畫）。
-// Match 什麼時候呼叫這些，見地圖機制 shared/mechanics/hive.js。
+// Match 什麼時候呼叫這些，見地圖機制 shared/mechanics/hive.js。這一場的狀態在 match.mechState（buildHive 建的那一份）。
 //
 // - 蜂巢：掛在樹枝最左邊下面，固定不動、不會輪到它（noTurn）。打不打都可以：狙擊手全倒就過關（蜂巢與蜜蜂是 optional）。
 //   被玩家方攻擊到（直擊或爆炸波及；一顆飛行物算一次，等離子三發都打到 = 三次）就只扣 1，不管用什麼武器、傷害多高；
@@ -22,28 +22,33 @@ export const BEE_ACTION_NAMES = {
   idle: '嗡嗡地飛著',
 };
 
-// 建立蜂巢。hpScale = 這一關一般敵人的血量倍率（人數 × 關數），蜜蜂照它放大；蜂巢本身固定 HIVE.hp
+// 建立蜂巢，回傳這一場蜂巢的狀態（地圖機制的 build 回傳給 Match，存成 match.mechState）。
+// hpScale = 這一關一般敵人的血量倍率（人數 × 關數），蜜蜂照它放大；蜂巢本身固定 HIVE.hp
 export function buildHive(match, hpScale) {
   const def = match.level.mechanic;
   // bees：放出來過的蜜蜂出生資料（重連時照著重建）；fresh：剛放出來、還沒寫進事件的
-  match.hive = { def, hpScale, bees: [], seq: 0, fresh: [] };
+  const state = { def, hpScale, bees: [], seq: 0, fresh: [] };
   match.entities.push(new Entity({
     ...CONFIG.ENEMY, id: 'hive', name: '蜂巢', team: 'enemies', controller: 'ai', slot: 0, facing: -1, kind: 'hive',
     x: def.x, y: def.y, hw: def.hw, h: def.h, hp: CONFIG.HIVE.hp,
     fixed: true, noTurn: true, optional: true, allyPass: true, noKill: true,
   }));
+  return state;
 }
+
+// 這一場蜂巢的狀態（match.mechState）。一般小關（null）、別張地圖的狀態（沒有 bees）都當作沒有蜂巢
+const hiveState = (match) => (match.mechState && match.mechState.bees ? match.mechState : null);
 
 // 蜂巢被玩家方打到一次（爆炸結算扣完所有人的血之後，見 mechanics/hive.js）：扣 1、放出一隻蜜蜂（打掉的那一下也放）。回傳實際扣的血
 export function hitHive(match, hive) {
   const dmg = hive.takeDamage(1);
-  if (match.hive) releaseBee(match);
+  if (hiveState(match)) releaseBee(match);
   return dmg;
 }
 
 // 放出一隻蜜蜂：停在第一個沒有蜜蜂停著的位置
 function releaseBee(match) {
-  const H = match.hive;
+  const H = match.mechState;
   const n = ++H.seq;
   const spot = freeSpot(match, n);
   const spec = {
@@ -56,7 +61,7 @@ function releaseBee(match) {
 }
 
 function freeSpot(match, n) {
-  const spots = match.hive.def.beeSpots;
+  const spots = match.mechState.def.beeSpots;
   const bees = match.entities.filter(e => e.kind === 'bee' && e.alive);
   const free = spots.find(s => !bees.some(b => Math.abs(b.x - s.x) < 16 && Math.abs(b.y - s.y) < 16));
   if (free) return free;
@@ -72,7 +77,8 @@ export function spawnBee(match, spec) {
     fixed: true, optional: true, allyPass: true,
   });
   match.entities.push(e);
-  if (match.hive) match.hive.bees.push({ ...spec });
+  const H = hiveState(match);
+  if (H) H.bees.push({ ...spec });
   return e;
 }
 
@@ -86,9 +92,10 @@ export function hatchBees(match, specs) {
 
 // 這一下剛放出來的蜜蜂（resolveHit 寫進事件給客戶端），拿出來就清掉
 export function takeFreshBees(match) {
-  if (!match.hive || !match.hive.fresh.length) return [];
-  const out = match.hive.fresh;
-  match.hive.fresh = [];
+  const H = hiveState(match);
+  if (!H || !H.fresh.length) return [];
+  const out = H.fresh;
+  H.fresh = [];
   return out;
 }
 

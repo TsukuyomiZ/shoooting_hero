@@ -1,13 +1,13 @@
 import { buildSnake, planSnakeNext, resolveSnakeTurn, snakeDrops, takeDrops, pickupAt, pickupAlong } from '../snake-boss.js';
 
 // 叢林巨蟒的地圖機制：什麼時候、照什麼順序呼叫 snake-boss.js（規則本身在那裡）。
-// 狀態在 match.snake；場上的蛇血在 match.items（Match 的快照照樣帶）。藤蔓是地形（level.vines），不在這裡
+// 狀態在 match.mechState（buildSnake 建的），場上的蛇血也是巨蟒的狀態（mechState.items，快照照樣帶）。藤蔓是地形（level.vines），不在這裡
 export const snake = {
   type: 'snake',
 
-  // 巨蟒的頭：血量照 Boss 的倍率
+  // 巨蟒的頭：血量照 Boss 的倍率。回傳巨蟒的狀態（match.mechState）
   build(match, { bossScale }) {
-    buildSnake(match, bossScale);
+    return buildSnake(match, bossScale);
   },
 
   // 先抽第一招（抽到衝撞，第一個玩家回合就有警示帶）
@@ -47,12 +47,19 @@ export const snake = {
     return actor.part === 'snake' ? resolveSnakeTurn(match, actor) : null;
   },
 
-  // 預定的下一招（衝撞要畫警示帶）
+  // 預定的下一招（衝撞要畫警示帶）、場上的蛇血（複製出來的）
   snapshot(match) {
-    return { snakeNext: match.snake.next ? { ...match.snake.next } : null };
+    const S = match.mechState;
+    return {
+      snakeNext: S.next ? { ...S.next } : null,
+      items: S.items.map(it => ({ ...it })),
+    };
   },
 
+  // 蛇血換成快照的版本（複製）。客戶端收到 turn / turnFx 時也走這裡，只帶 { items }
   restore(match, s) {
-    if (s.snakeNext !== undefined) match.snake.next = s.snakeNext ? { ...s.snakeNext } : null;
+    const S = match.mechState;
+    if (s.snakeNext !== undefined) S.next = s.snakeNext ? { ...s.snakeNext } : null;
+    if (s.items) S.items = s.items.map(it => ({ ...it }));
   },
 };

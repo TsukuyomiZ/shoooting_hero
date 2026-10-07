@@ -325,7 +325,7 @@ export class GameView {
 
   beginTurn(msg) {
     this.match.applyEntities(msg.entities);
-    if (msg.items) this.setItems(msg.items);
+    this.setItems(msg);
     for (const e of this.match.entities) {
       e.moveDir = 0; e.vineDir = 0; e.aiming = false;
       const v = this.look(e);
@@ -453,8 +453,8 @@ export class GameView {
     } finally {
       this.holdMoves = false;
       if (!played) this.flushMoves();   // 播到一半丟錯：收著的 move 不要卡到下一波
+      this.projectiles = [];   // 飛到一半丟錯也清掉：不然凍住的飛行物會一直畫著（大地震擊還會一直噴碎石）
     }
-    this.projectiles = [];
     if (run.drift.length) console.warn('重播跟伺服器對不起來', run.drift);
 
     const stacksBefore = actor ? [actor.readyStacks, actor.huntStacks] : null;
@@ -587,7 +587,7 @@ export class GameView {
     }
     if (banners.length) this.showBanner(banners.map(b => b[0]).join('　·　'), banners[0][1]);
     if (msg.entities) this.match.applyEntities(msg.entities);
-    if (msg.items) this.setItems(msg.items);
+    this.setItems(msg);
     yield { frames: Math.round(CONFIG.TIMING.fxDelay * FPS * 0.6) };
   }
 
@@ -604,9 +604,10 @@ export class GameView {
     }
   }
 
-  // 場上的道具換成伺服器的版本（還在飛的道具動畫在地圖畫面裡照 id 對，不用搬）
-  setItems(items) {
-    this.match.items = items.map(it => ({ ...it }));
+  // turn / turnFx 帶的場上道具：換成伺服器的版本（還在飛的道具動畫在地圖畫面裡照 id 對，不用搬）。
+  // 道具是地圖機制的狀態（目前只有巨蟒的蛇血）：交給機制的 restore，只帶 items 這一欄；沒帶就不動
+  setItems({ items }) {
+    if (items) this.match.mechanic.restore(this.match, { items });
   }
 
   // 行動玩家走路途中撿到道具（伺服器廣播給所有人，包括他自己）：怎麼套由地圖畫面決定（例如喝到蛇血）

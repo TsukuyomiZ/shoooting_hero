@@ -1,7 +1,10 @@
 // node test/mechanics.js
 // 地圖機制（shared/mechanics/）：每張地圖拿到對的機制、一般小關是 plain；不認得的 type / 舊格式（tree / snake / hive 直接掛在關卡上）會丟錯；
 // plain 的掛勾什麼都不做；Match 呼叫掛勾的時間點與順序（掛勾的約定）；
-// 架構檢查：match.js 不認得任何一張地圖（不 import tree-boss / snake-boss / hive、程式碼裡不提它們）、volley.js 不 import hive / snake-boss
+// 機制的狀態只有一份（match.mechState，機制的 build 建的；場上的道具 = 巨蟒的狀態）；
+// 架構檢查：match.js 不認得任何一張地圖（不 import tree-boss / snake-boss / hive、程式碼裡不提它們）、volley.js 不 import hive / snake-boss、
+// 通用的檔案（match / referee / volley / run / ai / game-view / render）不直接碰機制的狀態與場上的道具（match.mechState 也不碰，match.js 只在建構時存起來）；
+// 規則模組只認自己的狀態（別張地圖的 match.mechState 當作沒有，跟搬家前一樣什麼都不做）
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,7 +34,12 @@ const J = JSON.stringify;
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
 const HOOKS = ['build', 'ready', 'cascade', 'moved', 'turnStart', 'turnEnd', 'absorbHit', 'eventExtras', 'replayEvent', 'aiTurn', 'snapshot', 'restore'];
 const WANT = { treeGarden: 'tree', jungleSerpent: 'snake', beehive: 'hive' };
-const STATE = { tree: 'tree', snake: 'snake', hive: 'hive' };
+// 每個機制的狀態（match.mechState）的欄位：跟搬進來之前的 match.tree / snake / hive 一樣，巨蟒多了場上的蛇血（items，原本的 match.items）
+const STATE_KEYS = {
+  tree: ['def', 'hpScale', 'minions', 'seq', 'next'],
+  snake: ['def', 'next', 'dropped', 'itemSeq', 'items'],
+  hive: ['def', 'hpScale', 'bees', 'seq', 'fresh'],
+};
 
 // 一個關卡暫時加進 LEVELS，建 Match 看會不會丟錯
 function buildError(level) {
@@ -46,7 +54,7 @@ function buildError(level) {
   }
 }
 
-test('每張地圖拿到對的機制：古樹之庭 / 叢林巨蟒 / 小心擊發各自一個，其他都是 plain；狀態只有那一個機制建', () => {
+test('每張地圖拿到對的機制：古樹之庭 / 叢林巨蟒 / 小心擊發各自一個，其他都是 plain；狀態只有那一個機制建（match.mechState，一般小關 = null）', () => {
   const got = {};
   for (const [id, level] of Object.entries(LEVELS)) {
     const mech = mechanicFor(level, id);
@@ -55,9 +63,11 @@ test('每張地圖拿到對的機制：古樹之庭 / 叢林巨蟒 / 小心擊�
     for (const h of HOOKS) assert(typeof mech[h] === 'function', `${id}: hook ${h} missing`);
     const m = new Match({ levelId: id, players: mkPlayers(2), seed: 3, stage: level.pool === 'boss' ? 5 : 1 });
     assert(m.mechanic === mech, `${id}: Match uses mechanicFor(level)`);
-    for (const [type, key] of Object.entries(STATE)) {
-      assert(type === mech.type ? m[key] !== null : m[key] === null, `${id}: match.${key} = ${m[key] && 'set'}`);
-    }
+    const st = m.mechState;
+    if (mech.type === 'plain') assert(st === null, `${id}: plain has no state: ${st && Object.keys(st)}`);
+    else assert(st && J(Object.keys(st)) === J(STATE_KEYS[mech.type]) && st.def === level.mechanic, `${id}: mechState = ${st && Object.keys(st)}`);
+    // 狀態不再掛在 Match 自己身上（一張地圖一個欄位、道具另外一個）
+    for (const k of ['tree', 'snake', 'hive', 'items']) assert(!(k in m), `${id}: match.${k} is back`);
     for (const k of ['tree', 'snake', 'hive']) assert(!(k in level), `${id} still has the legacy "${k}" field`);
   }
   return got;
@@ -66,9 +76,9 @@ test('每張地圖拿到對的機制：古樹之庭 / 叢林巨蟒 / 小心擊�
 test('Boss / 蜂巢的角色排在關卡敵人後面；開場落地後才決定 Boss 的第一招（ready）', () => {
   const t = new Match({ levelId: 'treeGarden', players: mkPlayers(2), seed: 1, stage: 5 });
   assert(t.entities.slice(-2).map(e => e.id).join() === 'eye,mouth', 'tree parts last: ' + t.entities.map(e => e.id));
-  assert(t.tree.next && t.tree.next.action, 'tree planned its first move');
+  assert(t.mechState.next && t.mechState.next.action, 'tree planned its first move');
   const s = new Match({ levelId: 'jungleSerpent', players: mkPlayers(2), seed: 1, stage: 5 });
-  assert(s.entities[s.entities.length - 1].id === 'snake' && s.snake.next && s.snake.next.action, 'snake last + planned');
+  assert(s.entities[s.entities.length - 1].id === 'snake' && s.mechState.next && s.mechState.next.action, 'snake last + planned');
   const h = new Match({ levelId: 'beehive', players: mkPlayers(2), seed: 1 });
   assert(h.entities[h.entities.length - 1].id === 'hive', 'hive after the snipers: ' + h.entities.map(e => e.id));
   assert(h.byId('hive').noKill && !h.byId('e1').noKill, 'hive is the only noKill enemy');
@@ -106,7 +116,7 @@ test('plain 的掛勾什麼都不做、回傳預設值', () => {
   const fx = [];
   const hit = { attacker: p, friendly: false, damages: [], later: [] };
   assert(P.type === 'plain', P.type);
-  assert(P.build(m, { hpScale: 1, bossScale: 1 }) === undefined && P.ready(m) === undefined && P.cascade(m) === undefined, 'build / ready / cascade');
+  assert(P.build(m, { hpScale: 1, bossScale: 1 }) === null && P.ready(m) === undefined && P.cascade(m) === undefined, 'build → null (no state) / ready / cascade');
   assert(P.moved(m, p, 0, 0, 10, 10) === null, 'moved → null');
   P.turnStart(m, p, fx);
   P.turnEnd(m, p, fx);
@@ -118,8 +128,9 @@ test('plain 的掛勾什麼都不做、回傳預設值', () => {
   assert(J(r1) === '{"items":[],"bees":[]}' && r1.items !== r2.items, 'replayEvent → fresh { items: [], bees: [] } (ignores fields it does not own)');
   assert(P.aiTurn(m, m.byId('e1')) === null, 'aiTurn → null');
   assert(J(P.snapshot(m)) === '{}', 'snapshot → {}');
-  P.restore(m, { minions: [{ id: 'm1', x: 1, y: 1, hp: 1 }], bees: [{ id: 'b1', x: 1, y: 1, hp: 1 }], treeNext: { action: 'trunk' } });
-  assert(J(m.snapshot()) === before && m.items.length === 0, 'nothing changed');
+  P.restore(m, { minions: [{ id: 'm1', x: 1, y: 1, hp: 1 }], bees: [{ id: 'b1', x: 1, y: 1, hp: 1 }], treeNext: { action: 'trunk' },
+    snakeNext: { action: 'bite' }, items: [{ id: 'a1', type: 'snakeBlood', x: 1, y: 2 }] });
+  assert(J(m.snapshot()) === before && m.mechState === null, 'nothing changed');
   assert(J(Object.keys(m.snapshot())) === J(['entities', 'holes', 'minions', 'treeNext', 'snakeNext', 'items', 'bees']), 'snapshot keys / order: ' + Object.keys(m.snapshot()));
   assert(J(snapshotOf(m)) === '{"minions":[],"treeNext":null,"snakeNext":null,"items":[],"bees":[]}', 'plain snapshot defaults: ' + J(snapshotOf(m)));
 });
@@ -280,7 +291,7 @@ test('掛勾的時間點：aiTurn 接手的回合不抽亂數、不走路；snap
   const { m } = spyMatch({
     aiTurn: (match, actor) => (actor.id === 'e1' ? boss : null),
     snapshot: () => ({ bees: ['spy'], minions: ['spy'] }),
-    restore: (match, s) => { seen = { holes: match.terrain.holes.length, items: match.items.length, hp: match.byId('e1').hp, minions: s.minions }; },
+    restore: (match, s) => { seen = { holes: match.terrain.holes.length, items: s.items, hp: match.byId('e1').hp, minions: s.minions }; },
   });
   let seen = null;
   const twin = new Match({ levelId: 'level1', players: mkPlayers(2), seed: 2 });
@@ -300,8 +311,70 @@ test('掛勾的時間點：aiTurn 接手的回合不抽亂數、不走路；snap
   const cm = c.mechanic;
   c.mechanic = { ...cm, restore: m.mechanic.restore };
   c.applySnapshot(s);
-  assert(seen && seen.holes === 1 && seen.items === 0 && seen.hp !== 1 && J(seen.minions) === '["spy"]', 'restore after holes, before items / entity states: ' + J(seen));
-  assert(c.items.length === 1 && c.byId('e1').hp === 1, 'then items and entities applied');
+  // 場上的道具也交給 restore（道具是機制的狀態）：Match 自己不收，這張地圖沒有道具的主人就沒有
+  assert(seen && seen.holes === 1 && seen.hp !== 1 && J(seen.minions) === '["spy"]', 'restore after holes, before entity states: ' + J(seen));
+  assert(J(seen.items) === J(s.items), 'restore gets the items too: ' + J(seen.items));
+  assert(c.byId('e1').hp === 1 && c.mechState === null && J(c.snapshot().items) === '[]', 'then entities applied; Match keeps no items of its own');
+});
+
+test('場上的道具是巨蟒的狀態：快照照樣帶（複本）、套用快照與客戶端的 turn / turnFx（restore 只帶 { items }）經巨蟒的 restore 換成複本；別的機制不理 items', () => {
+  const mk = (levelId) => new Match({ levelId, players: mkPlayers(2), seed: 2, stage: LEVELS[levelId].pool === 'boss' ? 5 : 1 });
+  const m = mk('jungleSerpent');
+  const it = { id: 'a1', type: 'snakeBlood', x: 300, y: 500 };
+  m.mechState.items.push(it);
+  const snap = m.snapshot();
+  assert(J(snap.items) === J([it]) && snap.items[0] !== it, 'snapshot carries a copy: ' + J(snap.items));
+  const c = mk('jungleSerpent');
+  c.applySnapshot(JSON.parse(J(snap)));
+  assert(J(c.mechState.items) === J([it]), 'applySnapshot restores the items: ' + J(c.mechState.items));
+  // 只帶 items（客戶端的 GameView.setItems）：換掉道具（複本），預定的下一招不動
+  const items = [{ id: 'a2', type: 'snakeBlood', x: 400, y: 500 }];
+  const plan = c.mechState.next;
+  c.mechanic.restore(c, { items });
+  assert(J(c.mechState.items) === J(items) && c.mechState.items[0] !== items[0] && c.mechState.next === plan, 'partial restore: items copied, plan untouched');
+  c.mechanic.restore(c, {});
+  assert(J(c.mechState.items) === J(items), 'no items field: left alone');
+  // 別張地圖：道具沒有主人，只帶 { items } 什麼都不變
+  const out = {};
+  for (const id of ['level1', 'treeGarden', 'beehive']) {
+    const o = mk(id);
+    const before = J(o.snapshot());
+    o.mechanic.restore(o, { items });
+    assert(J(o.snapshot()) === before && J(o.snapshot().items) === '[]', `${id}: { items } changes nothing`);
+    out[id] = o.mechanic.type;
+  }
+  return out;
+});
+
+test('規則模組只認自己的狀態：一般小關（mechState = null）與別張地圖的狀態呼叫古樹 / 蜂巢 / 巨蟒的函式不會壞、狀態不變（跟搬家前的 match.tree / hive / snake 一樣當作沒有）', () => {
+  const mk = (levelId) => new Match({ levelId, players: mkPlayers(2), seed: 2, stage: LEVELS[levelId].pool === 'boss' ? 5 : 1 });
+  const spec = (id) => ({ id, name: id, x: 300, y: 400, hp: 10, wait: 1 });
+  const out = {};
+  for (const levelId of ['level1', 'treeGarden', 'jungleSerpent', 'beehive']) {
+    const m = mk(levelId);
+    const own = m.mechanic.type;
+    const before = J(m.mechState);
+    const called = [];
+    if (own !== 'tree') {
+      TreeBoss.spawnTreant(m, spec('m99'));
+      assert(J(TreeBoss.witherTree(m)) === '[]', `${levelId}: witherTree`);
+      called.push('spawnTreant', 'witherTree');
+    }
+    if (own !== 'hive') {
+      Hive.spawnBee(m, spec('b99'));
+      const n = m.entities.length;
+      assert(Hive.hitHive(m, { takeDamage: (d) => d }) === 1 && m.entities.length === n, `${levelId}: hitHive releases no bee`);
+      assert(J(Hive.takeFreshBees(m)) === '[]', `${levelId}: takeFreshBees`);
+      called.push('spawnBee', 'hitHive', 'takeFreshBees');
+    }
+    if (own !== 'snake') {
+      assert(J(SnakeBoss.snakeDrops(m)) === '[]', `${levelId}: snakeDrops`);
+      called.push('snakeDrops');
+    }
+    assert(J(m.mechState) === before, `${levelId}: mechState changed: ${J(m.mechState)}`);
+    out[levelId] = called.length;
+  }
+  return out;
 });
 
 test('客戶端用到的匯出都還在（client/ 沒改）', () => {
@@ -330,19 +403,46 @@ test('客戶端用到的匯出都還在（client/ 沒改）', () => {
 // ---- 架構檢查（讀原始碼）----
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const importsOf = (src) => [...src.matchAll(/^\s*import\b[^;]*?from\s*'([^']+)'/gm)].map(m => m[1]);
-// 拿掉註解（這幾個檔案的字串裡沒有 //、/*）
+// 拿掉註解（這裡掃的檔案的字串裡都沒有 //、/*）
 const codeOf = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
-test('match.js 不認得任何一張地圖：不 import tree-boss / snake-boss / hive，程式碼裡也不提它們（狀態的初始值除外）', () => {
+test('match.js 不認得任何一張地圖：不 import tree-boss / snake-boss / hive，程式碼裡也不提它們（沒有例外：狀態在 match.mechState）', () => {
   const src = read('shared/match.js');
   const imports = importsOf(src);
   for (const f of ['./tree-boss.js', './snake-boss.js', './hive.js']) assert(!imports.includes(f), `match.js imports ${f}`);
   assert(imports.includes('./mechanics/index.js'), 'match.js goes through mechanics/index.js: ' + imports);
-  const allowed = /^\s*this\.(tree|snake|hive) = null;\s*$/;
   const bad = codeOf(src).split('\n').map((l, i) => [i + 1, l])
-    .filter(([, l]) => !allowed.test(l) && /tree|snake|hive|treant|mouth|\beye\b|\bbees?\b|\.part\b/i.test(l));
+    .filter(([, l]) => /tree|snake|hive|treant|mouth|\beye\b|\bbees?\b|\.part\b/i.test(l));
   assert(!bad.length, 'match.js mentions a map:\n' + bad.map(([n, l]) => `        ${n}: ${l.trim()}`).join('\n'));
   return { imports };
+});
+
+test('通用的檔案不直接碰機制的狀態與場上的道具：match / referee / volley / run / ai / game-view / render 的程式碼（註解除外）沒有 .tree / .snake / .hive / .items（[\'items\'] 也算），也不碰 match.mechState（match.js 只准建構時存起來）', () => {
+  // 不管是誰的欄位都不行（訊息帶的 items 也用解構拿、整則交給機制）：狀態只經過 match.mechanic 的掛勾
+  const ACCESS = /\.(tree|snake|hive|items)\b|\[\s*['"](tree|snake|hive|items)['"]\s*\]/;
+  const caught = ['match.tree.next', 'this.items = []', 'if (msg.items) this.setItems(msg.items);', 'c.match.snake', 'm.hive.bees', "S['items'] = items", 'm[ "tree" ].next'];
+  assert(caught.every(s => ACCESS.test(s)), 'the scan misses: ' + caught.filter(s => !ACCESS.test(s)));
+  assert(!['this.mechState', 'treeNext', 'const { entities, items } = this.match.snapshot();', 'e.itemsLeft', 'snakeBlood', "m['itemsLeft']"].some(s => ACCESS.test(s)), 'the scan flags ordinary code');
+  // match.mechState 本身也只給地圖機制、規則模組、地圖畫面讀寫：通用的檔案一律不碰，match.js 只准建構時的這兩行（先清空、存 build 回傳的狀態）
+  const MECH = /\bmechState\b/;
+  const MATCH_OK = [/^\s*this\.mechState = null;\s*$/, /^\s*this\.mechState = this\.mechanic\.build\([^;]*\)( \?\? null)?;\s*$/];
+  const sneaky = ['const S = this.match.mechState;', 'const { items = [] } = this.match.mechState || {};', 'this.mechState = this.mechanic.build(this, {}); this.mechState.items = [];'];
+  assert(sneaky.every(s => MECH.test(s)) && sneaky.every(s => !MATCH_OK.some(re => re.test(s))), 'the mechState scan misses: ' + sneaky.filter(s => !MECH.test(s) || MATCH_OK.some(re => re.test(s))));
+  assert(!['this.mechanic.restore(this.match, { items });', 'mechanicFor(level)', 'this.mechanic'].some(s => MECH.test(s)), 'the mechState scan flags ordinary code');
+  const out = {};
+  for (const f of ['shared/match.js', 'shared/referee.js', 'shared/volley.js', 'shared/run.js', 'shared/ai.js', 'client/game-view.js', 'client/render.js']) {
+    const lines = codeOf(read(f)).split('\n').map((l, i) => [i + 1, l]);
+    const bad = lines.filter(([, l]) => ACCESS.test(l));
+    assert(!bad.length, `${f} touches mechanic state / items directly:\n` + bad.map(([n, l]) => `        ${n}: ${l.trim()}`).join('\n'));
+    const allowed = f === 'shared/match.js' ? MATCH_OK : [];
+    const mech = lines.filter(([, l]) => MECH.test(l));
+    const stray = mech.filter(([, l]) => !allowed.some(re => re.test(l)));
+    assert(!stray.length, `${f} reads / writes match.mechState:\n` + stray.map(([n, l]) => `        ${n}: ${l.trim()}`).join('\n'));
+    // match.js：那兩行各一次（不多寫一份）
+    assert(allowed.every(re => mech.filter(([, l]) => re.test(l)).length === 1), `${f}: mechState lines ` + J(mech));
+    out[f] = lines.length;
+  }
+  return out;
 });
 
 test('volley.js 不 import hive / snake-boss（重播透過 match.mechanic）；mechanics/ 不 import match.js / volley.js（沒有循環）', () => {

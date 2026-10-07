@@ -574,7 +574,7 @@ test('Boss 關血量：第一個王關照原本的，之後每多一關 +bossHpP
     const m = new Match({ levelId: 'treeGarden', players: mkPlayers(2), seed: 4, stage: 10 });
     const summon = m.planAiTurn(m.byId('eye')).boss.steps.find(s => s.action === 'summon');
     assert(summon && summon.spawns.length && summon.spawns.every(s => s.hp === Math.round(15 * p2 * 1.75)), 'treant hp: ' + JSON.stringify(summon && summon.spawns));
-    assert(Math.abs(m.tree.hpScale - p2 * 1.75) < 1e-9, 'tree hpScale (meditate heal) ' + m.tree.hpScale);
+    assert(Math.abs(m.mechState.hpScale - p2 * 1.75) < 1e-9, 'tree hpScale (meditate heal) ' + m.mechState.hpScale);
     // 成長設 0：兩個王關一樣
     CONFIG.RUN.bossHpPerStage = 0;
     assert(hpAt('treeGarden', 10).hp === Math.round(300 * p2), 'bossHpPerStage 0 → no growth');

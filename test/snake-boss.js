@@ -66,7 +66,7 @@ function jungle(n = 1, { seed = 1, hp = 5000 } = {}) {
   for (const p of m.players) { p.hp = p.maxHp = hp; }
   return m;
 }
-const bridgeY = (m) => m.snake.def.bridge.y;
+const bridgeY = (m) => m.mechState.def.bridge.y;
 // 站到橋上 x 處
 function placeOn(m, e, x) { e.x = x; e.y = bridgeY(m) - 30; e.vx = e.vy = 0; e.letGoVine(); e.vineRegrab = 0; m.settle(600); e.safeX = e.x; e.safeY = e.y; }
 // 掛在第 i 條藤蔓上，腳底在 y
@@ -90,7 +90,7 @@ function withSnake(patch, fn) {
 }
 // 讓巨蟒出指定的招式，回傳那一招
 function forced(m, action) {
-  m.snake.next = { action };
+  m.mechState.next = { action };
   return resolveSnakeTurn(m, m.byId('snake')).steps[0];
 }
 const stepN = (m, n) => { for (let i = 0; i < n; i++) m.step(); };
@@ -126,7 +126,7 @@ test('地圖：在 Boss 池裡；藤蔓橋炸不壞、子彈穿得過、站得�
   p.moveDir = 1;
   for (let i = 0; i < 240 && p.waterFalls === 0; i++) m.step();
   p.moveDir = 0;
-  assert(p.waterFalls === 1 && p.x <= m.snake.def.bridge.x1 + p.hw, 'walked off the end into the water: wf ' + p.waterFalls + ' x ' + p.x);
+  assert(p.waterFalls === 1 && p.x <= m.mechState.def.bridge.x1 + p.hw, 'walked off the end into the water: wf ' + p.waterFalls + ' x ' + p.x);
   assert(p.x <= t.maxX - p.hw, 'cannot walk past maxX');
   // 巨蟒：橢圓判定——嘴前打得到，矩形的角落打不到
   const s = m.byId('snake');
@@ -420,13 +420,13 @@ test('蛇血：巨蟒每受到最大血量 10% 的傷害掉一瓶（一下打很
   assert(snakeDrops(m).length === 0, 'just under 10%: nothing');
   s.takeDamage(1);
   const d1 = snakeDrops(m);
-  assert(d1.length === 1 && m.items.length === 1, 'first bottle at 10%');
+  assert(d1.length === 1 && m.mechState.items.length === 1, 'first bottle at 10%');
   s.takeDamage(Math.ceil(tenth * 2.5));
   const d2 = snakeDrops(m);
-  assert(d2.length === 2 && m.items.length === 3, 'big hit drops two: ' + d2.length);
-  const [x0, x1] = m.snake.def.bloodX;
-  assert(m.items.every(it => it.type === 'snakeBlood' && it.x >= x0 && it.x <= x1 && it.y === bridgeY(m)), 'on the bridge: ' + JSON.stringify(m.items));
-  assert(new Set(m.items.map(it => it.id)).size === 3, 'unique ids');
+  assert(d2.length === 2 && m.mechState.items.length === 3, 'big hit drops two: ' + d2.length);
+  const [x0, x1] = m.mechState.def.bloodX;
+  assert(m.mechState.items.every(it => it.type === 'snakeBlood' && it.x >= x0 && it.x <= x1 && it.y === bridgeY(m)), 'on the bridge: ' + JSON.stringify(m.mechState.items));
+  assert(new Set(m.mechState.items.map(it => it.id)).size === 3, 'unique ids');
   // 開火打到巨蟒：事件帶 drops
   const p1 = m.players[0];
   placeOn(m, m.players[1], 20);   // 隊友站到後面，別擋在彈道上
@@ -447,8 +447,8 @@ test('蛇血：巨蟒每受到最大血量 10% 的傷害掉一瓶（一下打很
   const m3 = jungle(1);
   const s3 = m3.byId('snake');
   s3.takeDamage(s3.hp);
-  assert(snakeDrops(m3).length === 0 && m3.items.length === 0, 'no drops once dead');
-  return { items: m.items.length };
+  assert(snakeDrops(m3).length === 0 && m3.mechState.items.length === 0, 'no drops once dead');
+  return { items: m.mechState.items.length };
 }));
 
 test('蛇血：自己的回合走過去就喝掉——先解開生命鎖、再回 30 血（10/50(100) → 40/100），全員收到 pickup；滿血又沒被鎖住就不撿；回合開始站在上面也會喝', () => withSnake({ bloodHeal: 30 }, () => {
@@ -459,42 +459,42 @@ test('蛇血：自己的回合走過去就喝掉——先解開生命鎖、再�
   assert(advanceUntil(io, () => ref.phase === 'turn'), 'p1 turn');
   const p = m.byId('p1');
   placeOn(m, p, 360);
-  m.items.push({ id: 'a9', type: 'snakeBlood', x: 400, y: bridgeY(m) });
+  m.mechState.items.push({ id: 'a9', type: 'snakeBlood', x: 400, y: bridgeY(m) });
   // 滿血、沒被鎖：走過去不撿
   ref.handle('p1', { t: 'move', x: 440, y: p.y, vy: 0, facing: 1, stamina: p.stamina });
-  assert(m.items.length === 1 && !io.take('pickup').length, 'full hp, no lock: walks over it');
+  assert(m.mechState.items.length === 1 && !io.take('pickup').length, 'full hp, no lock: walks over it');
   // 被鎖 50（10/50，原本 100）：走回去經過就喝
   p.hp = 10; p.maxHp = 50; p.poisonLock = 50;
   ref.handle('p1', { t: 'move', x: 360, y: p.y, vy: 0, facing: -1, stamina: p.stamina });
   const pk = io.take('pickup');
   assert(pk.length === 1 && pk[0].id === 'p1' && pk[0].item === 'a9' && pk[0].unlocked === 50 && pk[0].heal === 30 && pk[0].mhp === 100 && pk[0].lk === 0 && pk[0].hp === 40 && pk[0]._except === undefined, 'pickup broadcast to everyone: ' + JSON.stringify(pk));
-  assert(p.hp === 40 && p.maxHp === 100 && p.poisonLock === 0 && m.items.length === 0, 'unlocked, then +30');
+  assert(p.hp === 40 && p.maxHp === 100 && p.poisonLock === 0 && m.mechState.items.length === 0, 'unlocked, then +30');
   // 回合開始時站在蛇血上
   const m2 = jungle(1, { hp: 100 });
   const p2 = m2.players[0];
   placeOn(m2, p2, 420);
-  m2.items.push({ id: 'a1', type: 'snakeBlood', x: 424, y: bridgeY(m2) });
+  m2.mechState.items.push({ id: 'a1', type: 'snakeBlood', x: 424, y: bridgeY(m2) });
   p2.poison = 10;
   const fx = m2.turnStartEffects(p2);
-  assert(fx.map(f => f.type).join() === 'poison,snakeBlood' && p2.maxHp === 100 && p2.hp === 100 && fx[1].heal === 10 && m2.items.length === 0, 'settle then drink (heal capped at the max): ' + JSON.stringify(fx));
+  assert(fx.map(f => f.type).join() === 'poison,snakeBlood' && p2.maxHp === 100 && p2.hp === 100 && fx[1].heal === 10 && m2.mechState.items.length === 0, 'settle then drink (heal capped at the max): ' + JSON.stringify(fx));
   // 快照帶著場上的蛇血
-  m2.items.push({ id: 'a2', type: 'snakeBlood', x: 333, y: bridgeY(m2) });
+  m2.mechState.items.push({ id: 'a2', type: 'snakeBlood', x: 333, y: bridgeY(m2) });
   const c = jungle(1);
   c.applySnapshot(JSON.parse(JSON.stringify(m2.snapshot())));
-  assert(c.items.length === 1 && c.items[0].id === 'a2' && c.items[0].x === 333, 'snapshot items');
+  assert(c.mechState.items.length === 1 && c.mechState.items[0].id === 'a2' && c.mechState.items[0].x === 333, 'snapshot items');
   // 沒被鎖住、但血沒滿：也會撿來回血
   const m3 = jungle(1, { hp: 100 });
   const p3 = m3.players[0];
   placeOn(m3, p3, 420);
-  m3.items.push({ id: 'a3', type: 'snakeBlood', x: 424, y: bridgeY(m3) });
+  m3.mechState.items.push({ id: 'a3', type: 'snakeBlood', x: 424, y: bridgeY(m3) });
   p3.hp = 50;
   const fx3 = m3.turnStartEffects(p3);
-  assert(fx3.length === 1 && fx3[0].heal === 30 && fx3[0].unlocked === 0 && p3.hp === 80 && p3.maxHp === 100 && !m3.items.length, 'damaged, unlocked: drinks for the heal');
+  assert(fx3.length === 1 && fx3[0].heal === 30 && fx3[0].unlocked === 0 && p3.hp === 80 && p3.maxHp === 100 && !m3.mechState.items.length, 'damaged, unlocked: drinks for the heal');
   // 滿血、還沒被鎖，但身上有毒：也會撿來解毒
-  m3.items.push({ id: 'a4', type: 'snakeBlood', x: 424, y: bridgeY(m3) });
+  m3.mechState.items.push({ id: 'a4', type: 'snakeBlood', x: 424, y: bridgeY(m3) });
   p3.hp = p3.maxHp; p3.poison = 5;
   const got = pickupAlong(m3, p3, p3.x - 2, p3.y, p3.x, p3.y);
-  assert(got && got.cured === 5 && p3.poison === 0 && !m3.items.length, 'poisoned at full hp: drinks to cure');
+  assert(got && got.cured === 5 && p3.poison === 0 && !m3.mechState.items.length, 'poisoned at full hp: drinks to cure');
   return { pickup: pk[0] };
 }));
 
@@ -506,13 +506,13 @@ test('權重：45 / 25 / 10 / 20；開場（大家落地後）就預定第一招
   const want = { charge: 45, spray: 25, quake: 10, bite: 20 };
   for (const k of Object.keys(want)) assert(Math.abs(count[k] / N * 100 - want[k]) < 2.5, `${k}: ${(count[k] / N * 100).toFixed(1)}%`);
   const m2 = jungle(2, { seed: 4 });
-  assert(m2.snake.next && ['charge', 'spray', 'quake', 'bite'].includes(m2.snake.next.action), 'planned at start');
-  m2.snake.next = { action: 'quake' };
+  assert(m2.mechState.next && ['charge', 'spray', 'quake', 'bite'].includes(m2.mechState.next.action), 'planned at start');
+  m2.mechState.next = { action: 'quake' };
   const c = new Match({ levelId: 'jungleSerpent', players: mkPlayers(2), seed: m2.seed, stage: 5 });
   c.applySnapshot(JSON.parse(JSON.stringify(m2.snapshot())));
-  assert(c.snake.next.action === 'quake', 'snapshot snakeNext');
+  assert(c.mechState.next.action === 'quake', 'snapshot snakeNext');
   const r = resolveSnakeTurn(m2, m2.byId('snake'));
-  assert(r.steps.length === 1 && r.steps[0].action === 'quake' && r.next.action === m2.snake.next.action, 'used the plan, planned the next');
+  assert(r.steps.length === 1 && r.steps[0].action === 'quake' && r.next.action === m2.mechState.next.action, 'used the plan, planned the next');
   const off = withSnake({ weights: { charge: 0, spray: 0, quake: 0, bite: 0 } }, () => rollSnakeAction(m2));
   assert(off === 'idle', 'all-zero weights = idle');
   return Object.fromEntries(Object.entries(count).map(([k, v]) => [k, +(v / N * 100).toFixed(1)]));
@@ -674,16 +674,16 @@ test('客戶端：預定衝撞時一直畫出警示帶（範圍 = chargeLane 到
   const draw = () => { const r = recordingCtx(); sv.drawScene(r.ctx, c); return r; };
   const lane = chargeLane(m);
   const rect = [lane.x0, lane.top, lane.x1 - lane.x0, CONFIG.WATER_LEVEL - lane.top].map(v => Math.round(v)).join();
-  m.snake.next = { action: 'charge' };
+  m.mechState.next = { action: 'charge' };
   const r = draw();
   assert(redBands(r.calls).join('|') === rect, 'steady band: ' + redBands(r.calls) + ' vs ' + rect);
   const dash = r.calls.filter(x => x.fn === 'setLineDash');
   assert(dash.length && dash.at(-1).args[0].length === 0, 'line dash reset');
   for (const action of ['spray', 'quake', 'bite', 'idle']) {
-    m.snake.next = { action };
+    m.mechState.next = { action };
     assert(redBands(draw().calls).length === 0, 'no band for ' + action);
   }
-  m.snake.next = { action: 'charge' };
+  m.mechState.next = { action: 'charge' };
   m.byId('snake').alive = false;
   assert(redBands(draw().calls).length === 0, 'no band once the snake is dead');
   m.byId('snake').alive = true;
@@ -691,7 +691,7 @@ test('客戶端：預定衝撞時一直畫出警示帶（範圍 = chargeLane 到
   const seen = [];
   const gen = sv.turnScript(c, msg);
   for (let it = gen.next(); !it.done; it = gen.next()) {
-    assert(m.snake.next.action === 'charge', 'old plan stays during the snake turn');
+    assert(m.mechState.next.action === 'charge', 'old plan stays during the snake turn');
     const fx = c.state.fx;
     const bands = redBands(draw().calls);
     const phase = !fx ? 'think' : fx.phase;
@@ -700,7 +700,7 @@ test('客戶端：預定衝撞時一直畫出警示帶（範圍 = chargeLane 到
     c.time += 1 / 60;
   }
   assert(seen.join() === 'think,cast,act', 'phases ' + seen);
-  assert(m.snake.next.action === 'bite' && redBands(draw().calls).length === 0, 'boss.next applied at the end');
+  assert(m.mechState.next.action === 'bite' && redBands(draw().calls).length === 0, 'boss.next applied at the end');
   return { phases: seen };
 });
 
@@ -719,8 +719,8 @@ test('確定性：同 seed 同輸入，叢林巨蟒整段流程的廣播完全�
       io.advance(250);
       if (ref.phase === 'turn') {
         const a = m.byId(ref.currentId);
-        if (m.items.length && a.poisonLock > 0) {   // 去喝蛇血
-          const it = m.items[0];
+        if (m.mechState.items.length && a.poisonLock > 0) {   // 去喝蛇血
+          const it = m.mechState.items[0];
           ref.handle(a.id, { t: 'move', x: it.x, y: a.y, vy: 0, facing: 1, stamina: a.stamina });
         }
         const plan = planShot(m.world, a, rng);
@@ -805,7 +805,7 @@ test('裁判：第一位玩家在自己的回合開始被毒倒，輪數不會�
   const m = jungle(2, { hp: 1000 });
   const io = new FakeIo();
   const ref = new Referee({ match: m, humans: mkPlayers(2), io });
-  m.snake.next = { action: 'quake' };
+  m.mechState.next = { action: 'quake' };
   ref.start();
   const seen = [];
   const broadcast = io.broadcast.bind(io);
@@ -838,7 +838,7 @@ test('蛇血（客戶端預測）：客戶端照自己的路線逐幀判到蛇�
   const p = m.byId('p1');
   placeOn(m, p, 300);
   p.hp = 30; p.maxHp = 60; p.poisonLock = 40;
-  m.items.push({ id: 'a5', type: 'snakeBlood', x: 420, y: bridgeY(m) });
+  m.mechState.items.push({ id: 'a5', type: 'snakeBlood', x: 420, y: bridgeY(m) });
   // 客戶端：同樣的狀態，自己往右走（跳一下），逐幀檢查
   const cm = jungle(1);
   cm.applySnapshot(JSON.parse(JSON.stringify(m.snapshot())));
@@ -885,7 +885,7 @@ test('中毒不會自己解除：每個自己的回合開始都再扣一次、�
   assert(ticks[0] === 10 && ticks.every((s, i) => !i || s >= ticks[i - 1]), 'stacks stay (and may grow from new hits): ' + ticks);
   // 喝蛇血：解毒
   const stacks = p.poison;
-  m.items.push({ id: 'a7', type: 'snakeBlood', x: 140, y: bridgeY(m) });
+  m.mechState.items.push({ id: 'a7', type: 'snakeBlood', x: 140, y: bridgeY(m) });
   ref.handle('p1', { t: 'move', x: 160, y: p.y, vy: 0, facing: 1, stamina: p.stamina });
   const pk = io.take('pickup').at(-1);
   assert(pk && pk.cured === stacks && p.poison === 0 && p.poisonLock === 0, 'snake blood cures: ' + JSON.stringify(pk));

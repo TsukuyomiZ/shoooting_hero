@@ -32,13 +32,9 @@ export class Match {
       hard: this.level.hardPolygons, platforms: this.level.platforms, maxX: this.level.maxX, vines: this.level.vines,
     });
     this.entities = [];
-    // 地圖機制的狀態：由各自的機制建立、讀寫（Match 不碰；客戶端畫面直接讀）
-    this.tree = null;   // 古樹之庭的狀態（見 tree-boss.js）
-    this.snake = null;  // 叢林巨蟒的狀態（見 snake-boss.js）
-    this.hive = null;   // 小心擊發的蜂巢（見 hive.js）
-    // 場上的道具 { id, type, x, y }，y = 落在的地面（目前只有巨蟒掉的蛇血）：由地圖機制放上 / 撿走，
-    // Match 只在套用快照時同步（見 applySnapshot）
-    this.items = [];
+    // 地圖機制的狀態（每場一份，含場上的道具）：機制的 build 建好回傳（見下面），之後由機制讀寫；Match 只存著不碰。
+    // 一般小關 = null（見 shared/mechanics/index.js）
+    this.mechState = null;
     this.pickups = [];  // 位置回報途中撿到的道具（fx），裁判拿去廣播（見 takePickups）
     this.fever = 0;     // 狂熱層數：裁判每輪開始時照輪數更新（見 feverStacks）
     this.playerCount = players.length;   // 這一關的玩家人數（含倒下的隊友）：狂熱幾輪一層照這個（敵人血量也照開場人數）
@@ -82,7 +78,8 @@ export class Match {
       }));
     });
     const bossScale = playerScale * bossStageScale(this.level, stage);   // 第二個王關以後血量變多
-    this.mechanic.build(this, { hpScale, bossScale });   // 地圖機制的角色排在關卡的敵人後面（陣列順序 = 回合順序）
+    // 地圖機制的角色排在關卡的敵人後面（陣列順序 = 回合順序）；回傳的是這一場機制的狀態
+    this.mechState = this.mechanic.build(this, { hpScale, bossScale }) ?? null;
 
     this.settle(600);   // 開場先讓大家落地
     // 大家站好之後（例如 Boss 先決定第一招）。客戶端用同一個 seed 也會算一次，之後被伺服器的快照蓋掉
@@ -641,7 +638,7 @@ export class Match {
     return {
       entities: this.entities.map(e => e.toState()),
       holes: this.terrain.holes.map(h => ({ x: h.x, y: h.y, r: h.r })),
-      ...snapshotOf(this),   // 地圖機制的欄位與場上的道具（每張地圖都帶、順序固定，見 mechanics/index.js）
+      ...snapshotOf(this),   // 地圖機制的欄位（含場上的道具；每張地圖都帶、順序固定，見 mechanics/index.js）
     };
   }
 
@@ -654,8 +651,8 @@ export class Match {
 
   applySnapshot(s) {
     if (s.holes) this.terrain.reset(s.holes);
-    this.mechanic.restore(this, s);   // 先建出快照裡有、這邊還沒有的角色（召喚 / 放出來的），角色狀態才套得上
-    if (s.items) this.items = s.items.map(it => ({ ...it }));
+    // 地圖機制的欄位（含場上的道具）：先建出快照裡有、這邊還沒有的角色（召喚 / 放出來的），角色狀態才套得上
+    this.mechanic.restore(this, s);
     this.applyEntities(s.entities);
   }
 }

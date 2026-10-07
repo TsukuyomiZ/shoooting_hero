@@ -107,7 +107,7 @@ function* treeTurnScript(c, msg) {
   yield { frames: Math.round(CONFIG.TIMING.aiThink * FPS) };
   for (const step of msg.boss.steps) yield* treeStepScript(c, eye, step);
   c.state.fx = null;
-  if (c.match.tree && msg.boss.next !== undefined) c.match.tree.next = msg.boss.next;
+  if (c.match.mechState && msg.boss.next !== undefined) c.match.mechState.next = msg.boss.next;
 }
 
 function* treeStepScript(c, eye, b) {
@@ -115,7 +115,7 @@ function* treeStepScript(c, eye, b) {
   const T = CONFIG.TIMING;
   const fx = c.state.fx = { action: b.action, t: 0, plane: b.plane ?? null, targetId: b.targetId ?? null, seeds: [] };
   const cast = Math.round(T.bossCast * FPS);
-  const planes = match.tree ? match.tree.def.planes : [];
+  const planes = match.mechState ? match.mechState.def.planes : [];
   const name = TREE_ACTION_NAMES[b.action] || '';
   switch (b.action) {
     case 'summon': {
@@ -214,7 +214,7 @@ function onTreeDeath(c, e) {
 // 樹冠與垂下來的藤蔓（地形之後、角色之前畫）＋ 預定撞擊的警示帶 ＋ 招式的預兆（目標平面、種子）
 function drawTreeScene(ctx, c) {
   const match = c.match;
-  if (!match || !match.tree) return;
+  if (!match || !match.mechState) return;
   const withered = c.state.withered;
   // 樹冠：樹幹頂端一叢一叢的葉子
   const clumps = [[880, 10, 70], [960, 30, 80], [1010, -10, 60], [820, 40, 46], [930, 90, 50], [1000, 110, 44]];
@@ -237,7 +237,7 @@ function drawTreeScene(ctx, c) {
   const fx = c.state.fx;
   // 預定的古樹撞擊：玩家 / 樹妖的回合一直標著那條橫掃範圍（慢慢呼吸），讓玩家有機會躲開。
   // 古樹自己出撞擊的時候改由下面的快閃接手（撞完、播完才換成下一個預告）
-  const next = match.tree.next;
+  const next = match.mechState.next;
   const eye = match.byId('eye');
   if (next && next.action === 'trunk' && next.plane != null && eye && eye.alive && !withered && !(fx && fx.action === 'trunk')) {
     drawTrunkBand(ctx, match, next.plane, 0.26 + 0.08 * Math.sin(c.time * 3), 0.85);

@@ -4,7 +4,8 @@
 // 只給畫面用的欄位不寫在 Entity / 道具上（shared/ 也不提）；
 // 真的 GameView（Node 裡、假 canvas）把每種地圖從開場播一段（含 render、王 / 蜜蜂的回合），角色身上不會多出畫面用的欄位；
 // 畫面跟著遊戲時間走（update 掛勾；同一串訊息每步之間畫 0 ~ 3 次結果一樣、畫圖不改狀態）、巨蟒的頭平順縮回、大地震擊的碎屑、
-// 「閉上了！」照嘴巴的開闔判斷、腳本中斷（丟錯 / setup）清掉出招狀態（abortScript 掛勾）、復活後不再是「中毒倒下」
+// 「閉上了！」照嘴巴的開闔判斷、腳本中斷（丟錯 / setup）清掉出招狀態（abortScript 掛勾）、復活後不再是「中毒倒下」；
+// turn / turnFx 帶的場上道具經地圖機制換進 match.mechState（GameView 不認得主人）
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,7 +33,7 @@ const J = JSON.stringify;
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
 const HOOKS = ['create', 'musicTrack', 'turnScript', 'abortScript', 'update', 'showEvent', 'showDamage', 'turnFx', 'statusFx', 'onPickup', 'predictMove', 'onDeath',
   'drawScene', 'drawEntityFirst', 'drawEntityBare', 'drawEntity', 'drawFigure', 'hpBar', 'drawProjectile', 'hud'];
-// 只給畫面用、不該出現在 Entity / match.items 上的欄位（以前放在角色、道具身上的那些）
+// 只給畫面用、不該出現在 Entity / 場上的道具（地圖機制的狀態 match.mechState.items）上的欄位（以前放在角色、道具身上的那些）
 const VIEW_ONLY = ['viewOpen', 'viewDx', 'viewDy', 'viewT', 'windup', 'windDir', 'charging', 'floatedClosed', 'splashShown',
   'poisonDeath', 'deathHandled', 'netTarget', 'netVy', 'slowMo', 'stepDist', 'anim'];
 const matchOf = (id, n = 2) => new Match({ levelId: id, players: mkPlayers(n), seed: 3, stage: LEVELS[id].pool === 'boss' ? 5 : 1 });
@@ -286,7 +287,9 @@ await test('真的 GameView：每種地圖（一般 / 古樹之庭 / 叢林巨�
       const extra = VIEW_ONLY.filter(k => k in e);
       assert(!extra.length, `${levelId}: ${e.id} carries ${extra}`);
     }
-    for (const it of view.match.items) assert(!VIEW_ONLY.some(k => k in it), `${levelId}: item ${it.id} carries view fields: ${Object.keys(it)}`);
+    // 場上的道具：巨蟒的狀態（別張地圖沒有道具）
+    const items = mv.type === 'snake' ? view.match.mechState.items : [];
+    for (const it of items) assert(!VIEW_ONLY.some(k => k in it), `${levelId}: item ${it.id} carries view fields: ${Object.keys(it)}`);
     // 再來一次 setup（例如重連）：新的狀態
     view.onMessage(JSON.parse(J(start)));
     assert(view.mapCtx.state !== state && view.mapView === mv, `${levelId}: setup builds a fresh map view state`);
@@ -411,7 +414,7 @@ await test('叢林巨蟒：大地震擊的碎屑由 update 每一步放（每秒
   assert(debris.every(d => d.size === 3 && d.life === 0.5 && d.maxLife === 0.5 && d.gravity === 600 && d.vy <= -120 && ['#65a30d', '#a16207'].includes(d.color)), 'same particle shape: ' + J(debris[0]));
   // 蛇血：飛完了畫圖也不刪記錄（畫圖不改狀態），update 才刪
   c.projectiles = [];
-  m.items.push({ id: 'a99', type: 'snakeBlood', x: 300, y: 500 });
+  m.mechState.items.push({ id: 'a99', type: 'snakeBlood', x: 300, y: 500 });
   c.state.anims.set('a99', { x: 600, y: 480, t0: c.time });
   const drawScene = () => sv.drawScene(recordingCtx().ctx, c);
   c.time += 0.3;
@@ -497,6 +500,33 @@ await test('事件腳本播到一半丟錯、或被 setup（重連的 state、�
   const r = c.state.bees.get('b1');
   assert(r.windup === 0 && r.charging === false && !calls.length, 'bee windup / charging cleared: ' + J(r));
   return out;
+});
+
+await test('射擊重播飛到一半丟錯：畫面上的飛行物跟著清掉（巨蟒撕咬打中人的那一下丟錯，頭不會一直衝在外面）', () => {
+  const { m, io } = refereeRun('jungleSerpent');
+  const view = newView();
+  for (const msg of io.log.splice(0)) view.onMessage(msg);
+  drain(view);
+  // 伺服器結算好的撕咬（打中人才有事件），客戶端照 aiTurn 播；打中的那個事件的畫面丟錯
+  m.mechState.next = { action: 'bite' };
+  const boss = JSON.parse(J(m.planAiTurn(m.byId('snake')).boss));   // 走過一趟 JSON，跟網路一樣
+  assert(boss.steps[0].shot && boss.steps[0].shot.events.length, 'a real bite that hits');
+  const show = view.showShotEvent;
+  view.showShotEvent = () => { throw new Error('boom'); };
+  const errors = [];
+  const err = console.error;
+  console.error = (...a) => errors.push(a.join(' '));
+  let flew = 0;
+  try {
+    view.onMessage({ t: 'aiTurn', actorId: 'snake', boss });
+    for (let f = 0; f < 900 && !errors.length; f++) { view.update(STEP); view.render(); if (view.projectiles.length) flew++; }
+  } finally { console.error = err; view.showShotEvent = show; }
+  assert(flew > 0 && errors.length === 1, `the bite flew, then the hit threw: flew ${flew}, errors ${errors.length}`);
+  assert(view.projectiles.length === 0, 'no frozen projectile left after the error: ' + view.projectiles.map(p => p.weapon.id));
+  for (let f = 0; f < 60; f++) { view.update(STEP); view.render(); }
+  const head = view.mapCtx.state.head.get('snake');
+  assert(!head || Math.abs(head.dx) < 4, 'the head eased back home: ' + J(head));
+  return { flewFrames: flew };
 });
 
 await test('真的 GameView：被毒倒的角色又被伺服器的狀態救回來之後，再被打倒播「被擊倒」，不是「中毒倒下」', () => {
@@ -598,6 +628,38 @@ await test('真的 GameView：同一串伺服器訊息，每一步 update 之間
       out[levelId] = { steps: seen.steps, casts: acts, ...(seen.quakeSteps ? { quakeSteps: seen.quakeSteps, debrisMax: seen.debris } : { mouth: seen.mouth.map(v => +v.toFixed(2)) }) };
     }
   } finally { Math.random = real; }
+  return out;
+});
+
+await test('真的 GameView：turn / turnFx 帶的場上道具經地圖機制換成伺服器的版本（叢林巨蟒：複本進 match.mechState.items、預定的下一招不動、沒帶 items 就不動）；一般小關 / 古樹之庭照樣帶 items，機制的狀態不變', () => {
+  const a = { id: 'a91', type: 'snakeBlood', x: 700, y: 480 }, b = { id: 'a92', type: 'snakeBlood', x: 740, y: 480 };
+  const out = {};
+  for (const levelId of ['jungleSerpent', 'level1', 'treeGarden']) {
+    const { io } = refereeRun(levelId);
+    const view = newView();
+    for (const msg of io.log.splice(0)) view.onMessage(msg);
+    drain(view);
+    const S = view.match.mechState, before = J(S), next = S && S.next;
+    const ents = () => view.match.entities.map(e => e.toState());
+    view.onMessage({ t: 'turn', actorId: 'p2', round: 2, ai: true, entities: ents(), items: [a] });
+    drain(view);
+    const afterTurn = S && S.items;
+    view.onMessage({ t: 'turnFx', actorId: 'p2', round: 2, fx: [], entities: ents(), items: [a, b] });
+    drain(view);
+    const afterFx = S && S.items;
+    view.onMessage({ t: 'turn', actorId: 'p1', round: 3, ai: true, entities: ents() });   // 沒帶 items
+    drain(view);
+    assert(view.match.mechState === S, `${levelId}: the state object is kept`);
+    if (levelId === 'jungleSerpent') {
+      assert(J(afterTurn) === J([a]) && afterTurn[0] !== a, 'turn: items copied in: ' + J(afterTurn));
+      assert(J(afterFx) === J([a, b]) && afterFx[0] !== a && afterFx[1] !== b, 'turnFx: items copied in: ' + J(afterFx));
+      assert(S.items === afterFx, 'no items field: left alone');
+      assert(next && S.next === next, 'the planned move is untouched');
+    } else {
+      assert(J(S) === before && !(S && 'items' in S), `${levelId}: { items } changes nothing: ${J(S)}`);
+    }
+    out[levelId] = S ? Object.keys(S).join(',') : null;
+  }
   return out;
 });
 

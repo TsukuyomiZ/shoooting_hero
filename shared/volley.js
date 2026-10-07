@@ -65,7 +65,7 @@ export function replayVolley(match, shot) {
  * @typedef {object} ShotMade
  * @property {{x: number, y: number, vx: number, vy: number, state: string}} before  套用這個事件之前，客戶端自己推進到的飛行物狀態
  * @property {object|null} rect  terrain.carve 的結果（重畫用）；沒挖坑是 null
- * @property {object[]} items  這個事件新加進 match.items 的蛇血（複製出來的物件；畫面自己的動畫資料記在地圖畫面裡，不寫在上面）
+ * @property {object[]} items  這個事件新加進場上的道具（地圖機制的狀態裡的道具，目前只有巨蟒的蛇血）（複製出來的物件；畫面自己的動畫資料記在地圖畫面裡，不寫在上面）
  * @property {import('./entities.js').Entity[]} bees  這個事件新建出來的蜜蜂
  *
  * @typedef {object} LiveProjectile  唯讀（呼叫端可以加自己的欄位，例如 debrisTick）

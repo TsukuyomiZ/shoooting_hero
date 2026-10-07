@@ -422,8 +422,10 @@ npm test
 - `test/new-cards.js`：醫療包、腎上腺素（只在下一關、失效時扣回上限）、蹦蹦炸彈（彈一次、預覽 / AI 照彈射算、重播一致）、口徑強化、
   孤狼傳說 / 團結力量大（照打中之前的隊友人數）、攜手之伴（-30% 再平分、無敵、三人連結、跟角色順序無關、選牌流程含同一輪互選與超時、重播一致）、
   等離子每發傷害、抽牌過濾（含肉鴿流程裡的單人 / 沒人可連）。
-- `test/mechanics.js`：地圖機制——每張地圖拿到對的機制（一般小關是 plain）、不認得的 type / 舊格式（tree / snake / hive 直接掛在關卡上）會報錯、plain 的掛勾什麼都不做、
-  Match 呼叫掛勾的時間點與順序、客戶端用到的匯出都還在、架構檢查（match.js 不 import 也不提任何一張地圖、volley.js 不 import hive / snake-boss、沒有循環 import）。
+- `test/mechanics.js`：地圖機制——每張地圖拿到對的機制（一般小關是 plain）與它建的狀態（`match.mechState`，一般小關沒有）、不認得的 type / 舊格式（tree / snake / hive 直接掛在關卡上）會報錯、plain 的掛勾什麼都不做、
+  Match 呼叫掛勾的時間點與順序、場上的道具（巨蟒的蛇血）經巨蟒的 restore 套用（快照、客戶端的 turn 只帶 items）、客戶端用到的匯出都還在、
+  架構檢查（match.js 不 import 也不提任何一張地圖、volley.js 不 import hive / snake-boss、沒有循環 import、
+  通用的檔案 match / referee / volley / run / game-view / render 不直接碰 `.tree` / `.snake` / `.hive` / `.items`）。
 - `test/map-views.js`：地圖畫面——每張地圖拿到對的畫面（一般小關是 plain，掛勾什麼都不做、不畫）、寫錯名字的掛勾 / 沒有畫面的機制會報錯、
   架構檢查（render.js / game-view.js 不提任何一張地圖、只透過 map-views/index.js；地圖畫面不 import 音效 / 畫面模組、不碰 GameView 的粒子 / 震動…；
   只給畫面用的欄位不寫在角色 / 道具上），以及真的 GameView 把每種地圖從開場播一段（含 render）；
@@ -448,7 +450,8 @@ shared/     伺服器與瀏覽器共用（純邏輯，不碰 DOM / 網路）
   tree-boss.js  Boss 關「古樹之庭」的規則：建樹、預定下一招、四種招式、枯萎
   snake-boss.js Boss 關「叢林巨蟒」的規則：預定下一招、四種招式、蛇血掉落與撿取
   hive.js       小關「小心擊發」的蜂巢與蜜蜂：被打一次 -1 放一隻蜜蜂、蜜蜂的回合（待機 / 衝刺螫擊）
-  mechanics/    地圖機制（見 GLOSSARY.md）：match.js 在固定時間點呼叫的掛勾（index.js），各張地圖什麼時候呼叫上面三個規則檔（tree / snake / hive / 一般小關 plain），common.js 是共用的出招小工具
+  mechanics/    地圖機制（見 GLOSSARY.md）：match.js 在固定時間點呼叫的掛勾（index.js），各張地圖什麼時候呼叫上面三個規則檔（tree / snake / hive / 一般小關 plain），common.js 是共用的出招小工具。
+                每一場機制的狀態（預定的下一招、召喚出來的角色、場上的蛇血…）是 match.mechState：機制的 build 建好回傳，Match 只存著
   entities.js   角色物理（移動 / 跳躍 / 爬坡 / 擊退 / 落水 / 爬藤蔓）與中毒結算（巨蟒、蜜蜂都會上毒）
   weapons.js    彈道模擬（結算、預覽、AI 共用同一套）
   ai.js         AI 瞄準（試射找最佳角度與力量）

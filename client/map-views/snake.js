@@ -48,7 +48,7 @@ export const snake = {
   // 自己的血量照本地的（喝完之後可能已經在本地掉過水），伺服器帶的 hp 是喝的那一刻：自己已經先喝過（預測）就什麼都不用改，
   // 沒預測到（伺服器的直線判到、自己的路線沒碰到）才在本地補上回的血
   onPickup(c, e, msg, self) {
-    const predicted = self && !c.match.items.some(it => it.id === msg.item);
+    const predicted = self && !c.match.mechState.items.some(it => it.id === msg.item);
     e.maxHp = msg.mhp;
     e.poisonLock = msg.lk;
     e.poison = 0;   // 喝了蛇血就解毒
@@ -107,12 +107,12 @@ function* snakeTurnScript(c, msg) {
   yield { frames: Math.round(CONFIG.TIMING.aiThink * FPS) };
   for (const step of msg.boss.steps) yield* snakeStepScript(c, step);
   c.state.fx = null;
-  if (c.match.snake && msg.boss.next !== undefined) c.match.snake.next = msg.boss.next;
+  if (c.match.mechState && msg.boss.next !== undefined) c.match.mechState.next = msg.boss.next;
 }
 
 function* snakeStepScript(c, b) {
   const match = c.match;
-  const def = match.snake ? match.snake.def : null;
+  const def = match.mechState ? match.mechState.def : null;
   const fx = c.state.fx = { action: b.action, t: 0, phase: 'cast', targetId: b.targetId ?? null };
   const cast = Math.round(CONFIG.TIMING.bossCast * FPS);
   const name = SNAKE_ACTION_NAMES[b.action] || '';
@@ -166,7 +166,7 @@ function addDrops(c, drops) {
 // 好幾瓶時照 drops 裡的順序一瓶一瓶飛出來
 function showDrops(c, drops, items) {
   const match = c.match;
-  const from = match.snake ? match.snake.def.mouth : { x: 600, y: 500 };
+  const from = match.mechState ? match.mechState.def.mouth : { x: 600, y: 500 };
   for (const it of items) {
     const k = Math.max(0, drops.findIndex(d => d.id === it.id));
     c.state.anims.set(it.id, { x: from.x, y: from.y - 20, t0: c.time + k * 0.12 });
@@ -177,7 +177,7 @@ function showDrops(c, drops, items) {
 // 喝到蛇血的飄字與特效（回合開始的 fx、回合沒開始的 turnFx、走路喝到的 pickup、自己先喝的預測都用這個）：蛇血從場上拿掉
 function statusFx(c, e, fx) {
   if (fx.type !== 'snakeBlood') return;
-  c.match.items = c.match.items.filter(it => it.id !== fx.item);
+  c.match.mechState.items = c.match.mechState.items.filter(it => it.id !== fx.item);
   c.state.anims.delete(fx.item);   // 還沒飛完的拋物線跟著蛇血一起不見
   c.fx.float(e, fx.heal > 0 ? `蛇血！+${fx.heal}` : '蛇血！', '#f87171');
   if (fx.cured > 0) c.fx.float(e, '解毒', '#e9d5ff', 15);
@@ -191,14 +191,14 @@ function statusFx(c, e, fx) {
 // 藤蔓是地形（不分地圖），但目前只有這張地圖有，所以畫在這裡
 function drawSnakeScene(ctx, c) {
   const match = c.match;
-  if (!match || !match.snake) return;
+  if (!match || !match.mechState) return;
   drawCoils(ctx, c);
   drawCanopy(ctx);
   match.terrain.vines.forEach((v, i) => drawVine(ctx, v, i, c.time));
-  for (const it of match.items) drawItem(ctx, c, it);
+  for (const it of match.mechState.items) drawItem(ctx, c, it);
 
   const snake = match.byId('snake');
-  const next = match.snake.next;
+  const next = match.mechState.next;
   const fx = c.state.fx;
   if (!snake || !snake.alive) return;
   // 預定的巨蟒衝撞：玩家回合一直標著範圍（慢慢呼吸），巨蟒出招前快閃；真的衝出去之後就不畫了（頭本身就是範圍）
@@ -440,7 +440,7 @@ function drawSnake(ctx, c, e) {
   ctx.fillStyle = '#1c1a0c';
   ctx.beginPath(); ctx.ellipse(tipX + 18, hy - 22, 4, 2.5, -0.3, 0, Math.PI * 2); ctx.fill();
   // 眼睛：紅色、直立的瞳孔，看著目標（撕咬 / 現在行動的人 / 最近的玩家）
-  const eyeAt = c.match.snake ? c.match.snake.def.eye : { x: e.x - 185, y: e.cy - 60 };
+  const eyeAt = c.match.mechState ? c.match.mechState.def.eye : { x: e.x - 185, y: e.cy - 60 };
   const ex = hx + eyeAt.x - e.x, ey = hy + eyeAt.y - e.cy;
   ctx.fillStyle = SCALE_DARK;
   ctx.beginPath(); ctx.ellipse(ex + 2, ey - 6, 26, 12, -0.15, Math.PI, 0); ctx.fill();   // 眉骨
@@ -489,7 +489,7 @@ function lookPoint(c) {
   if (target && target.team === 'players' && target.alive) return { x: target.cx, y: target.cy };
   const alive = match.players.filter(p => p.alive);
   if (!alive.length) return null;
-  const m = match.snake.def.mouth;
+  const m = match.mechState.def.mouth;
   const near = alive.reduce((a, b) => (Math.hypot(b.cx - m.x, b.cy - m.y) < Math.hypot(a.cx - m.x, a.cy - m.y) ? b : a));
   return { x: near.cx, y: near.cy };
 }

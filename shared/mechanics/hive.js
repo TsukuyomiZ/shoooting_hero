@@ -1,12 +1,13 @@
 import { buildHive, hitHive, takeFreshBees, hatchBees, resolveBeeTurn } from '../hive.js';
 
-// 小心擊發的地圖機制：什麼時候、照什麼順序呼叫 hive.js（規則本身在那裡）。狀態在 match.hive
+// 小心擊發的地圖機制：什麼時候、照什麼順序呼叫 hive.js（規則本身在那裡）。狀態在 match.mechState（buildHive 建的）
 export const hive = {
   type: 'hive',
 
-  // 蜂巢固定血量；放出來的蜜蜂跟一般敵人一樣照人數、關數放大（所以給的是一般敵人的 hpScale，不是 Boss 的）
+  // 蜂巢固定血量；放出來的蜜蜂跟一般敵人一樣照人數、關數放大（所以給的是一般敵人的 hpScale，不是 Boss 的）。
+  // 回傳蜂巢的狀態（match.mechState）
   build(match, { hpScale }) {
-    buildHive(match, hpScale);
+    return buildHive(match, hpScale);
   },
 
   // 蜂巢：只有玩家方打得到；不管什麼武器、直擊或波及都只扣 1，每次放出一隻蜜蜂。
@@ -38,7 +39,7 @@ export const hive = {
 
   // 蜂巢放出來過的蜜蜂（重連時先照這個重建，再套狀態）
   snapshot(match) {
-    return { bees: match.hive.bees.map(b => ({ ...b })) };
+    return { bees: match.mechState.bees.map(b => ({ ...b })) };
   },
 
   restore(match, s) {

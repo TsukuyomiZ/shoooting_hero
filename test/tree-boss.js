@@ -68,7 +68,7 @@ function garden(n = 1, { seed = 1, hp = 5000, stage = 6 } = {}) {
 }
 // 把角色放到某個平面上（x 處往下掉到地面）
 function placeOn(m, e, x, y) { e.x = x; e.y = y; e.vx = 0; e.vy = 0; m.settle(600); }
-const planeY = (m, i) => m.tree.def.planes[i].y;
+const planeY = (m, i) => m.mechState.def.planes[i].y;
 // 讓嘴巴閉上（直接呼叫 resolveTreeTurn 不會經過古樹的回合結束，所以會一直閉著）
 function shutMouth(m) { m.byId('mouth').closedTurns = 1; }
 // 暫時把權重改成只會出某一招（嘴巴要先閉上，不然召喚優先）
@@ -110,7 +110,7 @@ test('地圖：樹皮炸不掉、土炸得掉；角色走不過 maxX、碰不到
     assert(!t.isSolid(e.x - e.hw + 3, e.cy) && t.isSolid(e.x + e.hw - 3, e.cy), `${e.id} half embedded`);
   }
   // 開場：玩家分別站在各個平面上
-  const planes = m.players.map(p => planeOf(m.tree.def.planes, p));
+  const planes = m.players.map(p => planeOf(m.mechState.def.planes, p));
   assert(planes.join() === '1,0,2,0' && m.players.every(p => p.onGround), 'spawn planes ' + planes);
   // 一直往右走：停在 maxX 前
   const p = m.players[1];
@@ -133,7 +133,7 @@ test('地圖：樹皮炸不掉、土炸得掉；角色走不過 maxX、碰不到
 test('平面一階一階跳得上去：地面 → 低台 → 中台 → 高台', () => {
   const m = garden(1);
   const p = m.players[0];
-  const planes = m.tree.def.planes;
+  const planes = m.mechState.def.planes;
   placeOn(m, p, 215, 540);   // 地面，低台右邊
   // 先跳，升到一半再往平台那邊移（太早往旁邊按，頭會撞到平台底部）
   const climb = (dir, want) => {
@@ -215,7 +215,7 @@ test('士兵召喚（多人）：一次召喚「玩家人數」隻（不超過�
     const m = garden(n, { seed: 40 + n });
     const eye = m.byId('eye');
     // 開場的預定照上面的權重（發呆 0、眼睛滿血不養神）一定是撞擊或落葉
-    assert(['trunk', 'leaves'].includes(m.tree.next.action), `${n}p: opening plan is an attack: ` + JSON.stringify(m.tree.next));
+    assert(['trunk', 'leaves'].includes(m.mechState.next.action), `${n}p: opening plan is an attack: ` + JSON.stringify(m.mechState.next));
     const first = resolveTreeTurn(m, eye).steps;
     assert(first[0].action === 'summon' && first[0].spawns.length === Math.min(n * T.summonPerPlayer, T.maxMinions), `${n}p: summons ${n}: ` + JSON.stringify(first[0].spawns));
     assert(first.length === 2 && ['trunk', 'leaves'].includes(first[1].action) && first[1].shot, `${n}p: plus an attack: ` + first.map(s => s.action));
@@ -455,7 +455,7 @@ test('平台：炸不壞、子彈穿得過；人站得住、從下面跳得上�
   const m = garden(1, { seed: 3 });
   const t = m.terrain;
   const p = m.players[0];
-  const planes = m.tree.def.planes;
+  const planes = m.mechState.def.planes;
   const low = planes[1];
   // 地形格子：平台不是「實心」，但站得住
   assert(t.isPlatform(120, low.y + 3) && !t.isSolid(120, low.y + 3), 'platform cells are pass-through');
@@ -526,7 +526,7 @@ test('平台：炸不壞、子彈穿得過；人站得住、從下面跳得上�
   const tr = spawnTreant(s, { id: 'm1', name: '樹妖 1', x: 515, y: 540, hp: 100 });
   s.settle(300);
   placeOn(s, s.players[0], 520, 350);   // 高台上，樹妖正上方
-  assert(planeOf(s.tree.def.planes, s.players[0]) === 3 && s.terrain.isPlatform(517, 395), 'precondition: target on the high platform, platform between them');
+  assert(planeOf(s.mechState.def.planes, s.players[0]) === 3 && s.terrain.isPlatform(517, 395), 'precondition: target on the high platform, platform between them');
   assert(hasLineOfSight(s.world, tr, s.players[0]), 'line of sight goes through the high platform');
   return { jumpLanding: Math.round(p.y) };
 });
@@ -541,7 +541,7 @@ test('裁判：回報位置帶垂直速度 → 往上跳穿平台途中剛好超
   const traj = [];
   for (let i = 0; i < 90; i++) { cm.step(); traj.push({ x: cp.x, y: cp.y, vy: cp.vy }); }
   const clientY = cp.y;
-  assert(planeOf(cm.tree.def.planes, cp) === 1, 'client lands on the low platform');
+  assert(planeOf(cm.mechState.def.planes, cp) === 1, 'client lands on the low platform');
   const landings = [];
   for (const k of [2, 6, 10, 14, 20]) {   // 最後一次回報在上升途中的第 k 幀（腳還在平台下面或裡面）
     const m = new Match({ levelId: 'treeGarden', players: mkPlayers(1), seed: 5, stage: 6 });
@@ -623,7 +623,7 @@ test('客戶端照事件重播古樹撞擊 / 飛散落葉，結果跟伺服器�
   // 多人召喚的回合 = [召喚, 攻擊]：客戶端照 spawns 建樹妖、落地後跟伺服器一樣，接著重播攻擊也一樣
   // （設定與預定的落葉都寫死在這裡，不受使用者調 config 影響）
   const s = garden(2, { seed: 2, hp: 60 });
-  s.tree.next = { action: 'leaves' };
+  s.mechState.next = { action: 'leaves' };
   const snap = s.snapshot();
   const { steps } = JSON.parse(JSON.stringify(withTree({ attackOnSummonMulti: true, summonPerPlayer: 1, maxMinions: 4 }, () => resolveTreeTurn(s, s.byId('eye')))));
   assert(steps.length === 2 && steps[0].action === 'summon' && steps[0].spawns.length === 2 && steps[1].shot, 'summon + attack: ' + steps.map(x => x.action));
@@ -696,7 +696,7 @@ test('裁判：古樹的回合廣播 aiTurn（boss.steps：招式 + shot / still
     assert(a.boss.next && a.boss.next.action, 'boss.next present');
     plan = a.boss.next;
   }
-  assert(JSON.stringify(plan) === JSON.stringify(m.tree.next), 'the last boss.next is the server plan');
+  assert(JSON.stringify(plan) === JSON.stringify(m.mechState.next), 'the last boss.next is the server plan');
   const first = bossTurns[0].boss.steps;
   assert(first[0].spawns.map(s => s.id).join() === 'm1,m2' && first[0].still.results.some(s => s.id === 'm2') && first[1].shot, 'summon payload');
   const turnIds = io.take('turn').map(t => t.actorId);
@@ -782,16 +782,16 @@ test('裁判（多人）：打到嘴巴 → 古樹那回合不召喚 → 回合�
 
 test('預定下一招：開場（大家落地後）就決定好；快照帶著，新的客戶端（同 seed 先自己算一次）照快照套用', () => withTree({ weights: { trunk: 1, leaves: 1, meditate: 1, idle: 0 } }, () => {
   const m = garden(2, { seed: 4 });
-  const next = m.tree.next;
+  const next = m.mechState.next;
   assert(next && ['trunk', 'leaves'].includes(next.action), 'a fresh boss match already has a plan (full hp → no meditate): ' + JSON.stringify(next));
   assert(next.action !== 'trunk' || Number.isInteger(next.plane), 'a trunk plan has a plane');
   // 換成別的預定 → 快照 → 新的 Match（自己開場也算了一份）→ 套用後跟伺服器一樣
-  m.tree.next = { action: 'trunk', plane: 3 };
+  m.mechState.next = { action: 'trunk', plane: 3 };
   const snap = JSON.parse(JSON.stringify(m.snapshot()));
   assert(snap.treeNext && snap.treeNext.action === 'trunk' && snap.treeNext.plane === 3, 'snapshot carries the plan: ' + JSON.stringify(snap.treeNext));
   const c = new Match({ levelId: 'treeGarden', players: mkPlayers(2), seed: m.seed, stage: 6 });
   c.applySnapshot(snap);
-  assert(c.tree.next.action === 'trunk' && c.tree.next.plane === 3 && c.tree.next !== snap.treeNext, 'applySnapshot restores the plan (as a copy)');
+  assert(c.mechState.next.action === 'trunk' && c.mechState.next.plane === 3 && c.mechState.next !== snap.treeNext, 'applySnapshot restores the plan (as a copy)');
   // 開始的廣播（start）與重連（state）都帶著
   const io = new FakeIo();
   const ref = new Referee({ match: m, humans: mkPlayers(2), io });
@@ -811,7 +811,7 @@ test('古樹撞擊（預告）：平面在預定的當下選好（當時人最�
   placeOn(m, p2, 160, 480);   // 低台
   placeOn(m, p3, 300, 420);   // 中台
   const plan = force('trunk', () => planTreeNext(m, eye));
-  assert(plan.action === 'trunk' && plan.plane === 1 && m.tree.next === plan, 'planned on the busiest plane at plan time: ' + JSON.stringify(plan));
+  assert(plan.action === 'trunk' && plan.plane === 1 && m.mechState.next === plan, 'planned on the busiest plane at plan time: ' + JSON.stringify(plan));
   // 玩家的回合：p1、p2 跑到中台（現在人最多的是中台），p3 跑到低台
   placeOn(m, p1, 280, 420);
   placeOn(m, p2, 350, 420);
@@ -828,8 +828,8 @@ test('古樹撞擊（預告）：平面在預定的當下選好（當時人最�
   assert(lane.y === planeY(m, 1) - 18 && lane.half === CONFIG.WEAPONS.treeTrunk.hitRadius && lane.x0 === 0 && lane.x1 === m.terrain.hardEdgeX(lane.y), 'lane geometry: ' + JSON.stringify(lane));
   assert(pr.y === lane.y && pr.x === Math.min(lane.x1 + 30, CONFIG.WORLD_W) && pr.vx < 0, 'the trunk flies down the lane: ' + JSON.stringify(pr));
   assert(['out', 'water'].includes(steps[0].shot.events.at(-1).type), 'sweeps all the way off the map');
-  // 用掉了 → 重新預定；回傳的 next 是 match.tree.next 的複本
-  assert(m.tree.next !== plan && JSON.stringify(next) === JSON.stringify(m.tree.next) && next !== m.tree.next, 'replanned after use: ' + JSON.stringify(next));
+  // 用掉了 → 重新預定；回傳的 next 是 match.mechState.next 的複本
+  assert(m.mechState.next !== plan && JSON.stringify(next) === JSON.stringify(m.mechState.next) && next !== m.mechState.next, 'replanned after use: ' + JSON.stringify(next));
   return { plan, hit };
 });
 
@@ -842,36 +842,36 @@ test('預定下一招（單人）：召喚的回合不用掉預定的招式（�
   for (let k = 0; k < 2; k++) {   // 連續兩個召喚回合都留著
     const t = resolveTreeTurn(m, eye);
     assert(t.steps.map(s => s.action).join() === 'summon', 'solo summon turn: ' + t.steps.map(s => s.action));
-    assert(m.tree.next === plan && JSON.stringify(t.next) === want, 'the plan waits: ' + JSON.stringify(t.next));
+    assert(m.mechState.next === plan && JSON.stringify(t.next) === want, 'the plan waits: ' + JSON.stringify(t.next));
   }
   shutMouth(m);   // 玩家打閉了嘴巴 → 古樹出預定的撞擊
   const t = resolveTreeTurn(m, eye);
   assert(t.steps.length === 1 && t.steps[0].action === 'trunk' && t.steps[0].plane === plan.plane, 'fires the waiting plan: ' + JSON.stringify(t.steps.map(s => [s.action, s.plane])));
-  assert(m.tree.next !== plan, 'replanned');
+  assert(m.mechState.next !== plan, 'replanned');
   return { plan };
 }));
 
 test('預定下一招（多人）：召喚的回合把預定的撞擊 / 落葉接在召喚後面一起出並重新預定；預定閉目養神就留著', () => withTree({ attackOnSummonMulti: true, summonPerPlayer: 1, maxMinions: 4 }, () => {
   const m = garden(2, { seed: 7 });
   const eye = m.byId('eye');
-  let plan = m.tree.next = { action: 'leaves' };
+  let plan = m.mechState.next = { action: 'leaves' };
   const t1 = resolveTreeTurn(m, eye);
   assert(t1.steps.map(s => s.action).join() === 'summon,leaves' && t1.steps[1].shot, 'summon + planned leaves: ' + t1.steps.map(s => s.action));
-  assert(m.tree.next !== plan && JSON.stringify(t1.next) === JSON.stringify(m.tree.next), 'replanned');
-  plan = m.tree.next = { action: 'trunk', plane: 0 };
+  assert(m.mechState.next !== plan && JSON.stringify(t1.next) === JSON.stringify(m.mechState.next), 'replanned');
+  plan = m.mechState.next = { action: 'trunk', plane: 0 };
   const t2 = resolveTreeTurn(m, eye);
   assert(t2.steps.map(s => s.action).join() === 'summon,trunk' && t2.steps[1].plane === 0, 'summon + planned trunk on its plane: ' + JSON.stringify(t2.steps.map(s => [s.action, s.plane])));
-  assert(m.tree.next !== plan, 'replanned after the trunk');
+  assert(m.mechState.next !== plan, 'replanned after the trunk');
   // 預定的是閉目養神：召喚的回合只召喚，預定留著；下一個不召喚的回合才回血
   const g = garden(2, { seed: 7 });
   const geye = g.byId('eye');
   geye.hp -= 60;
-  const med = g.tree.next = { action: 'meditate' };
+  const med = g.mechState.next = { action: 'meditate' };
   const t3 = resolveTreeTurn(g, geye);
-  assert(t3.steps.map(s => s.action).join() === 'summon' && g.tree.next === med && t3.next.action === 'meditate', 'meditate waits: ' + t3.steps.map(s => s.action));
+  assert(t3.steps.map(s => s.action).join() === 'summon' && g.mechState.next === med && t3.next.action === 'meditate', 'meditate waits: ' + t3.steps.map(s => s.action));
   shutMouth(g);
   const t4 = resolveTreeTurn(g, geye);
-  assert(t4.steps.length === 1 && t4.steps[0].action === 'meditate' && t4.steps[0].heal > 0 && g.tree.next !== med, 'meditate fires on the next non-summon turn');
+  assert(t4.steps.length === 1 && t4.steps[0].action === 'meditate' && t4.steps[0].heal > 0 && g.mechState.next !== med, 'meditate fires on the next non-summon turn');
   return { t1: t1.steps.map(s => s.action), t2: t2.steps.map(s => s.action) };
 }));
 
@@ -910,7 +910,7 @@ test('重新預定在招式結算完之後：照擊退 / 擊倒之後還活著�
     assert(acts === (summon ? 'summon+trunk' : 'trunk') && steps.at(-1).plane === 1, 'executed: ' + acts);
     assert(!p1.alive && !p2.alive && p3.alive, 'the low platform got wiped out');
     // 結算完才重新預定：低台已經沒有活人 → 改掃地面上的 p3
-    assert(next.action === 'trunk' && next.plane === 0 && m.tree.next.plane === 0, 'replanned from the survivors: ' + JSON.stringify(next));
+    assert(next.action === 'trunk' && next.plane === 0 && m.mechState.next.plane === 0, 'replanned from the survivors: ' + JSON.stringify(next));
     out[summon ? 'summon' : 'solo'] = next;
   }
   return out;
@@ -936,16 +936,16 @@ test('客戶端：預定撞擊時一直畫出那條警示帶（範圍 = trunkLan
     *shotScript() { yield { frames: 1 }; } };
   const draw = () => { const r = recordingCtx(); tv.drawScene(r.ctx, c); return r; };
   // 玩家 / 樹妖的回合：預定撞擊 → 畫一條，範圍跟伺服器的樹幹一樣；虛線用完要還原
-  m.tree.next = { action: 'trunk', plane: 1 };
+  m.mechState.next = { action: 'trunk', plane: 1 };
   const r = draw();
   assert(redBands(r.calls).join('|') === laneRect(m, 1), 'steady band = trunkLane: ' + redBands(r.calls));
   const dash = r.calls.filter(x => x.fn === 'setLineDash');
   assert(dash.length && dash.at(-1).args[0].length === 0, 'line dash reset');
   for (const action of ['leaves', 'meditate', 'idle']) {
-    m.tree.next = { action };
+    m.mechState.next = { action };
     assert(redBands(draw().calls).length === 0, `no band for ${action}`);
   }
-  m.tree.next = { action: 'trunk', plane: 1 };
+  m.mechState.next = { action: 'trunk', plane: 1 };
   c.state.withered = true;   // 古樹倒下過（onDeath 設的）
   assert(redBands(draw().calls).length === 0, 'no band once withered');
   c.state.withered = false;
@@ -957,7 +957,7 @@ test('客戶端：預定撞擊時一直畫出那條警示帶（範圍 = trunkLan
   const seen = [];
   const gen = tv.turnScript(c, msg);
   for (let it = gen.next(); !it.done; it = gen.next()) {
-    assert(m.tree.next.plane === 1, 'the old plan stays during the tree turn');
+    assert(m.mechState.next.plane === 1, 'the old plan stays during the tree turn');
     const fx = c.state.fx;
     const bands = redBands(draw().calls);
     const phase = !fx ? 'think' : fx.plane != null ? 'cast' : 'flight';
@@ -966,7 +966,7 @@ test('客戶端：預定撞擊時一直畫出那條警示帶（範圍 = trunkLan
     c.time += 1 / 60;
   }
   assert(seen.join() === 'think,cast,flight', 'phases ' + seen);
-  assert(m.tree.next.action === 'trunk' && m.tree.next.plane === 2, 'boss.next applied at the end');
+  assert(m.mechState.next.action === 'trunk' && m.mechState.next.plane === 2, 'boss.next applied at the end');
   assert(redBands(draw().calls).join('|') === laneRect(m, 2), 'the new band appears after the tree turn');
   return { phases: seen };
 });

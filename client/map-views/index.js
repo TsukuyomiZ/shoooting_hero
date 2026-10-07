@@ -15,7 +15,7 @@ import { hive } from './hive.js';
 //   c.projectiles   正在重播的飛行物（shotScript 期間 = 重播模組原地更新的那個陣列，其他時候是空的）
 //   c.shotScript(shot, extra)   重播一波（yield*）；extra.frame(live) = 每個飛行幀結束時呼叫
 //   c.state         這個地圖畫面自己的狀態（create(match) 建的，每次 setup 重建）：出招的預兆、王的畫面位移、
-//                   還在飛的道具等只給畫面用的東西放這裡，不放在 Entity / match.items 上
+//                   還在飛的道具等只給畫面用的東西放這裡，不放在 Entity / 地圖機制的狀態（c.match.mechState，例如場上的道具）上
 //   c.fx            特效出口（sink）——地圖畫面不直接動 GameView 的粒子 / 震動 / 橫幅，也不直接出聲：
 //     particles(x, y, n, opts)  噴一團粒子（GameView.spawnParticles）
 //     particle(p)               放一顆自己算好的粒子 { x, y, vx, vy, life, maxLife, size, color, gravity }
