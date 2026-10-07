@@ -11,12 +11,11 @@ import { Referee } from '../shared/referee.js';
 import { planShot, hasLineOfSight, lineBlocker } from '../shared/ai.js';
 import { replayChecked } from './replay-check.js';
 import { replayVolley } from '../shared/volley.js';
-import { spawnBee } from '../shared/hive.js';
+import { spawnBee, hatchBees } from '../shared/hive.js';
 import { Rng } from '../shared/rng.js';
 import { PLATFORM, SOIL } from '../shared/terrain.js';
 // 客戶端的地圖畫面不碰瀏覽器（音效走特效出口），不用假的 window / document 就能載入
 import { mapViewFor } from '../client/map-views/index.js';
-import { addBees } from '../client/map-views/hive.js';
 
 const results = [];
 function test(name, fn) {
@@ -766,8 +765,10 @@ test('客戶端：蜜蜂的回合腳本（待機套用結果；衝刺時角色�
   };
   // 衝出去的蜜蜂（角色本身不畫）：記在地圖畫面自己的狀態裡，不在 Entity 上
   const charging = (e) => !!(c.state.bees.get(e.id) || {}).charging;
-  addBees(c, specs);
-  addBees(c, specs);
+  // 遊戲裡的路徑：重播的事件經地圖機制建出蜜蜂（hatchBees，已經有的跳過）→ 地圖畫面的 showEvent 播出來（showBees）。同一筆出生資料來兩次只建、只播一次
+  const hatch = () => hv.showEvent(c, { type: 'explode', bees: specs }, { items: [], bees: hatchBees(cm, specs) });
+  hatch();
+  hatch();
   assert(bees(cm).length === 1 && floats.filter(f => f[1] === '蜜蜂飛出來了！').length === 1, 'bee built once from the spec');
   const cb = cm.byId('b1'), sb = sm.byId('b1');
   assert(cb.x === sb.x && cb.y === sb.y && cb.hp === sb.hp && cb.waitTurns === sb.waitTurns, 'client bee = server bee');

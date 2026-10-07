@@ -1,5 +1,5 @@
 import { CONFIG } from '../../shared/config.js';
-import { BEE_ACTION_NAMES, hatchBees } from '../../shared/hive.js';
+import { BEE_ACTION_NAMES } from '../../shared/hive.js';
 import { text } from '../draw.js';
 
 // 小關「小心擊發」的地圖畫面：蜜蜂回合的動畫腳本（照伺服器廣播的招式播）、蜜蜂飛出蜂巢、蜂巢 / 蜜蜂倒下，
@@ -18,6 +18,15 @@ export const hive = {
 
   turnScript: beeTurnScript,
   onDeath: onHiveDeath,
+
+  // 播到一半丟掉：預兆的抖動、衝出去（角色不畫）不要一直留著
+  abortScript(c) {
+    for (const id of c.state.bees.keys()) {
+      const rec = c.state.bees.get(id);
+      rec.windup = 0;
+      rec.charging = false;
+    }
+  },
 
   // 打到蜂巢：飛出蜜蜂
   showEvent(c, ev, made) {
@@ -111,12 +120,6 @@ function* beeStepScript(c, bee, b) {
     match.applyEntities(b.still.results);
     yield { frames: CONFIG.TIMING.settleDelay * FPS * 0.5 };
   }
-}
-
-// 打到蜂巢、飛出蜜蜂（開火事件帶來的 bees = 出生資料）：照資料建出來（跟伺服器一模一樣，已經有的跳過），再播出來
-export function addBees(c, specs) {
-  if (!c.match || !specs) return;
-  showBees(c, hatchBees(c.match, specs));
 }
 
 // 剛飛出來的蜜蜂（已經建好的角色；重播時由 shared/volley.js 建）：從蜂巢口噴出一點蜂蜜色的粒子、飄字、嗡嗡聲

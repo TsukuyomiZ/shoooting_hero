@@ -13,22 +13,42 @@ export const tree = {
   type: 'tree',
 
   // 這一場的畫面狀態：
-  //   fx         古樹出招的預兆動畫 { action, t, plane, targetId, seeds }（古樹回合播完就清掉）
+  //   fx         古樹出招的預兆動畫 { action, t, plane, targetId, seeds }（古樹回合播完就清掉；t 由 update 照遊戲時間推進）
   //   withered   古樹倒下了（樹冠、藤蔓變灰；地形的樹皮由 fx.wither() 變灰）
-  //   mouthOpen  嘴巴畫面上張開的程度（id → 數字，每畫一次往目標靠近一點）
-  //   floated    這次被打閉上已經飄過「閉上了！」的嘴巴 id（又張開時清掉）
-  create: () => ({ fx: null, withered: false, mouthOpen: new Map(), floated: new Set() }),
+  //   mouthOpen  嘴巴畫面上張開的程度（id → 數字，update 每一步往目標靠近一點）
+  //   shut       畫面看到是閉著的嘴巴 id（closedTurns > 0；update 每一步照嘴巴的狀態更新）：
+  //              被打到時原本不在這裡 = 這一下把張開的嘴打閉上，才飄「閉上了！」
+  create: (match) => ({
+    fx: null, withered: false, mouthOpen: new Map(),
+    shut: new Set(match.entities.filter(e => e.part === 'mouth' && e.closedTurns > 0).map(e => e.id)),   // 重連時已經閉著的
+  }),
 
   musicTrack: () => 'tree',
   turnScript: treeTurnScript,
+  abortScript(c) { c.state.fx = null; },   // 播到一半丟掉：預兆（閉眼、快閃、種子）不要一直留著
   onDeath: onTreeDeath,
+
+  // 每一步：預兆的計時、嘴巴張開的程度、嘴巴是開是閉（畫圖只讀這些）
+  update(c, dt) {
+    const s = c.state;
+    if (s.fx) s.fx.t += dt;
+    for (const e of c.match.entities) {
+      if (e.part !== 'mouth') continue;
+      if (e.closedTurns > 0) s.shut.add(e.id);
+      else s.shut.delete(e.id);   // 又張開了：不管是古樹回合結束的 mouthOpen、還是伺服器的狀態（重連、校正）
+      if (!e.alive) continue;     // 古樹倒下：縫死，不再動
+      const target = mouthTarget(c, e);
+      const prev = s.mouthOpen.get(e.id);
+      s.mouthOpen.set(e.id, prev === undefined ? target : prev + (target - prev) * (1 - Math.pow(0.8, dt * FPS)));
+    }
+  },
 
   // 古樹之口被打到閉上（不扣血）
   showDamage(c, e, d) {
     if (!d.closed) return false;
     e.hurtTimer = 0.35;   // 閉著的嘴被打到會抖一下
-    if (!c.state.floated.has(e.id)) c.fx.float(e, '閉上了！', '#fdba74');
-    c.state.floated.add(e.id);
+    if (!c.state.shut.has(e.id)) c.fx.float(e, '閉上了！', '#fdba74');   // 已經閉著又被打到就不再飄
+    c.state.shut.add(e.id);
     c.fx.particles(e.cx, e.cy, 10, { speed: 120, life: 0.5, size: 3, color: '#8b5a2b', gravity: 300 });
     return true;
   },
@@ -37,7 +57,6 @@ export const tree = {
   turnFx(c, e, fx) {
     if (fx.type !== 'mouthOpen') return false;
     c.fx.float(e, '張開了', '#fca5a5');
-    c.state.floated.delete(e.id);
     return true;
   },
 
@@ -224,7 +243,6 @@ function drawTreeScene(ctx, c) {
     drawTrunkBand(ctx, match, next.plane, 0.26 + 0.08 * Math.sin(c.time * 3), 0.85);
   }
   if (!fx) return;
-  fx.t += 1 / FPS;
   // 古樹撞擊：出招的預兆，同一條範圍快速閃紅
   if (fx.action === 'trunk' && fx.plane != null) drawTrunkBand(ctx, match, fx.plane, 0.32 + 0.16 * Math.sin(fx.t * 14), 1);
   // 士兵召喚：嘴巴吐出的種子（拋物線）
@@ -334,13 +352,9 @@ function drawEye(ctx, c, e) {
 
 function drawMouth(ctx, c, e) {
   const x = e.x, y = e.cy, hw = e.hw;
-  const fx = c.state.fx;
   if (!e.alive) { drawShutMouth(ctx, e, true); return; }   // 古樹倒下：縫死
-  // 張開的程度：被打到就闔起來、古樹回合結束再慢慢張開；召喚時張大，平常慢慢呼吸（只影響畫面）
-  const target = e.closedTurns > 0 ? 0 : (fx && fx.action === 'summon' ? 1.25 : 0.85 + 0.1 * Math.sin(c.time * 2.2));
-  const prev = c.state.mouthOpen.get(e.id);
-  const open = prev === undefined ? target : prev + (target - prev) * 0.2;
-  c.state.mouthOpen.set(e.id, open);
+  // 張開的程度照 update 一步一步推進的（還沒推進過就直接用目標）
+  const open = c.state.mouthOpen.get(e.id) ?? mouthTarget(c, e);
   if (open < 0.12) { drawShutMouth(ctx, e, false); return; }
   const oh = e.h / 2 * open;
   ctx.fillStyle = '#2b1a0e';
@@ -359,6 +373,12 @@ function drawMouth(ctx, c, e) {
       ctx.beginPath(); ctx.moveTo(bx - 5, y + oh - 2); ctx.lineTo(bx + 5, y + oh - 2); ctx.lineTo(bx, y + oh - 11); ctx.closePath(); ctx.fill();
     }
   }
+}
+
+// 嘴巴要張開的程度（update 往這裡靠近）：被打到就闔起來、古樹回合結束再慢慢張開；召喚時張大，平常慢慢呼吸（只影響畫面）
+function mouthTarget(c, e) {
+  const fx = c.state.fx;
+  return e.closedTurns > 0 ? 0 : (fx && fx.action === 'summon' ? 1.25 : 0.85 + 0.1 * Math.sin(c.time * 2.2));
 }
 
 // 閉著的嘴：凸起的樹皮嘴唇 + 一道縫。被打閉上時嘴唇緊抿、會抖一下；古樹倒下（dead）就變灰、縫死

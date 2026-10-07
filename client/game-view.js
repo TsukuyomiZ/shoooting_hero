@@ -79,7 +79,7 @@ export class GameView {
   //   slowMo       他開著慢動作（畫光環）
   //   splashShown  已經播過的那一次落水（Entity.splash）
   //   stepDist     走了多遠（踩腳步聲用）
-  //   poisonDeath  是被毒倒的（換成「中毒倒下」的橫幅）
+  //   poisonDeath  是被毒倒的（換成「中毒倒下」的橫幅；又活過來就清掉）
   //   deathHandled 這次倒下已經播過死亡特效 / 橫幅（伺服器的狀態說他又活著 = 下次倒下再播）
   look(e) {
     let v = this.looks.get(e);
@@ -160,6 +160,7 @@ export class GameView {
   }
 
   setup(msg) {
+    if (this.script && this.mapView) this.mapView.abortScript(this.mapCtx);   // 還在播的事件腳本整個丟掉（下面清掉）
     this.holdMoves = false;
     this.heldMoves = new Map();
     if (this.slowMo) this.setSlowMo(false);
@@ -267,6 +268,7 @@ export class GameView {
       console.error('播放事件時出錯', err);
       this.script = null;
       this.wait = null;
+      this.mapView.abortScript(this.mapCtx);   // 地圖畫面播到一半的出招（預兆、蓄力、閉眼…）不要留在畫面上
       this.pump();
     }
   }
@@ -828,14 +830,17 @@ export class GameView {
         if (e.id === this.myId && this.canAct) this.reportWater(e);
         if (!e.splash.died) this.onSplash(e, e.splash);   // 淹死的由 onDeath 播
       }
-      if (e.alive) v.deathHandled = false;   // 伺服器的狀態把他救回來了（applyState）：下次倒下再播
-      else if (!v.deathHandled) {
+      if (e.alive) {   // 伺服器的狀態把他救回來了（applyState）：下次倒下再播，也不再是「中毒倒下」（除非又被毒倒）
+        if (v.deathHandled) v.poisonDeath = false;
+        v.deathHandled = false;
+      } else if (!v.deathHandled) {
         v.deathHandled = true;
         this.onDeath(e);
       }
     }
     this.updateEffects(dt);
     this.tickScript();
+    this.mapView.update(this.mapCtx, dt);   // 地圖畫面的動畫 / 特效照遊戲時間推進（不照畫了幾次）
   }
 
   // 遠端玩家：平滑插值到他回報的位置（不跑物理）

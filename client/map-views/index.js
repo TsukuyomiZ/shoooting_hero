@@ -31,6 +31,11 @@ import { hive } from './hive.js';
 //   create(match) → state                 每次 setup：這一場的畫面狀態（c.state）
 //   musicTrack(c) → 曲目 | null           Boss 關的背景音樂（music.js 的 TRACKS；小關的曲目由 GameView 決定）
 //   turnScript(c, msg)                    （generator）aiTurn 帶 boss.steps 的回合：出招的動畫，照伺服器的結果套用
+//   abortScript(c)                        事件腳本播到一半被丟掉（丟錯、setup 換一場）：清掉 turnScript 留下的出招狀態
+//                                         （預兆、蓄力、閉眼…），不然會一直畫著。腳本自己的 finally 不一定跑得到，所以另外通知
+//   update(c, dt)                         每一個固定步長（GameView.update 最後、事件腳本推進之後；dt = 這一步的遊戲時間）：
+//                                         畫面自己的動畫 / 特效照遊戲時間推進（例如預兆的計時、嘴巴開闔、碎屑）。
+//                                         畫圖的掛勾只讀狀態、不改狀態——畫幾次（高更新率螢幕、背景分頁不畫）結果都一樣
 //   showEvent(c, ev, made)                重播一個飛行事件、一般特效之後：這張地圖的東西冒出來（made = 重播模組建出來的道具 / 角色）
 //   showDamage(c, e, d) → boolean         ※ 事件裡的一筆傷害（無敵之後、分擔之前）：true = 處理過了，不播一般的扣血
 //                                         （古樹之口被打到閉上原本就在這個迴圈的這個位置，跟其他人的飄字照順序排）
@@ -60,6 +65,8 @@ const HOOKS = {
   create: () => ({}),
   musicTrack: () => null,
   turnScript: function* () {},
+  abortScript: NOOP,
+  update: NOOP,
   showEvent: NOOP,
   showDamage: () => false,
   turnFx: () => false,

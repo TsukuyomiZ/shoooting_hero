@@ -7,6 +7,7 @@ import { clamp } from '../../shared/utils.js';
 const FPS = 60;
 const SCALE = '#5f7a2c', SCALE_DARK = '#3b4a1a', BELLY = '#c8b878', BLOTCH = '#2f2a14';
 const POISON = '#c084fc';
+const DROP_FLIGHT = 0.7;   // 掉出來的蛇血飛到落點要幾秒
 
 export const snake = {
   type: 'snake',
@@ -14,13 +15,20 @@ export const snake = {
   // 這一場的畫面狀態：
   //   fx     巨蟒出招的預兆動畫 { action, t, phase: 'cast' | 'act', targetId }（巨蟒回合播完就清掉）
   //   head   頭畫面上的位移（id → { dx, dy, t }：衝出去 / 縮回來 / 抬頭，照 c.time 慢慢回原位）
-  //   anims  剛掉出來、還在飛的蛇血（道具 id → { x, y, t0 }：從嘴裡沿拋物線飛到落點，飛完就刪掉）。
+  //   anims  剛掉出來、還在飛的蛇血（道具 id → { x, y, t0 }：從嘴裡沿拋物線飛到落點，飛完由 update 刪掉）。
   //          照 id 對：GameView 換成伺服器版本的道具（setItems）也接得上；道具的 id 不會重複用
   create: () => ({ fx: null, head: new Map(), anims: new Map() }),
 
   musicTrack: () => 'snake',   // 先一聲蛇的哈氣再淡入（見 music.js）
   turnScript: snakeTurnScript,
+  abortScript(c) { c.state.fx = null; },   // 播到一半丟掉：預兆（縮頭、抬頭、張嘴、眼睛發光）不要一直留著
   onDeath: onSnakeDeath,
+
+  // 每一步：飛完的蛇血刪掉記錄；大地震擊的震波一路揚起碎屑（畫圖只讀狀態，不在畫圖時做這些）
+  update(c) {
+    for (const [id, a] of c.state.anims) if (dropProgress(c, a) >= 1) c.state.anims.delete(id);
+    for (const p of c.projectiles) if (p.weapon && p.weapon.id === 'snakeQuake') quakeDebris(c, p);
+  },
 
   // 打到巨蟒跨過門檻：掉蛇血
   showEvent(c, ev, made) {
@@ -277,21 +285,21 @@ function drawCoils(ctx, c) {
   ctx.restore();
 }
 
-// 蛇血瓶：玻璃瓶 + 發亮的紅色蛇血 + 軟木塞，輕輕上下浮動。剛掉出來的沿拋物線飛過去（c.state.anims）
+// 剛掉出來的蛇血飛到哪了：0 以下 = 還沒輪到它飛出來、1 以上 = 飛完了（照 c.time 算，跟畫面更新率無關）
+const dropProgress = (c, anim) => (c.time - anim.t0) / DROP_FLIGHT;
+
+// 蛇血瓶：玻璃瓶 + 發亮的紅色蛇血 + 軟木塞，輕輕上下浮動。剛掉出來的沿拋物線飛過去（c.state.anims；飛完的記錄由 update 刪，畫圖不改狀態）
 function drawItem(ctx, c, it) {
   let x = it.x, y = it.y;
-  let anim = c.state.anims.get(it.id);
-  if (anim) {   // 照 c.time 算進度（跟畫面更新率無關）
-    const raw = (c.time - anim.t0) / 0.7;
-    if (raw >= 1) { c.state.anims.delete(it.id); anim = undefined; }
-    else {
-      if (raw <= 0) return;
-      const t = clamp(raw, 0, 1);
-      x = anim.x + (it.x - anim.x) * t;
-      y = anim.y + (it.y - anim.y) * t - Math.sin(t * Math.PI) * 110;
-    }
+  const anim = c.state.anims.get(it.id);
+  const t = anim ? dropProgress(c, anim) : 1;
+  if (t <= 0) return;
+  const flying = t < 1;
+  if (flying) {
+    x = anim.x + (it.x - anim.x) * t;
+    y = anim.y + (it.y - anim.y) * t - Math.sin(t * Math.PI) * 110;
   }
-  drawSnakeBlood(ctx, x, y - 2 + (anim ? 0 : Math.sin(c.time * 3 + it.x) * 1.5), c.time);
+  drawSnakeBlood(ctx, x, y - 2 + (flying ? 0 : Math.sin(c.time * 3 + it.x) * 1.5), c.time);
 }
 
 function drawSnakeBlood(ctx, x, y, time) {
@@ -326,6 +334,7 @@ function headOffset(c, e) {
   if (lunge && lunge.x0 !== undefined) {
     h.dx = lunge.x - lunge.x0;
     h.dy = lunge.y - lunge.y0;
+    h.t = c.time;   // 計時也要跟著走：飛行物一消失，下面才是從這一刻慢慢縮回原位（不然整段衝刺都算進去，一幀就彈回去）
     return h;
   }
   const fx = c.state.fx;
@@ -512,12 +521,15 @@ function drawSnakeProjectile(ctx, c, p) {
     }
     ctx.fillStyle = 'rgba(254,215,170,0.85)';
     ctx.beginPath(); ctx.ellipse(p.x, p.y + 4, 16, 10, 0, Math.PI, 0); ctx.fill();
-    const tick = Math.floor(c.time * 36);   // 每秒 36 顆碎屑（照時間，不照畫面更新次數）
-    if (tick !== p.debrisTick) {
-      p.debrisTick = tick;
-      c.fx.particle({ x: p.x, y: p.y, vx: (Math.random() - 0.2) * 120, vy: -120 - Math.random() * 160, life: 0.5, maxLife: 0.5, size: 3, color: Math.random() < 0.5 ? '#65a30d' : '#a16207', gravity: 600 });
-    }
-    return true;
+    return true;   // 揚起的碎屑由 update 每一步放（quakeDebris）
   }
   return false;
+}
+
+// 大地震擊的震波揚起的碎屑：每秒 36 顆（照遊戲時間，不照畫面更新次數；update 每一步呼叫，背景分頁沒畫面也一樣）
+function quakeDebris(c, p) {
+  const tick = Math.floor(c.time * 36);
+  if (tick === p.debrisTick) return;
+  p.debrisTick = tick;
+  c.fx.particle({ x: p.x, y: p.y, vx: (Math.random() - 0.2) * 120, vy: -120 - Math.random() * 160, life: 0.5, maxLife: 0.5, size: 3, color: Math.random() < 0.5 ? '#65a30d' : '#a16207', gravity: 600 });
 }
