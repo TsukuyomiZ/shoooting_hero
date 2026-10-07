@@ -85,8 +85,8 @@ test('嗨到最高點：狂熱生效時武器傷害 +50%（不隨狂熱層數加
   m.applyExplosion(e1.cx, e1.cy, W.cannon, p, e1);
   const want = Math.round(W.cannon.damage * 1.5 * (1 + 2 * FEVER_CFG.FEVER.damagePct / 100));
   assert(hp0 - e1.hp === want, `dmg ${hp0 - e1.hp} want ${want}`);
-  // 轟炸不吃武器傷害加成
-  assert(m.damageMult(p, W.bombard) === 1, 'bombard unaffected');
+  // 轟炸跟自己的其他攻擊一樣吃武器傷害加成（10-07 改：以前轟炸不吃）
+  assert(Math.abs(m.damageMult(p, W.bombard) - 1.5) < 1e-12, 'bombard gets it too: ' + m.damageMult(p, W.bombard));
   // 沒這張牌的人在狂熱裡沒有額外加成
   const plain = matchWith({}, { config: FEVER_CFG });
   setFever(plain, 1);

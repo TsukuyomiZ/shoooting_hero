@@ -261,7 +261,7 @@ export const CONFIG = {
       color: '#22d3ee',
       desc: '同一條彈道連射三發',
     },
-    // 裝備「無差別轟炸」落下的飛彈：不能被裝備，也不吃武器傷害加成
+    // 裝備「無差別轟炸」落下的飛彈：不能被裝備；傷害跟持有者的其他攻擊一樣吃他的加成
     bombard: {
       id: 'bombard', name: '轟炸飛彈', fromEquip: true,
       damage: 50,

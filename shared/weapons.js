@@ -30,7 +30,7 @@ export function shotTraits(owner, weaponId) {
 }
 
 // 爆炸半徑：武器的半徑 × 效果的加成（radius 槽，最小 0.2 倍；沒有攻擊者 = 原本的半徑）。
-// Match 的挖地形與波及範圍、AI 判斷會不會炸到蜂巢都照這個
+// Match 的挖地形與波及範圍、AI 判斷會不會炸到隊友 / 蜂巢都照這個
 export function blastRadius(owner, weapon) {
   const pct = owner ? effectSum('radius', owner, { weaponId: weapon.id }) : 0;
   return weapon.radius * Math.max(0.2, 1 + pct / 100);

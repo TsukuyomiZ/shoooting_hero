@@ -1056,6 +1056,23 @@ test('裁判：無差別轟炸在回合開始先播（持有者附近不落彈�
   return { missiles: shot.projectiles.length, p2Dmg: p2.maxHp - p2.hp };
 });
 
+test('無差別轟炸跟持有者自己的其他攻擊一樣吃他的武器傷害加成（只限大砲的加成不算），整波轟炸的傷害跟著變大', () => {
+  const W = CONFIG.WEAPONS;
+  const m = matchWith({ bombard: 1, damagePct: 50, cannonDamagePct: 100 });
+  const p1 = m.players[0];
+  assert(m.damageMult(p1, W.bombard) === 1.5 && m.damageMult(p1, W.cannon) === 2.5, `mult bombard ${m.damageMult(p1, W.bombard)} cannon ${m.damageMult(p1, W.cannon)}`);
+  const e1 = m.enemies[0];
+  const hp0 = e1.hp;
+  m.applyExplosion(e1.cx, e1.cy, W.bombard, p1, e1);
+  assert(hp0 - e1.hp === Math.round(W.bombard.damage * 1.5), `direct hit ${hp0 - e1.hp}, want ${Math.round(W.bombard.damage * 1.5)}`);
+  // 同一個種子、同樣的位置：整波轟炸打在敵人身上的傷害比沒有加成的多
+  const plain = matchWith({ bombard: 1 });
+  const dealt = (mm) => mm.resolveBombard(mm.players[0]).events.flatMap(ev => ev.damages || []).reduce((s, d) => s + (d.friendly ? 0 : d.dmg), 0);
+  const [a, b] = [dealt(plain), dealt(m)];
+  assert(a > 0 && b > a, `bonus volley deals more: ${b} vs ${a}`);
+  return { plain: a, bonus: b };
+});
+
 test('裁判：燃燒在敵人自己的回合結束時結算，廣播 turnFx 後才輪下一位；恩賜之杖在回合開始回血', () => {
   const m = matchWith({ regenPct: 1 });
   const io = new FakeIo();
@@ -1094,7 +1111,7 @@ test('客戶端照事件重播（只跑運動學）的結果，跟伺服器結�
     { name: 'jump-lob', fx: {}, weapons: ['plasma'], fire: (m) => { const a = m.players[0]; a.stamina = a.maxStamina; a.wantJump = true; a.update(CONFIG.FIXED_DT, m.world); return m.resolveShot(a, 'plasma', 80, 15); } },
     // 隊友換過位置（站穩點只能從快照同步過去）、腳下被挖到水面以下 → 掉進水裡扣血，原本站的地方也沒了 → 兩邊找到同一個最近的地面重生
     { name: 'water-respawn', fx: {}, players: 2, setup: (m) => {
-        const b = m.players[1];   // 像是自己走過去站好（不跑 settle：別人在斜坡上抖的那 1px 不在快照裡）
+        const b = m.players[1];   // 像是自己走過去站好（直接擺在站得住的地方，不用跑 settle）
         b.x = b.safeX = 250;
         b.y = b.safeY = standY(b, m.terrain, 250);
         for (let y = b.y - 10; y < 720; y += 20) m.terrain.carve(b.x, y, 34);
@@ -1307,6 +1324,83 @@ test('雲霧之瓶：站在斜坡的像素階梯上、或走下坡時起跳，�
   assert(landingCases > 0, 'no landing-frame case found');
   assert(!lost.length, `double jump lost ${lost.length}x: ` + lost.slice(0, 6).join('; '));
 });
+
+test('站在坑底 / 斜坡上不動：位置不會上下抖、onGround 不會閃（身體外側先碰到坡也算站穩）；只有身體邊緣搭在高台角上、或薄土穿過身體，照舊掉下去', () => {
+  // 坑底：身體最外側那一欄（±(hw-1)）比腳下三點（±(hw-3)）先碰到坑壁。以前只看腳下三點：掉進坡裡 → 被「卡進地形就往上推」推回來 →
+  // 又懸空往下掉，一直上下抖 0.75px、onGround 跟著閃，客戶端每 0.1 秒回報一次位置（伺服器也記一行 LOG）。敵人 A 出生的斜坡本來也會抖
+  let outerOnly = 0;
+  const bad = [];
+  for (const r of [30, 42, 60]) for (const off of [0, 6, 15, 25]) {
+    const m = new Match({ levelId: 'level1', players: mkPlayers(1), seed: 1 });
+    const p = m.players[0];
+    p.x = 150; m.settle(300);
+    m.terrain.carve(150 + off, p.y, r);
+    m.settle(600);
+    if (!p.groundBelow(m.terrain, p.x, p.y)) outerOnly++;
+    const snap = m.entities.map(e => [e.x, e.y]);
+    let moved = 0, air = 0;
+    for (let f = 0; f < 300; f++) {
+      m.step();
+      m.entities.forEach((e, i) => { if (!e.alive) return; if (e.x !== snap[i][0] || e.y !== snap[i][1]) moved++; if (!e.onGround) air++; });
+    }
+    if (moved || air) bad.push(`r${r} off${off}: moved ${moved}, off-ground frames ${air}`);
+  }
+  assert(outerOnly > 0, 'no case rests on the outer column only: the test would prove nothing');
+  assert(!bad.length, 'idle entities keep moving: ' + bad.join('; '));
+  // 薄薄一片土（1 ~ 3 列）只在身體右邊最外側那一欄上方、離地面 40 ~ 110px：跳起來頭會穿過去（headBlocked 看 ±(hw-2)），
+  // 落下來時那片土在身體中間、或只有身體最外側搭在它上面。腳下離地太遠，不能被它掛在半空 / 站在角上，要落回地面（跟以前一樣）
+  const m = new Match({ levelId: 'level1', players: mkPlayers(1), seed: 1 });
+  const p = m.players[0], t = m.terrain;
+  p.x = 200; m.settle(300);
+  const gy = p.y, mask0 = t.mask.slice(), col = Math.floor(p.x + p.hw - 1);
+  const hung = [];
+  for (let th = 1; th <= 3; th++) for (let top = 40; top <= 110; top++) {
+    t.mask.set(mask0);
+    const r0 = Math.floor(gy - top);
+    for (let yy = r0; yy < r0 + th; yy++) for (let xx = col; xx < col + 22; xx++) t.mask[yy * t.w + xx] = 1;   // 1 = 土
+    Object.assign(p, { x: 200, y: gy, vx: 0, vy: 0, onGround: true, stamina: p.maxStamina, wantJump: true });
+    for (let f = 0; f < 240; f++) p.update(CONFIG.FIXED_DT, m.world);
+    if (Math.abs(p.y - gy) > 1) hung.push(`th${th} top${top}: y ${p.y.toFixed(2)} (ground ${gy})`);
+  }
+  assert(!hung.length, `stuck above the ground ${hung.length}x: ` + hung.slice(0, 4).join('; '));
+  return { outerOnly };
+});
+
+test('走進水裡：客戶端記的站穩點伺服器一定收（身體外側搭在坡上、腳下離地超過 2px 的那幾幀算站著但不記），兩邊重生在同一個地方', () => withWater(() => {
+  // 客戶端（cm）自己跑物理、每 6 幀回報一次位置給伺服器（m），掉進水裡那次帶客戶端記的站穩點（跟正式遊戲一樣）。
+  // 以前 level1 從 x854 / x891 往左走：客戶端記到坡上腳下離地 3px 的點、伺服器不收，重生點差 50px 以上
+  let falls = 0, notSafe = 0;
+  const bad = [];
+  for (const levelId of ['level1', 'level2', 'flanked']) {
+    const mk = () => new Match({ levelId, players: mkPlayers(1), seed: 1 });
+    const m = mk(), cm = mk();
+    const ps = m.players[0], pc = cm.players[0];
+    for (let x0 = 40; x0 < m.terrain.maxX - 40; x0 += 37) for (const dir of [-1, 1]) {
+      for (const e of [ps, pc]) Object.assign(e, { x: x0, y: 50, vx: 0, vy: 0, hp: 1e6, maxHp: 1e6, onGround: false, moveDir: 0 });
+      for (let f = 0; f < 400 && !pc.waterFalls; f++) pc.update(CONFIG.FIXED_DT, cm.world);
+      if (pc.waterFalls) { pc.waterFalls = 0; continue; }   // 丟下來就掉進水裡的不算
+      Object.assign(ps, { x: pc.x, y: pc.y, safeX: pc.safeX, safeY: pc.safeY, stamina: 1e9, maxStamina: 1e9 });
+      Object.assign(pc, { moveDir: dir, stamina: 1e9, maxStamina: 1e9 });
+      for (let f = 1; f <= 900; f++) {
+        pc.update(CONFIG.FIXED_DT, cm.world);
+        if (pc.onGround && pc.y <= CONFIG.WATER_LEVEL - CONFIG.WATER.safeMargin && !pc.canStandAt(cm.terrain, pc.x, pc.y)) notSafe++;
+        if (pc.waterFalls) {
+          const s = pc.splash;
+          falls++;
+          if (!ps.canStandAt(m.terrain, s.sx, s.sy)) bad.push(`${levelId} x${x0} dir${dir}: server rejects the client's safe spot ${s.sx},${s.sy}`);
+          report(m, ps, s.x, s.y, dir, pc.stamina, { safe: { x: s.sx, y: s.sy } });
+          if (ps.x !== pc.x || ps.y !== pc.y) bad.push(`${levelId} x${x0} dir${dir}: client ${pc.x},${pc.y} server ${ps.x},${ps.y}`);
+          break;
+        }
+        if (f % 6 === 0) report(m, ps, pc.x, pc.y, dir, pc.stamina, { vy: pc.vy });
+      }
+      pc.waterFalls = 0;
+    }
+  }
+  assert(falls > 30 && notSafe > 0, `the walks must reach the water and pass frames that stand but are not safe spots: falls ${falls}, ${notSafe}`);
+  assert(!bad.length, `client and server disagree ${bad.length}x: ` + bad.slice(0, 4).join('; '));
+  return { falls, notSafe };
+}));
 
 test('慢動作的條件 midJump：只有真的按了跳才算（走下坡 / 走下台階的離地不算），落地就結束；被擊退飛起來、落水重生、校正狀態都不算', () => {
   // 每張一般地圖：從每個出生點往左、往右一路走（不跳），會有離地的幀（斜坡的像素階梯、走下台階、走下懸崖），但 midJump 一次都不能是 true

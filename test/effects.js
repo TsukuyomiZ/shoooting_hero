@@ -21,6 +21,7 @@ import { CONFIG } from '../shared/config.js';
 import { Match } from '../shared/match.js';
 import {
   EFFECTS, EFFECT_KEYS, INSTANT_KEYS, WEAPON_ONLY_KEYS, TEAM_ONLY_KEYS, DEFAULT_MODS, HOOK_NAMES, STATUS_CHIP_ORDER, effectOf,
+  effectSum, appliesBurn,
 } from '../shared/effects/index.js';
 import { validateCards, baseStats, derivePlayerStats, applyCard } from '../shared/cards.js';
 import { DEFAULT_MODS as ENTITY_DEFAULT_MODS } from '../shared/entities.js';
@@ -70,7 +71,7 @@ const OLD_EFFECT_KEYS = {
   jumpSpeedPct:     '跳躍力 +N%',
   extraJumps:       '在空中可以再跳 N 次（1 = 二段跳；每次一樣消耗跳躍體力，落地補滿）',
   sizePct:          '體型 +N%（越大越好被打中）',
-  turnTime:         '每回合秒數 +N',
+  // turnTime（每回合秒數 +N）：沒有牌用它，10-07 刪掉了（裁判的 turnSecs 槽還在）
   extraTurn:        `自己的回合結束後再獲得一個額外回合（填 1；之後冷卻 ${CONFIG.EQUIP.extraTurnCooldown} 個回合）`,
   bombard:          '自己的回合開始時，自己以外的區域落下轟炸飛彈（填 1）',
   teamShield:       `每過 ${CONFIG.EQUIP.shieldEveryTurns} 個自己的回合，全隊獲得 N 次無敵（擋下一次傷害）`,
@@ -101,7 +102,7 @@ const OLD_DEFAULT_MODS = {
   rampDamagePct: 0, rampDamageMaxPct: 0, killDamagePct: 0, lifestealPct: 0,
   radiusPct: 0, knockbackPct: 0, sniperBounce: 0, sniperPierce: 0, cannonBounce: 0,
   burnStacks: 0, cannonBurnStacks: 0,
-  armorPct: 0, friendlyArmorPct: 0, regenPct: 0, turnTime: 0,
+  armorPct: 0, friendlyArmorPct: 0, regenPct: 0,
   bombard: 0, teamShield: 0, extraJumps: 0, extraTurn: 0,
   loneDamagePct: 0, loneLifestealPct: 0, allyDamagePct: 0, allyArmorPct: 0,
   feverDamagePct: 0, fullArc: 0,
@@ -141,7 +142,7 @@ function makeCopy(name, effectSrc) {
 
 const sorted = (o) => J(Object.entries(o).sort(([a], [b]) => (a < b ? -1 : 1)));
 
-await test('登記表涵蓋 cards.json 用到的每個 key；以前的 45 個 key 都在而且排在最前面（說明一字不差）；key / 效果 id / 狀態欄位 / 同步欄位不重複；validateCards 照樣警告不認得的 key', () => {
+await test('登記表涵蓋 cards.json 用到的每個 key；以前的 44 個 key 都在而且排在最前面（說明一字不差）；key / 效果 id / 狀態欄位 / 同步欄位不重複；validateCards 照樣警告不認得的 key', () => {
   const raw = JSON.parse(read('shared/cards.json'));
   const used = new Set((raw.cards || raw).flatMap(c => Object.keys(c.effects || {})));
   for (const k of used) assert(k in EFFECT_KEYS && effectOf(k), `cards.json uses ${k}, which no effect defines`);
@@ -159,6 +160,8 @@ await test('登記表涵蓋 cards.json 用到的每個 key；以前的 45 個 ke
   const { cards, warnings } = validateCards({ cards: [{ id: 'x', rarity: 'white', effects: { damagePct: 5, noSuchKey: 3, stageDamagePct: 4 } }] });
   assert(warnings.length === 2 && warnings.every(w => w.includes('不認得的效果')), 'warnings ' + warnings);
   assert(J(cards[0].effects) === J({ damagePct: 5 }), 'unknown keys dropped (stageDamagePct is not a card key)');
+  // 刪掉的效果不再登記（裁判的 turnSecs 槽還在，只是沒有效果用它）
+  assert(!('turnTime' in EFFECT_KEYS) && !('turnTime' in DEFAULT_MODS) && !effectOf('turnTime') && !EFFECTS.some(m => m.id === 'turnTime'), 'turnTime is gone');
   return { keys: Object.keys(EFFECT_KEYS).length, effects: EFFECTS.length, states: STATES.length, cardKeys: used.size };
 });
 
@@ -344,6 +347,31 @@ await test('加一個假效果（一個新檔案 + 登記表一行）：牌庫�
   return { testHits: p1.testHits, chips: chips.map(c => c.label) };
 });
 
+// 選牌畫面的燃燒說明：看牌實際帶的效果（有寫 burnOnHit 的效果的 key），不看說明文字
+await test('appliesBurn：每張牌會不會讓敵人燃燒，跟戰鬥裡 burnOnHit 槽（任一把武器）算出來的一致；值 0 的 key、武器牌、沒有效果的牌都不算', () => {
+  const { cards } = validateCards(JSON.parse(read('shared/cards.json')));
+  const burning = [];
+  for (const c of cards) {
+    const stats = baseStats();
+    for (const [k, v] of Object.entries(c.effects || {})) if (k in stats) stats[k] += v;
+    const e = { mods: derivePlayerStats(stats).mods };
+    const burns = Object.keys(CONFIG.WEAPONS).some(w => effectSum('burnOnHit', e, { weaponId: w }) > 0);
+    assert(appliesBurn(c) === burns, `${c.id}: appliesBurn ${appliesBurn(c)}, burnOnHit ${burns}`);
+    if (burns) burning.push(c.id);
+  }
+  assert(burning.length > 0, 'some card applies burn');
+  // 每個 key 單獨填 1：appliesBurn 說會燒的，戰鬥裡真的會上燃燒；填 0 就不算
+  const burnKeys = Object.keys(DEFAULT_MODS).filter(k => k in EFFECT_KEYS && appliesBurn({ effects: { [k]: 1 } }));
+  for (const k of Object.keys(DEFAULT_MODS).filter(x => x in EFFECT_KEYS)) {
+    const e = { mods: { ...DEFAULT_MODS, [k]: 1 } };
+    const burns = Object.keys(CONFIG.WEAPONS).some(w => effectSum('burnOnHit', e, { weaponId: w }) > 0);
+    assert(burns === burnKeys.includes(k), `key ${k}: burnOnHit ${burns}`);
+  }
+  assert(burnKeys.length && burnKeys.every(k => !appliesBurn({ effects: { [k]: 0 } })), 'burn keys with 0 do not count: ' + burnKeys);
+  assert(!appliesBurn({ id: 'w', weapon: 'plasma' }) && !appliesBurn(null) && !appliesBurn({ effects: {} }), 'weapon cards / no effects');
+  return { burning, burnKeys };
+});
+
 await test('寫錯的效果狀態（跟角色的欄位 / toState 的同步欄位撞名、after 寫錯）、要指定隊友卻沒有選牌畫面文字的效果，載入時就丟錯', async () => {
   const cases = [
     ['state-field', `state: { shield: { wire: 'fk', after: 'vn' } }`, /effect state shield: the character already has a field/],
@@ -392,8 +420,6 @@ const SAME_NAME = {
   heal: [/\b(?:this|match)\.heal\(/g, /\b(?:ev|fx|b|msg)\.heal\b/g, /\btype === 'heal'/g, new RegExp(NOT_KEY + 'heal(?![\\w\'"`-])', 'g')],
   // 選牌訊息 / 結果的 link 欄位（指定的隊友）
   link: [/\b(?:msg|entry|s)\.link\b/g, new RegExp(NOT_KEY + 'link\\s*:', 'g')],
-  // 回合訊息的 turnTime 欄位（秒數由裁判的 turnTimeFor 算）
-  turnTime: [/\bmsg\.turnTime\b/g, new RegExp(NOT_KEY + 'turnTime\\s*:', 'g')],
   // 裁判的「這回合是額外回合」與它在 statePayload 的欄位
   extraTurn: [/\bthis\.extraTurn\b/g, new RegExp(NOT_KEY + 'extraTurn\\s*:', 'g')],
   // 武器 id（轟炸飛彈的畫法、爆炸的顏色 / 震動）
@@ -415,7 +441,7 @@ await test('shared / client / server 所有的程式碼（effects/、config.js �
       const at = `${f}:${i + 1}`;
       const rest = consume(line, EXCEPT[f] || [], f);
       for (const k of WORDS) {
-        // 一整個字才算（CSS class 'link-btn' 這種連字號接起來的、turnTimeFor 這種更長的名字不算）
+        // 一整個字才算（CSS class 'link-btn' 這種連字號接起來的、linkTargets 這種更長的名字不算）
         const word = new RegExp(`(?<![\\w-])${k}(?![\\w-])`);
         if (word.test(rest) && word.test(consume(rest, SAME_NAME[k] || [], k))) problems.push(`${at} mentions ${k}: ${line.trim()}`);
       }

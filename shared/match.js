@@ -322,11 +322,12 @@ export class Match {
     return out;
   }
 
-  // 攻擊者對某武器的傷害倍率（效果的加成）。敵人（含 Boss、樹妖、蜜蜂）照關卡規則的 enemyDamage。裝備產生的攻擊（轟炸）不吃武器傷害加成。
+  // 攻擊者對某武器的傷害倍率（效果的加成）。敵人（含 Boss、樹妖、蜜蜂）照關卡規則的 enemyDamage。
+  // 裝備產生的攻擊（轟炸）跟持有者自己的其他攻擊一樣吃這些加成（只限某把武器的加成，武器 id 不是那把就不算）。
   // 效果的武器傷害 % 分三個槽、照這個順序相加：damage（自己的加成：所有武器 / 這把武器 → 每回合成長 → 擊殺累積）
   // → situation（看場上：這一關的暫時加成、隊友人數）→ state（看自己的狀態：狂熱、層數）
   damageMult(attacker, weapon) {
-    if (!attacker || weapon.fromEquip) return 1;
+    if (!attacker) return 1;
     if (attacker.team === 'enemies') return this.rules.enemyDamage;
     const c = { match: this, weaponId: weapon.id, allies: this.alliesAlive(attacker) };
     const pct = (slot) => Effects.effectSum(slot, attacker, c);

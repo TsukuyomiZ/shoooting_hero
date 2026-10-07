@@ -24,7 +24,6 @@ import { stamina } from './stamina.js';
 import { moveSpeed } from './move-speed.js';
 import { jumpSpeed } from './jump-speed.js';
 import { size } from './size.js';
-import { turnTime } from './turn-time.js';
 import { bombard } from './bombard.js';
 import { teamShield } from './team-shield.js';
 import { extraJumps } from './extra-jumps.js';
@@ -101,7 +100,7 @@ import { link } from './link.js';
 //   carry(p, d)                算這一關的 carry：改 derivePlayerStats 的結果 d（上限、mods）
 //   stageOver(p)               一關打完：血量與帶走的狀態都收回之後
 // 戰鬥的槽（(e, c) → 數字；c = { match, weaponId, allies }；從 0 開始依 LIST 的順序相加，Match 決定各槽怎麼組合）
-//   damage / damageSituation / damageState   武器傷害 +%：Match.damageMult = 1 + (damage + damageSituation + damageState) / 100，轟炸不吃。
+//   damage / damageSituation / damageState   武器傷害 +%：Match.damageMult = 1 + (damage + damageSituation + damageState) / 100，轟炸也吃。
 //                              三個槽算法一樣，分開只是為了保住以前小數相加的順序（各槽照 LIST 先加完，三個再相加）。現在的成員：
 //                              damage = 一直有的加成：damage（damagePct）、cannonDamage、sniperDamage、ramp（每回合成長）、soul（擊殺累積）
 //                              damageSituation = 這一關給的、或看隊友人數：adrenaline（stageDamagePct）、lone（孤狼）、unity（團結）
@@ -113,10 +112,10 @@ import { link } from './link.js';
 //   lifesteal                  傷害吸血 %（c.allies = 打中之前活著的隊友數）
 //   knockback                  擊退 +%
 //   radius                     爆炸半徑 +%（weapons.js blastRadius：Match 與 AI 共用）
-//   burnOnHit                  開火擊中的敵人附加幾層燃燒
+//   burnOnHit                  開火擊中的敵人附加幾層燃燒（有寫這個掛勾的效果 = 會上燃燒：牌上有它的 key，選牌畫面就補燃燒的說明，見 appliesBurn）
 //   bounces / pierce           飛行物在地形上彈射幾次 / 穿透角色（weapons.js shotTraits：伺服器、預覽、AI 共用；pierce 任一個 true 就是）
 //   previewFull                瞄準預覽畫完整拋物線（任一個 true 就是）
-//   turnSecs                   每回合秒數 +N（裁判）
+//   turnSecs                   每回合秒數 +N（裁判的 turnTimeFor；目前沒有效果用它）
 // 戰鬥的時間點
 //   turnBegin(match, e) → (() → shot) | null   輪到 e（beginTurn 之後、開始計時之前，裁判呼叫）：這個效果要出手的話，
 //                              回傳結算那一波攻擊的函式（無差別轟炸；裁判先切換狀態、拍血量快照才呼叫它）
@@ -129,7 +128,8 @@ import { link } from './link.js';
 //                              c = { alive0, shielded, block, friendly, damages }）
 //   shotLog: { group, field, value(e), on(e) }   開火紀錄（LOG 的 shot）附的欄位：同一群組任一個 on 就整組記 { group: { field: value } }
 // 畫面（客戶端；只給資料，畫法在 render.js / game-view.js / cards-ui.js）
-//   chip(e, c) → [文字, 顏色] | null   自己的狀態列一格（c = { match }；第幾輪、狂熱看 match.round / match.fever）；chipOrder 決定位置（小的在前，一樣的照 LIST 的順序），
+//   chip(e, c) → [文字, 顏色] | null   自己的狀態列一格（c = { match }；第幾輪、狂熱看 match.round / match.fever；
+//                              一個槽的總數用 Match 結算的同一個算法，例如「吸血」「減傷」那兩格看 match.lifestealOf / armorOf）；chipOrder 決定位置（小的在前，一樣的照 LIST 的順序），
 //                              狀態（無敵、燃燒、中毒、生命鎖）排在 STATUS_CHIP_ORDER = 150。目前用到的（最準的是 grep chipOrder shared/effects/）：
 //                              ramp 10、soul 20、bossDamage 30、lifesteal 40、armor 50、regen 60、extraJumps 70、extraTurn 80、bombard 90、
 //                              teamShield 100、〔狀態 150〕、fever 200、fullArc 210、ready 220、hunt 230、adrenaline 240、lone 250、unity 260、link 270
@@ -143,7 +143,7 @@ import { link } from './link.js';
 const LIST = [
   maxHp, heal, healPct, teamHeal, damage, cannonDamage, sniperDamage, bossDamage, ramp, soul, lifesteal, radius, knockback,
   sniperBounce, sniperPierce, cannonBounce, burnHit, cannonBurn, armor, friendlyArmor, regen, stamina, moveSpeed, jumpSpeed, size,
-  turnTime, bombard, teamShield, extraJumps, extraTurn, allyHeal, adrenaline, lone, unity, fever, fullArc, ready, hunt, link,
+  bombard, teamShield, extraJumps, extraTurn, allyHeal, adrenaline, lone, unity, fever, fullArc, ready, hunt, link,
 ];
 
 const NOOP = () => {};
@@ -250,6 +250,13 @@ export function teammateEffect(card) {
   return null;
 }
 export const needsTeammate = (card) => !!teammateEffect(card);
+
+/** 這張牌會不會讓敵人燃燒：牌上有 > 0 的 key 屬於有寫 burnOnHit 的效果（火焰彈、穿甲燃燒彈…）。
+ *  選牌畫面照這個決定要不要補燃燒的說明（不看牌的說明文字；武器牌的武器本身沒有會上燃燒的，所以只看效果） */
+export function appliesBurn(card) {
+  if (!card || !card.effects) return false;
+  return Object.entries(card.effects).some(([k, v]) => v > 0 && IMPL.burnOnHit.includes(OWNER.get(k)));
+}
 
 /** 選牌第一輪套完 p 的牌：各效果記到 p 身上或這一輪共用的 pool；target = 這張牌指定的隊友 id（沒有 = null） */
 export function picked(p, now, pool, target = null) {

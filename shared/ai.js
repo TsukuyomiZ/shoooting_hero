@@ -70,6 +70,8 @@ export function planShot(world, shooter, rng) {
   const traits = shotTraits(shooter, arcId);   // 代打的玩家有彈射的效果（蹦蹦炸彈）：試射也要照彈射後的落點算
   const friends = world.entities.filter(e => e.alive && e.team === shooter.team);
   const shunned = world.entities.filter(e => e.alive && e.team !== shooter.team && avoid(e));   // 蜂巢：落點離它太近也扣分
+  // 落點離隊友 / 蜂巢多近算會炸到：爆炸半徑（同一個 blastRadius：代打的玩家有半徑加成的牌也照算；敵人沒有，就是武器原本的半徑）+ 20
+  const reach = blastRadius(shooter, weapon) + 20;
   let best = null;
   for (let a = 15; a <= 85; a += 5) {
     const angle = facing > 0 ? a : 180 - a;
@@ -86,13 +88,13 @@ export function planShot(world, shooter, rng) {
         // 會炸到隊友的落點扣分（穿過自己人、又不爆炸的武器——樹妖的長矛——不用管）
         if (!(weapon.passAllies && !weapon.radius)) {
           for (const f of friends) {
-            if (Math.hypot(r.hit.x - f.cx, r.hit.y - f.cy) < weapon.radius + 20) score += 800;
+            if (Math.hypot(r.hit.x - f.cx, r.hit.y - f.cy) < reach) score += 800;
           }
         }
       }
       // 爆炸會波及蜂巢的落點也扣分（直接打中目標也一樣：目標就在蜂巢旁邊時寧可換個打法）
       if (score < 5000 && weapon.radius > 0) {
-        for (const s of shunned) if (s.distanceTo(r.hit.x, r.hit.y) < weapon.radius + 20) score += 800;
+        for (const s of shunned) if (s.distanceTo(r.hit.x, r.hit.y) < reach) score += 800;
       }
       if (!best || score < best.score) best = { score, angle, power };
     }

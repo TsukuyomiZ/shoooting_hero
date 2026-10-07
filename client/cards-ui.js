@@ -1,6 +1,6 @@
 import { CONFIG } from '../shared/config.js';
 import { needsDiscard } from '../shared/cards.js';
-import { teammateEffect } from '../shared/effects/index.js';
+import { teammateEffect, appliesBurn } from '../shared/effects/index.js';
 import { isBossStage } from '../shared/stage-rules.js';
 
 // 過關選牌畫面（DOM）：三張牌選一張，顯示倒數與其他玩家是否已選。
@@ -171,11 +171,11 @@ export class CardsUi {
     this.$('#cards-loadout').textContent = `你的武器欄（${this.weapons.length} / ${CONFIG.EQUIP.maxWeapons}）：${names.join('、')}`;
   }
 
-  // 牌上出現的特殊狀態，在下面補一行說明
+  // 牌會給的特殊狀態，在下面補一行說明（看牌實際帶的效果，不看說明文字）
   renderNotes(offers) {
     const B = CONFIG.EQUIP.burn;
     const notes = [];
-    if (offers.some(c => c.desc.includes('燃燒'))) {
+    if (offers.some(appliesBurn)) {
       notes.push(`＊燃燒：自己的回合結束時，每層扣最大血量 ${B.pctPerStack}%；在自己的回合移動可以甩掉層數（每 ${B.pxPerStack}px 一層，每回合最多 ${B.maxReducePerTurn} 層）`);
     }
     this.$('#cards-note').textContent = notes.join('\n');

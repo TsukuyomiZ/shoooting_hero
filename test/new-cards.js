@@ -10,6 +10,7 @@ import { planShot } from '../shared/ai.js';
 import { replayChecked } from './replay-check.js';
 import { validateCards, drawOffers, baseStats, derivePlayerStats } from '../shared/cards.js';
 import { makeProjectile, simulateShot, shotTraits, aimPreview } from '../shared/weapons.js';
+import { effectChips } from '../shared/effects/index.js';
 
 // 這裡的測試照武器原本傷害算敵人的攻擊；敵人傷害倍率（ENEMY.damageMult / damageMultLate）在 headless.js 另有專門測試
 CONFIG.ENEMY.damageMult = 1;
@@ -198,7 +199,7 @@ test('腎上腺素：只在下一關生效（武器傷害 +50%、血量上限 +1
   const e2 = run.match.byId('p1');
   assert(e2.maxHp === P + up && e2.hp === P + up, `stage 2: max ${e2.maxHp} hp ${e2.hp}, expected ${P + up} / ${P + up}`);
   assert(e2.mods.stageDamagePct === dmgPct && Math.abs(run.match.damageMult(e2, W.cannon) - (1 + dmgPct / 100)) < 1e-12, 'stage 2 weapon damage +' + dmgPct + '%');
-  assert(run.match.damageMult(e2, W.bombard) === 1, 'equipment attacks (bombard) do not get weapon bonuses');
+  assert(Math.abs(run.match.damageMult(e2, W.bombard) - (1 + dmgPct / 100)) < 1e-12, 'equipment attacks (bombard) get it too');
   // 開局帶進來的 carry 也有（客戶端用它建 Match，HUD 才看得到）
   const start = io.take('start').at(-1);
   assert(start.carry.p1.maxHp === P + up && start.carry.p1.mods.stageDamagePct === dmgPct, 'start payload carries the boost');
@@ -354,7 +355,7 @@ test('孤狼傳說：沒有活著的隊友（含單人）才生效：武器傷�
   assert(healed === Math.floor(dealt * ls / 100), `alone lifesteal ${healed} (from ${dealt})`);
   const solo = matchWith({ loneDamagePct: dmg });
   assert(Math.abs(solo.damageMult(solo.players[0], W.cannon) - (1 + dmg / 100)) < 1e-12, 'solo counts as alone');
-  assert(m.damageMult(p1, W.bombard) === 1, 'not on equipment attacks');
+  assert(Math.abs(m.damageMult(p1, W.bombard) - (1 + dmg / 100)) < 1e-12, 'equipment attacks (bombard) get it too');
   return { dealt, healed };
 });
 
@@ -418,6 +419,45 @@ test('團結力量大：同一發炸死隊友時，減傷照爆炸之前的人�
   const d = m.applyExplosion(p2.cx, p2.cy, W.cannon, e1, p2);
   assert(!p1.alive && d.some(x => x.id === 'p1'), 'p1 died in the same blast');
   assert(hp0 - p2.hp === Math.round(W.cannon.damage * 0.5), 'p2 still had 1 ally when the blast hit: took ' + (hp0 - p2.hp));
+});
+
+test('狀態列：「吸血」「減傷」顯示實際的總數（含孤狼傳說 / 團結力量大，跟 Match 結算的同一個數字），沒有基本的牌也會出現；孤狼 / 團結那一格只顯示傷害', () => {
+  const labels = (m, e) => effectChips(e, { match: m }).map(c => c.label);
+  const has = (list, label) => list.includes(label);
+  // 孤狼傳說 + 血之爪：還有隊友時只有血之爪的 5%，隊友倒下後 5% + 5%
+  const m = matchWith({ lifestealPct: 5, loneDamagePct: 50, loneLifestealPct: 5 }, { players: 2 });
+  const [p1, p2] = m.players;
+  let l = labels(m, p1);
+  assert(has(l, '吸血 5%') && has(l, '孤狼（還有隊友）') && m.lifestealOf(p1) === 5, 'teammate alive: ' + l);
+  p2.die('hit');
+  l = labels(m, p1);
+  assert(has(l, '吸血 10%') && has(l, '孤狼 +50%') && m.lifestealOf(p1) === 10, 'alone: ' + l);
+  // 只有孤狼傳說：單人時一直有吸血那一格；多人還有隊友時沒有
+  const solo = matchWith({ loneDamagePct: 50, loneLifestealPct: 5 });
+  l = labels(solo, solo.players[0]);
+  assert(has(l, '吸血 5%') && has(l, '孤狼 +50%'), 'lone wolf only, solo: ' + l);
+  const duo = matchWith({ loneDamagePct: 50, loneLifestealPct: 5 }, { players: 2 });
+  l = labels(duo, duo.players[0]);
+  assert(!l.some(x => x.startsWith('吸血')) && has(l, '孤狼（還有隊友）'), 'lone wolf only, teammate alive: ' + l);
+  // 團結力量大 + 健壯藥丸：兩個隊友 → 5% + 2 × 5%；隊友倒光 → 只剩 5%
+  const u = matchWith({ armorPct: 5, allyDamagePct: 10, allyArmorPct: 5 }, { players: 3 });
+  const [u1, u2, u3] = u.players;
+  l = labels(u, u1);
+  assert(has(l, '減傷 15%') && has(l, '團結 +20%') && u.armorOf(u1) === 15, '2 allies: ' + l);
+  u2.die('hit'); u3.die('hit');
+  l = labels(u, u1);
+  assert(has(l, '減傷 5%') && has(l, '團結（沒有隊友）') && u.armorOf(u1) === 5, 'no allies: ' + l);
+  // 只有團結力量大：有隊友才有減傷那一格
+  const uo = matchWith({ allyDamagePct: 10, allyArmorPct: 5 }, { players: 2 });
+  l = labels(uo, uo.players[0]);
+  assert(has(l, '減傷 5%') && has(l, '團結 +10%'), 'unity only, 1 ally: ' + l);
+  uo.players[1].die('hit');
+  l = labels(uo, uo.players[0]);
+  assert(!l.some(x => x.startsWith('減傷')), 'unity only, alone: ' + l);
+  // 沒有這些牌的人：都不顯示
+  const plain = matchWith({}, { players: 2 });
+  l = labels(plain, plain.players[0]);
+  assert(!l.some(x => x.startsWith('吸血') || x.startsWith('減傷')), 'plain: ' + l);
 });
 
 // ---------- 金 ----------

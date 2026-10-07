@@ -49,7 +49,8 @@ export function replayVolley(match, shot) {
  * @property {LiveProjectile[]} live  畫面用的飛行物清單：整段都是同一個陣列（原地更新，飛行結束清空）
  * @property {string[]} drift  跟伺服器結構上對不起來的地方（空的 = 一致）：跳過的事件、輪不到的事件、不認得的 ents id、飛行結束還沒結束的飛行物
  * @property {string|null} settle  跑完之後：客戶端不是剛好在第 S 幀第一次站穩就是說明，一致是 null。
- *   AI 回合從快照還原的角色本來就可能抖零點幾 px（重構前就有），所以正式遊戲只拿 drift 警告，settle 只在測試檢查
+ *   以前站在斜坡 / 坑底的角色會上下抖零點幾 px，從快照還原後站穩的那一幀會跟伺服器差一點（已修，見 Entity.standing）；
+ *   正式遊戲照舊只拿 drift 警告，settle 只在測試檢查
  * @property {(look?: VolleyLook) => Generator<VolleyTick, void>} frames  逐幀推進（GameView 用）；只能跑一次
  * @property {(look?: VolleyLook) => string[]} run  一次跑完 frames()（測試用），回傳 drift
  *

@@ -2,8 +2,9 @@ import { CONFIG } from '../config.js';
 import { makeProjectile } from '../projectile.js';
 
 // 無差別轟炸：持有者附近以外，整張地圖每隔 spacing 落下一發飛彈（由近到遠）。
-// 會波及隊友（照一般誤傷規則），但炸不到持有者自己；飛彈數值在 CONFIG.WEAPONS.bombard（fromEquip：不吃武器傷害加成）、
-// 落點在 CONFIG.EQUIP.bombard。回傳跟一般開火同樣格式的結果（kind: 'bombard'，不帶 actor：射手不用擺位置）
+// 會波及隊友（照一般誤傷規則），但炸不到持有者自己；飛彈數值在 CONFIG.WEAPONS.bombard、落點在 CONFIG.EQUIP.bombard。
+// 傷害跟持有者自己的其他攻擊一樣吃他的加成（武器傷害、對首領、擊退、吸血；只限大砲 / 狙擊槍的加成不算，見 Match.damageMult）。
+// 回傳跟一般開火同樣格式的結果（kind: 'bombard'，不帶 actor：射手不用擺位置）
 function resolveBombard(match, owner) {
   const weapon = CONFIG.WEAPONS.bombard;
   const B = CONFIG.EQUIP.bombard;

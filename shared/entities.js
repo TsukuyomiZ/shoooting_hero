@@ -10,6 +10,7 @@ export { DEFAULT_MODS };
 export const VINE_HAND = 4;
 const VINE_REACH = 4;      // 身體邊緣離藤蔓多近就抓得到
 const VINE_REGRAB = 15;    // 放手 / 從藤蔓上跳開後，幾幀內不會再抓（不然按著 W 一跳開又馬上抓回去）
+const UNSTICK = 12;        // 卡進地形時最多往上推幾 px（見 update 最後、standing）
 
 // 玩家與敵人共用的角色類別。(x, y) 是腳底中心點。
 // 物理只用加減乘除與比較，所以伺服器與所有客戶端跑出來的結果一致。
@@ -168,6 +169,17 @@ export class Entity {
            terrain.supports(x + this.hw - 3, y);
   }
 
+  // 站得住（落地、onGround 用）：腳下三點撐著；或身體現在沒卡在地形裡、再往下 1px 就會卡進去，而且腳下三點往下 UNSTICK px 內踩得到地。
+  // 腳下三點（±(hw-3)）比身體（collides 看的 ±(hw-1)）窄，站在斜坡 / 坑底時常常是身體外側先碰到坡：只看腳下三點的話會往下掉進坡裡、
+  // 被 update 最後的「卡進地形就往上推」推回來、又懸空往下掉，一直上下抖零點幾 px（onGround 也跟著閃，客戶端一直回報位置）。
+  // 腳下 UNSTICK px 內都沒有地（只有身體邊緣搭在高台角上、或一片薄土穿過身體）往上推也推不回來，照舊不算、跟以前一樣掉下去
+  standing(terrain, x, y) {
+    if (this.groundBelow(terrain, x, y)) return true;
+    if (this.collides(terrain, x, y) || !this.collides(terrain, x, y + 1)) return false;
+    for (let k = 1; k <= UNSTICK; k++) if (this.groundBelow(terrain, x, y + k)) return true;
+    return false;
+  }
+
   headBlocked(terrain, x, y) {
     return terrain.isSolid(x - this.hw + 2, y - this.h) ||
            terrain.isSolid(x, y - this.h) ||
@@ -211,7 +223,7 @@ export class Entity {
     return false;
   }
 
-  // 算不算站在地上（跳躍用）。走下坡、站在斜坡的像素階梯上時 onGround 會閃掉幾幀，
+  // 算不算站在地上（跳躍用）。走下坡時 onGround 會閃掉幾幀，
   // 所以沒有在往上飛、腳下 3px 內有地面也算站著
   nearGround(terrain) {
     if (this.onGround) return true;
@@ -282,7 +294,7 @@ export class Entity {
     if (dy > 0) {
       let rem = dy;
       while (rem > 0) {
-        if (this.groundBelow(terrain, this.x, this.y)) { this.vy = 0; break; }
+        if (this.standing(terrain, this.x, this.y)) { this.vy = 0; break; }
         const s = Math.min(1, rem);
         this.y += s;
         rem -= s;
@@ -297,20 +309,22 @@ export class Entity {
         rem -= s;
       }
     }
-    this.onGround = this.vy >= 0 && this.groundBelow(terrain, this.x, this.y);
+    this.onGround = this.vy >= 0 && this.standing(terrain, this.x, this.y);
     if (this.onGround) { this.airJumpsLeft = this.mods.extraJumps; this.jumped = false; }
 
     // 萬一卡進地形，往上推出
     if (this.collides(terrain, this.x, this.y)) {
-      for (let up = 1; up <= 12; up++) {
+      for (let up = 1; up <= UNSTICK; up++) {
         if (!this.collides(terrain, this.x, this.y - up)) { this.y -= up; break; }
       }
     }
 
     this.x = clamp(this.x, this.hw, terrain.maxX - this.hw);
 
-    // 站穩的地方記下來（落水重生用；水邊不算）
-    if (this.onGround && this.y <= CONFIG.WATER_LEVEL - CONFIG.WATER.safeMargin) { this.safeX = this.x; this.safeY = this.y; }
+    // 站穩的地方記下來（落水重生用）：照 canStandAt 的標準（水邊不算、腳下離地超過 2px 不算）。
+    // standing 讓身體外側搭在坡上、腳下三點離地還差幾 px 的也算站著（onGround），但伺服器收客戶端回報的站穩點看的是 canStandAt：
+    // 記了它不收的點，掉水時兩邊的重生點就會不一樣
+    if (this.onGround && this.canStandAt(terrain, this.x, this.y)) { this.safeX = this.x; this.safeY = this.y; }
     // 落水：扣血後回到最後站穩的地方，扣不起就淹死
     if (this.y > CONFIG.WATER_LEVEL) this.fallInWater(terrain);
   }
@@ -400,7 +414,8 @@ export class Entity {
   }
 
   // 腳底放在 (x, y) 站不站得住：身體不卡進地形、腳下 2px 內有東西撐著、離水面夠遠、頭不超出畫面（落水重生用）。
-  // 「2px 內」是因為站在斜坡上的人會在 1px 之間上下抖（撐住的那一格剛好卡進坡、被推出來又往下掉），不會剛好貼著
+  // 「2px 內」是因為站在斜坡上的人常常是身體外側先碰到坡，腳下三點離地還差一點，不會剛好貼著。
+  // standing 最多容許差 UNSTICK px（那是站不站得住的物理），這裡只收 2px 內的；update 記站穩點也照這個，客戶端回報的站穩點伺服器才一定收
   canStandAt(terrain, x, y) {
     if (x < this.hw || x > terrain.maxX - this.hw || y - this.h < 0 || y > CONFIG.WATER_LEVEL - CONFIG.WATER.safeMargin) return false;
     let ground = false;
