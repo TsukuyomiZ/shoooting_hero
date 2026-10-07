@@ -1,20 +1,10 @@
 import { CONFIG } from './config.js';
 import { clamp } from './utils.js';
 import { isEquippable } from './weapons.js';
+import { DEFAULT_MODS, initState, writeState, readState, checkState } from './effects/index.js';
 
-// 戰鬥中用到的牌加成（% 或次數）。玩家的值由牌算出來（見 cards.js），敵人全部是 0
-export const DEFAULT_MODS = {
-  damagePct: 0, cannonDamagePct: 0, sniperDamagePct: 0, bossDamagePct: 0,
-  rampDamagePct: 0, rampDamageMaxPct: 0, killDamagePct: 0, lifestealPct: 0,
-  radiusPct: 0, knockbackPct: 0, sniperBounce: 0, sniperPierce: 0, cannonBounce: 0,
-  burnStacks: 0, cannonBurnStacks: 0,
-  armorPct: 0, friendlyArmorPct: 0, regenPct: 0, turnTime: 0,
-  bombard: 0, teamShield: 0, extraJumps: 0, extraTurn: 0,
-  loneDamagePct: 0, loneLifestealPct: 0, allyDamagePct: 0, allyArmorPct: 0,
-  feverDamagePct: 0, fullArc: 0,
-  missDamagePct: 0, missMaxStacks: 0, hitDamagePct: 0, hitMaxStacks: 0,
-  stageDamagePct: 0,   // 只在這一關有效的武器傷害加成（腎上腺素），由肉鴿流程每關重新給
-};
+// 戰鬥中用到的牌加成（% 或次數）：從效果的登記表算出來（見 shared/effects/index.js）。玩家的值由牌算出來（見 cards.js），敵人全部是 0
+export { DEFAULT_MODS };
 
 // 藤蔓：抓著的時候「手」在身體最上面往下 VINE_HAND px 的地方，手要在藤蔓的 top ~ bottom 之間
 export const VINE_HAND = 4;
@@ -115,21 +105,20 @@ export class Entity {
     this.shots = 0;
     this.hits = 0;
 
-    // 裝備效果的戰鬥狀態（每關重新開始；soulPct 是噬魂者累積的傷害加成，整場冒險帶著走）
+    // 角色的狀態（任何角色都可能有，每關重新開始）
     this.burn = 0;               // 燃燒層數
     this.burnSource = null;      // 最後一個讓他燃燒的人（燒死算他的擊殺）
     this.poison = 0;             // 中毒層數（還沒結算的，自己的回合開始時結算，見下面的 poisonTick）
     this.poisonLock = 0;         // 被中毒鎖住的最大血量（maxHp 已經扣掉了；原本的上限 = maxHp + poisonLock）
-    this.shield = 0;             // 神佑之石給的無敵次數
-    this.extraTurnCd = 0;        // 時間扭曲：還要再過幾個回合才會再給額外回合（0 = 這回合結束就會給）
+    this.shield = 0;             // 無敵次數（神佑之石給的）
     this.turnCount = 0;          // 這一關輪到自己幾次了（狂戰之斧、神佑之石用）
     this.movedThisTurn = 0;      // 這回合移動的距離（甩掉燃燒層數用）
-    this.readyStacks = 0;        // 磨刀霍霍的「準備」層數（射擊沒打中敵人 +1，打中歸零）
-    this.huntStacks = 0;         // 越戰越強的「狂獵」層數（射擊打中敵人 +1，沒打中歸零）
     this.kills = 0;
-    this.soulPct = o.soulPct || 0;
     this.healFrac = 0;           // 吸血 / 回血不足 1 點的小數先存著
     this.burnFrac = 0;           // 燃燒傷害不足 1 點的小數先存著
+    // 效果自己的狀態（例如磨刀霍霍的層數、噬魂者累積的 %）：欄位與同步格式由各效果宣告（shared/effects/ 的 state），
+    // 整場冒險帶著走的照 o 給的
+    initState(this, o);
   }
 
   get isPlayer() { return this.team === 'players'; }
@@ -490,14 +479,17 @@ export class Entity {
 
   // ---- 同步用 ----
   // ps = 中毒層數、lk = 被中毒鎖住的上限、vn = 抓著第幾條藤蔓（-1 = 沒有；不帶的話客戶端會以為他在半空中、自己掉下去）、
-  // wt = 蜜蜂還要待機幾個回合
+  // wt = 蜜蜂還要待機幾個回合。效果自己的狀態（soul、xcd、rd、hu…）由 writeState 照各效果宣告的位置插進去
   toState() {
+    return writeState(this, this.baseState());
+  }
+  // toState 本來的欄位（效果自己的狀態之外；載入時也拿來檢查效果的同步欄位有沒有撞名，見檔案最後）
+  baseState() {
     const s = {
       id: this.id, x: this.x, y: this.y, hp: this.hp, mhp: this.maxHp, stamina: this.stamina,
       alive: this.alive, cause: this.deathCause, facing: this.facing, weapon: this.weapon,
-      burn: this.burn, shield: this.shield, soul: this.soulPct, turns: this.turnCount, xcd: this.extraTurnCd,
+      burn: this.burn, shield: this.shield, turns: this.turnCount,
       sx: this.safeX, sy: this.safeY, wf: this.waterFalls, ps: this.poison, lk: this.poisonLock, vn: this.onVine,
-      rd: this.readyStacks, hu: this.huntStacks,
     };
     if (this.closeOnHit) s.closed = this.closedTurns;
     if (this.kind === 'bee') s.wt = this.waitTurns;
@@ -542,17 +534,14 @@ export class Entity {
     if (s.weapon) this.weapon = s.weapon;
     if (s.burn !== undefined) this.burn = s.burn;
     if (s.shield !== undefined) this.shield = s.shield;
-    if (s.soul !== undefined) this.soulPct = s.soul;
     if (s.turns !== undefined) this.turnCount = s.turns;
-    if (s.xcd !== undefined) this.extraTurnCd = s.xcd;
+    readState(this, s);   // 效果自己的狀態（快照有帶的才套）
     if (s.closed !== undefined) this.closedTurns = s.closed;
     if (s.sx !== undefined) { this.safeX = s.sx; this.safeY = s.sy; }
     if (s.wf !== undefined) this.waterFalls = s.wf;   // 落水次數跟伺服器對齊（客戶端用它判斷 skip 帶來的水花自己播過了沒）
     if (s.ps !== undefined) this.poison = s.ps;
     if (s.lk !== undefined) this.poisonLock = s.lk;
     if (s.vn !== undefined) this.onVine = s.vn;
-    if (s.rd !== undefined) this.readyStacks = s.rd;
-    if (s.hu !== undefined) this.huntStacks = s.hu;
     if (s.wt !== undefined) this.waitTurns = s.wt;
     this.vineRegrab = 0;
     this.vx = 0;
@@ -569,6 +558,10 @@ export class Entity {
     }
   }
 }
+
+// 載入時就檢查效果自己的狀態（shared/effects/ 的 state）不會默默蓋掉角色的東西：建一個同步欄位最多的角色（會閉上、蜜蜂）——
+// 欄位跟角色本來的撞名，建的時候 initState 就丟錯；同步欄位跟 toState 本來的撞名、after 寫錯，checkState 丟錯
+checkState(Object.keys(new Entity({ id: '', team: 'enemies', x: 0, y: 0, hp: 1, stamina: 1, closeOnHit: 1, kind: 'bee' }).baseState()));
 
 // 中毒（任何角色都可能有：巨蟒、蜜蜂的攻擊會上毒）：自己的回合開始時結算（Match.turnStartEffects 呼叫）。
 // 每層扣最大血量 pctPerStack%（照現在的上限算），活下來的話上限也鎖住一樣多。

@@ -1,6 +1,6 @@
 import { CONFIG } from './config.js';
 import { clamp } from './utils.js';
-import { simulateShot, shotTraits } from './weapons.js';
+import { simulateShot, shotTraits, blastRadius } from './weapons.js';
 
 // 砲口到目標中心的直線上，第一個擋住的東西：'terrain'（地形）、擋在中間的角色，或 null（沒被擋住）。
 // 自己人的子彈穿得過的角色（蜂巢、蜜蜂，allyPass）不擋同隊的視線
@@ -67,7 +67,7 @@ export function planShot(world, shooter, rng) {
 
   // 拋射武器：掃描角度 × 力量，找落點最接近目標、又不會炸到隊友的組合
   const weapon = CONFIG.WEAPONS[arcId];
-  const traits = shotTraits(shooter, arcId);   // 代打的玩家有蹦蹦炸彈：試射也要照彈射後的落點算
+  const traits = shotTraits(shooter, arcId);   // 代打的玩家有彈射的效果（蹦蹦炸彈）：試射也要照彈射後的落點算
   const friends = world.entities.filter(e => e.alive && e.team === shooter.team);
   const shunned = world.entities.filter(e => e.alive && e.team !== shooter.team && avoid(e));   // 蜂巢：落點離它太近也扣分
   let best = null;
@@ -103,9 +103,8 @@ export function planShot(world, shooter, rng) {
   // 蜂巢在場：上面只挑了「不加誤差」的那一發，加上誤差後常常會擦到蜂巢（拋物線往樹枝飛時就從它旁邊過）。
   // 加了誤差會打到 / 炸到蜂巢就重抽誤差（最多 6 次），都不行就用不加誤差的那一發。AI 只在伺服器跑，多抽幾次亂數不影響重播
   if (shunned.length) {
-    // 爆炸範圍照 Match.explosionRadius / applyExplosion（大砲吃 radiusPct，波及判定再 +6）
-    const blast = weapon.radius > 0
-      ? weapon.radius * Math.max(0.2, 1 + (arcId === 'cannon' && shooter.mods ? shooter.mods.radiusPct || 0 : 0) / 100) + 6 : 0;
+    // 爆炸範圍照 Match.explosionRadius / applyExplosion（同一個 blastRadius：吃效果的半徑加成，波及判定再 +6）
+    const blast = weapon.radius > 0 ? blastRadius(shooter, weapon) + 6 : 0;
     const pokes = (a, pw) => {
       const r = simulateShot(world, shooter, weapon, a, pw, 6, 0, traits);
       return (r.hit.type === 'entity' && avoid(r.hit.entity)) || (blast > 0 && shunned.some(s => s.distanceTo(r.hit.x, r.hit.y) <= blast));

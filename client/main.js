@@ -14,7 +14,7 @@ window.view = view;   // 方便在 console 調試
 
 let transport = null;
 let myId = null;
-const cardsUi = new CardsUi(document.getElementById('cards'), (cardId, discard, link) => transport && transport.send({ t: 'pick', cardId, discard, link }));
+const cardsUi = new CardsUi(document.getElementById('cards'), (cardId, discard, teammate) => transport && transport.send({ t: 'pick', cardId, discard, link: teammate }));
 const stickers = new StickerUi(canvas, {
   send: (msg) => transport && transport.send(msg),
   who: (id) => {

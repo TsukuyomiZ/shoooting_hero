@@ -210,7 +210,8 @@ const where = (ev) => `#${ev.p} f${ev.f} ${ev.type}`;
 
 function* replay(match, shot, weapon, live, drift, end, look) {
   const actor = match.byId(shot.actorId) || null;
-  if (shot.kind !== 'bombard' && actor && shot.actor && typeof shot.actor === 'object') place(actor, shot);
+  // 效果的攻擊（例如轟炸）不帶 shot.actor：射手不用擺位置
+  if (actor && shot.actor && typeof shot.actor === 'object') place(actor, shot);
   const F = shot.flightFrames, S = shot.settleFrames;
   const projs = shot.projectiles.map((s, i) => ({
     i, weapon, x: s.x, y: s.y, x0: s.x, y0: s.y, vx: s.vx, vy: s.vy, gravity: weapon.gravity, age: 0,

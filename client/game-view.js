@@ -1,6 +1,7 @@
 import { CONFIG } from '../shared/config.js';
 import { Match } from '../shared/match.js';
 import { replayVolley } from '../shared/volley.js';
+import { stateOf, shotFloats, killFloats, turnFxOps, volleyLook } from '../shared/effects/index.js';
 import { clamp, lerpAngle } from '../shared/utils.js';
 import { Renderer } from './render.js';
 import { TerrainPainter } from './terrain-painter.js';
@@ -423,13 +424,14 @@ export class GameView {
     if (!run) return;
     const actor = this.match.byId(shot.actorId);
     const weapon = CONFIG.WEAPONS[shot.weapon];
-    if (shot.kind === 'bombard') {
-      // 回合開始的轟炸：這時已經輪到持有者了（turn 訊息要等轟炸播完才會來）
+    const look = volleyLook(shot.kind);   // 效果的一波攻擊（例如無差別轟炸）：橫幅由效果給
+    if (look) {
+      // 回合開始的效果攻擊：這時已經輪到持有者了（turn 訊息要等那一波播完才會來）
       this.currentId = shot.actorId;
       if (shot.round) this.round = shot.round;
       this.canAct = false;
       this.waiting = false;
-      this.showBanner(`${actor ? actor.name : ''} 的無差別轟炸！`, '#fb7185', this.feverNotice());
+      this.showBanner(look.banner(actor ? actor.name : ''), look.color, this.feverNotice());
     } else if (actor) {
       // 射手的位置 / 血量 / 藤蔓由重播模組照 shot.actor 擺好（第一個 next()）；這裡只清客戶端自己的狀態
       const v = this.look(actor);
@@ -457,20 +459,15 @@ export class GameView {
     }
     if (run.drift.length) console.warn('重播跟伺服器對不起來', run.drift);
 
-    const stacksBefore = actor ? [actor.readyStacks, actor.huntStacks] : null;
+    const before = actor ? stateOf(actor) : null;   // 效果自己的狀態（例如層數）在套結果之前的值
     this.match.applyEntities(shot.results);   // 校正成伺服器結果
     this.flushMoves();   // 重播中收到的 move（比 results 新）：現在才套上
-    if (actor && shot.hitEnemy !== undefined) {   // 磨刀霍霍 / 越戰越強的層數變化
-      const m = actor.mods;
-      if (m.missDamagePct > 0 && actor.readyStacks !== stacksBefore[0]) {
-        this.floatText(actor, actor.readyStacks ? `準備 ×${actor.readyStacks}` : '準備 歸零', '#fcd34d');
-      }
-      if (m.hitDamagePct > 0 && actor.huntStacks !== stacksBefore[1]) {
-        this.floatText(actor, actor.huntStacks ? `狂獵 ×${actor.huntStacks}` : '狂獵 歸零', '#f87171');
-      }
+    // 效果的飄字：自己開的一槍（例如磨刀霍霍 / 越戰越強的層數變化），再來是這一發的擊殺（例如噬魂者）
+    if (actor && shot.hitEnemy !== undefined) {
+      for (const [str, color] of shotFloats(actor, before)) this.floatText(actor, str, color);
     }
-    if (actor && shot.kills && shot.kills.length && actor.mods.killDamagePct > 0) {
-      this.floatText(actor, `噬魂 +${shot.kills.length * actor.mods.killDamagePct}%`, '#c084fc');
+    if (actor && shot.kills && shot.kills.length) {
+      for (const [str, color] of killFloats(actor, shot)) this.floatText(actor, str, color);
     }
     yield { frames: CONFIG.TIMING.settleDelay * FPS * 0.5 };
   }
@@ -548,7 +545,7 @@ export class GameView {
     if (owner) this.floatText(owner, `+${ev.heal} 吸血`, '#4ade80', 16);
   }
 
-  // 回合結束的裝備效果：燃燒扣血 / 甩掉層數、神佑之石、燒死敵人的噬魂加成
+  // 回合結束的狀態與效果：燃燒扣血 / 甩掉層數、效果的（例如神佑之石、燒死敵人的噬魂加成、時間扭曲；畫面動作由效果給）、地圖畫面的
   *turnFxScript(msg) {
     if (msg.atStart) {   // 回合根本沒開始（回合開始就被毒倒）：現在是他的回合位置，HUD 不要還停在上一位
       this.currentId = msg.actorId;
@@ -556,10 +553,11 @@ export class GameView {
       this.canAct = false;
       this.waiting = false;
     }
-    const banners = [];   // 同一次回合結束可能同時有好幾個（神佑之石 + 時間扭曲），合成一行才不會互相蓋掉
+    const banners = [];   // 同一次回合結束可能同時有好幾個（例如神佑之石 + 時間扭曲），合成一行才不會互相蓋掉
     for (const fx of msg.fx) {
       const e = this.match.byId(fx.id);
       if (!e) continue;
+      let ops;
       if (fx.type === 'burn') {
         if (fx.dmg > 0) {
           e.hurtTimer = 0.35;
@@ -567,20 +565,8 @@ export class GameView {
           this.spawnParticles(e.cx, e.cy, 12, { speed: 70, life: 0.7, size: 4, color: '#f97316', gravity: -160 });
         }
         if (fx.shaken > 0) this.floatText(e, `甩掉 ${fx.shaken} 層燃燒`, '#fdba74', 14);
-      } else if (fx.type === 'shield') {
-        banners.push([`${e.name} 的神佑之石：全隊無敵一次`, '#fde68a']);
-        for (const id of fx.ids) {
-          const t = this.match.byId(id);
-          if (!t) continue;
-          this.floatText(t, '神佑！', '#fde68a');
-          this.spawnParticles(t.cx, t.cy, 14, { speed: 110, life: 0.6, size: 3, color: '#fde68a', gravity: -40 });
-        }
-      } else if (fx.type === 'soul') {
-        this.floatText(e, `噬魂 ${fx.soul}%`, '#c084fc');
-      } else if (fx.type === 'extraTurn') {
-        banners.push([`${e.name} 的時間扭曲：再來一回合！`, '#c4b5fd']);
-        this.floatText(e, '額外回合', '#c4b5fd');
-        this.spawnParticles(e.cx, e.cy, 16, { speed: 120, life: 0.7, size: 3, color: '#c4b5fd', gravity: -30 });
+      } else if ((ops = turnFxOps(fx, e))) {   // 效果的（例如神佑之石、噬魂、時間扭曲）
+        this.playEffectOps(ops, banners);
       } else if (!this.mapView.turnFx(this.mapCtx, e, fx)) {   // 地圖畫面的（例如古樹之口又張開了、巨蟒被燒到掉出蛇血）
         this.statusFx(e, fx);   // 中毒結算把人毒倒了（回合開始時，這回合就不開始了）
       }
@@ -589,6 +575,18 @@ export class GameView {
     if (msg.entities) this.match.applyEntities(msg.entities);
     this.setItems(msg);
     yield { frames: Math.round(CONFIG.TIMING.fxDelay * FPS * 0.6) };
+  }
+
+  // 效果給的畫面動作（見 shared/effects/index.js 的 turnFx）：照順序做；橫幅收進 banners（跟同一次的其他橫幅合成一行），
+  // 飄字與粒子在那個角色身上（角色不在了就跳過）
+  playEffectOps(ops, banners) {
+    for (const op of ops) {
+      if (op[0] === 'banner') { banners.push([op[1], op[2]]); continue; }
+      const t = this.match.byId(op[1]);
+      if (!t) continue;
+      if (op[0] === 'float') this.floatText(t, op[2], op[3], op[4]);
+      else if (op[0] === 'particles') this.spawnParticles(t.cx, t.cy, op[2], op[3]);
+    }
   }
 
   // 中毒結算的飄字與特效（回合開始的 fx、回合沒開始就被毒倒的 turnFx 都用這個）；其他狀態效果（例如喝到蛇血）交給地圖畫面

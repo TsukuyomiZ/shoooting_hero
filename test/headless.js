@@ -672,6 +672,7 @@ test('牌的加成會進戰鬥：大砲傷害 +%、爆炸半徑 +%、減傷 %', 
 
 // ---------- 武器欄與裝備效果 ----------
 import { baseStats, derivePlayerStats, needsDiscard, equipWeapon } from '../shared/cards.js';
+import { rampBonus } from '../shared/effects/ramp.js';
 import { traceShot } from '../shared/weapons.js';
 import { replayChecked } from './replay-check.js';
 
@@ -795,7 +796,7 @@ test('吸血、健壯藥丸減傷、弒神者、狂戰之斧（每回合 +1%，�
 
   const r = matchWith({ rampDamagePct: 1, rampDamageMaxPct: 10 });
   const rp = r.players[0];
-  const ramp = [1, 5, 10, 30].map(n => { rp.turnCount = n; return r.rampBonus(rp); });
+  const ramp = [1, 5, 10, 30].map(n => { rp.turnCount = n; return rampBonus(rp); });
   assert(ramp.join() === '1,5,10,10', 'ramp ' + ramp);
   rp.turnCount = 5;
   assert(Math.abs(r.damageMult(rp, w) - 1.05) < 1e-12, 'ramp feeds the damage multiplier');

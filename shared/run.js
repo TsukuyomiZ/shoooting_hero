@@ -4,12 +4,17 @@ import { Rng } from './rng.js';
 import { Match } from './match.js';
 import { Referee } from './referee.js';
 import { baseStats, drawOffers, applyCard, derivePlayerStats, needsDiscard, equipWeapon } from './cards.js';
+import * as Effects from './effects/index.js';
 import { logValue } from './utils.js';
 
 // 一場冒險（肉鴿流程）：
 //   共 RUN.stageCount 關，RUN.bossStages 那幾關是 Boss 關（同一場不重複同一隻王），其他是小關（每關隨機一張地圖）；
 //   每關勝利後（Boss 關也是）每人三選一張牌 → 下一關 … → 打贏最後一關 = 通關；任何一關全滅 = 結束
 // 玩家的血量、牌、加成、武器欄在關與關之間帶著走。伺服器（Room）與單人模式（LocalTransport）都用這個。
+// 牌的效果（shared/effects/）在這裡只經過固定的時間點：選牌兩輪（順序在 finishPicks）、一關開始 / 算 carry / 打完；
+// 效果自己的欄位（例如腎上腺素的暫時加成、噬魂者帶著走的 %）由效果建在玩家身上。
+// 要指定隊友的牌（效果的 target，例如攜手之伴）：選牌訊息的 link = 指定的隊友，定下來交給效果（picked）記；
+// 攜手之伴的連結記在玩家的 links（雙向，見 linksOf）
 // io 同 Referee：{ broadcast(msg, exceptId), schedule(fn, ms), cancel(h), now() }
 
 // 第 stage 關是不是 Boss 關
@@ -23,16 +28,17 @@ export class Run {
     this.cards = cards;
     this.seed = seed >>> 0;
     this.rng = new Rng(this.seed);
-    this.players = new Map(players.map(p => [p.id, {
-      id: p.id, name: p.name, connected: p.connected !== false,
-      hp: CONFIG.PLAYER.hp, stats: baseStats(), cards: [],
-      weapons: CONFIG.EQUIP.startWeapons.slice(),   // 武器欄
-      soulPct: 0,                                   // 噬魂者累積的武器傷害加成
-      links: [],                                    // 攜手之伴：自己選的連結對象（對方也算連結著自己，見 linksOf）
-      next: { damagePct: 0, maxHp: 0 },             // 腎上腺素：下一關才生效的暫時加成
-      boost: { damagePct: 0, maxHp: 0 },            // 這一關正在生效的暫時加成（打完就失效）
-      totals: { dealt: 0, taken: 0, shots: 0, hits: 0 },   // 結算畫面：整場冒險的造成 / 承受傷害、開槍 / 命中次數
-    }]));
+    this.players = new Map(players.map(p => {
+      const rp = {
+        id: p.id, name: p.name, connected: p.connected !== false,
+        hp: CONFIG.PLAYER.hp, stats: baseStats(), cards: [],
+        weapons: CONFIG.EQUIP.startWeapons.slice(),   // 武器欄
+        links: [],                                    // 攜手之伴：自己選的連結對象（對方也算連結著自己，見 linksOf）
+        totals: { dealt: 0, taken: 0, shots: 0, hits: 0 },   // 結算畫面：整場冒險的造成 / 承受傷害、開槍 / 命中次數
+      };
+      Effects.initRunPlayer(rp);   // 效果自己的欄位（帶著走的狀態、腎上腺素的暫時加成…）
+      return [p.id, rp];
+    }));
     this.stage = 0;
     this.stageCount = CONFIG.RUN.stageCount;
     this.phase = 'idle';   // idle | battle | pick | over
@@ -73,13 +79,13 @@ export class Run {
     return this.rng.pick(choices);
   }
 
-  // 依玩家目前的牌與血量，算出這一關要帶進 Match 的數值（含這一關的暫時加成與連結對象）
+  // 依玩家目前的牌與血量，算出這一關要帶進 Match 的數值（含效果這一關的調整（例如腎上腺素的暫時加成）、帶著走的狀態與連結對象）
   carryFor(p) {
     const d = derivePlayerStats(p.stats);
-    const maxHp = d.maxHp + p.boost.maxHp;
+    Effects.adjustCarry(p, d);
     return {
-      hp: Math.min(p.hp, maxHp), maxHp, maxStamina: d.maxStamina, moveSpeed: d.moveSpeed, jumpSpeed: d.jumpSpeed,
-      size: d.size, mods: { ...d.mods, stageDamagePct: p.boost.damagePct }, weapons: p.weapons.slice(), soulPct: p.soulPct,
+      hp: Math.min(p.hp, d.maxHp), maxHp: d.maxHp, maxStamina: d.maxStamina, moveSpeed: d.moveSpeed, jumpSpeed: d.jumpSpeed,
+      size: d.size, mods: d.mods, weapons: p.weapons.slice(), ...Effects.carriedState(p),
       links: this.linksOf(p.id),
     };
   }
@@ -128,10 +134,8 @@ export class Run {
     for (const p of list) {
       // 上一關倒下的人以 reviveHpPct 復活
       if (p.hp <= 0) p.hp = Math.round(derivePlayerStats(p.stats).maxHp * CONFIG.RUN.reviveHpPct);
-      // 腎上腺素：上一次選牌拿到的暫時加成在這一關生效，血量上限加多少就同時回多少
-      p.boost = p.next;
-      p.next = { damagePct: 0, maxHp: 0 };
-      if (p.boost.maxHp > 0) p.hp += p.boost.maxHp;
+      // 效果的一關開始（腎上腺素：上一次選牌拿到的暫時加成在這一關生效，血量上限加多少就同時回多少）
+      Effects.startStage(p);
       carry[p.id] = this.carryFor(p);
     }
     this.phase = 'battle';
@@ -152,15 +156,16 @@ export class Run {
   }
 
   onBattleOver(result) {
-    // 把血量與噬魂者的累積加成帶回冒險狀態；這一關的暫時加成（腎上腺素）失效，超過原本上限的血扣掉
+    // 把血量與效果帶著走的狀態（例如噬魂者的累積加成）帶回冒險狀態；血量不超過牌算出來的上限
+    // （這一關的暫時加成（腎上腺素）加的上限失效，超過的血扣掉），再交給效果的一關打完
     for (const e of this.match.players) {
       const p = this.players.get(e.id);
       if (!p) continue;
       p.hp = e.alive ? Math.min(e.hp, derivePlayerStats(p.stats).maxHp) : 0;
-      p.soulPct = e.soulPct;
+      Effects.takeBack(p, e);
       for (const k of Object.keys(p.totals)) p.totals[k] += e[k] || 0;
     }
-    for (const p of this.players.values()) p.boost = { damagePct: 0, maxHp: 0 };
+    for (const p of this.players.values()) Effects.endStage(p);
     if (result === 'lose') return this.runOver('lose');
     if (this.isLastStage) return this.runOver('win');   // 打贏最後一關（現在是第二隻王）= 通關；中間的 Boss 關打贏照樣選牌、往下打
 
@@ -217,15 +222,16 @@ export class Run {
         if (!weapons.includes(msg.discard)) return ignored('needDiscard');
         this.discards[playerId] = msg.discard;
       }
-      // 攜手之伴：一定要指定一位還沒跟他連結（這一輪也還沒選他）的隊友
-      if (card.effects.link > 0) {
+      // 要指定隊友的牌（攜手之伴）：一定要指定一位還沒跟他連結（這一輪也還沒選他）的隊友
+      const teammate = Effects.needsTeammate(card);
+      if (teammate) {
         if (!this.linkTargets(p).includes(msg.link)) return ignored('badLinkTarget');
         this.linkPicks[playerId] = msg.link;
       }
       this.picks[playerId] = card.id;
       this.record('pick', {
         stage: this.stage, pid: playerId, name: p.name, card: card.id,
-        ...(needsDiscard(weapons, card) ? { discard: msg.discard } : {}), ...(card.effects.link > 0 ? { link: msg.link } : {}),
+        ...(needsDiscard(weapons, card) ? { discard: msg.discard } : {}), ...(teammate ? { link: msg.link } : {}),
       });
       // link：被選的人的選牌畫面要把他從可連結的名單拿掉（兩人互選會白拿一張牌）
       this.io.broadcast({ t: 'picked', playerId, cardId: card.id, ...(this.linkPicks[playerId] ? { link: this.linkPicks[playerId] } : {}) });
@@ -242,15 +248,14 @@ export class Run {
     this.cancelTimer();
     const summary = [];
     const list = [...this.players.values()];
-    let teamHealPct = 0;
-    const allyHeals = [];   // [回血的人, 每位隊友回多少]（醫療包）
+    const pool = {};   // 這一輪選牌各效果共用的（例如全隊回血的 %、誰要給隊友回血），第二輪才用
     const auto = new Set();   // 紀錄用：超時 / 斷線、由系統隨機選的人
     for (const p of list) {
       const offers = this.offers[p.id] || [];
       let card = offers.find(c => c.id === this.picks[p.id]);
       if (!card && offers.length) {
-        // 沒選 / 斷線 → 隨機，盡量不挑要丟武器才能拿的牌、沒有隊友可以連結的攜手之伴
-        const safe = offers.filter(c => !needsDiscard(p.weapons, c) && !(c.effects.link > 0 && !this.linkTargets(p).length));
+        // 沒選 / 斷線 → 隨機，盡量不挑要丟武器才能拿的牌、沒有隊友可以指定的牌（攜手之伴）
+        const safe = offers.filter(c => !needsDiscard(p.weapons, c) && !(Effects.needsTeammate(c) && !this.linkTargets(p).length));
         card = this.rng.pick(safe.length ? safe : offers);
         auto.add(p.id);
       }
@@ -259,28 +264,29 @@ export class Run {
       const { weapons, discarded } = equipWeapon(p.weapons, card, this.discards[p.id]);
       p.weapons = weapons;
       const now = applyCard(p.stats, card);
-      teamHealPct += now.teamHealPct;
-      if (now.allyHeal > 0) allyHeals.push([p.id, now.allyHeal]);
-      p.next.damagePct += now.nextDamagePct;   // 腎上腺素：下一關才生效
-      p.next.maxHp += now.nextMaxHp;
-      const maxAfter = derivePlayerStats(p.stats).maxHp;
-      if (p.hp > 0) p.hp = Math.min(maxAfter, Math.round(p.hp + now.heal + maxAfter * now.healPct / 100));
-      const entry = { playerId: p.id, cardId: card.id, weapons: p.weapons.slice(), discarded };
-      if (now.link > 0) {
-        // 攜手之伴：照他選的；超時 / 斷線就從還能連的隊友裡隨機挑一位（會避開這一輪已經選了他的人，那兩人本來就會連上）
-        let to = this.linkPicks[p.id];
+      // 要指定隊友的牌：照他選的；超時 / 斷線就從還能選的隊友裡隨機挑一位（會避開這一輪已經選了他的人，攜手之伴的那兩人本來就會連上）
+      let target = null;
+      if (Effects.needsTeammate(card)) {
+        target = this.linkPicks[p.id];
         const free = this.linkTargets(p);
-        if (!free.includes(to)) to = free.length ? this.rng.pick(free) : null;
-        if (to) { p.links.push(to); entry.link = to; }
+        if (!free.includes(target)) target = free.length ? this.rng.pick(free) : null;
       }
+      // 例如腎上腺素記下一關的加成、全隊 / 隊友回血先記著、攜手之伴把指定的隊友記進 links
+      Effects.picked(p, now, pool, target);
+      // 第一輪：自己立刻回的血（對著套完牌的新上限）
+      const maxAfter = derivePlayerStats(p.stats).maxHp;
+      if (p.hp > 0) p.hp = Math.min(maxAfter, Math.round(Effects.pickHeal('healNow', p.hp, now, maxAfter)));
+      const entry = { playerId: p.id, cardId: card.id, weapons: p.weapons.slice(), discarded };
+      if (target) entry.link = target;   // 選牌結果的 link = 指定的隊友（同步格式）
       summary.push(entry);
     }
-    // 全隊回血（祈願之杖）與隊友回血（醫療包）等大家的牌都套完再算，用每個人自己新的上限；倒下的人下一關本來就會復活
+    // 第二輪：隊友的牌給的回血（醫療包）、全隊回血（祈願之杖）等大家的牌都套完再算，用每個人自己新的上限；
+    // 倒下的人下一關本來就會復活
     for (const p of list) {
       if (p.hp <= 0) continue;
       const maxHp = derivePlayerStats(p.stats).maxHp;
-      const ally = allyHeals.reduce((s, [from, n]) => s + (from === p.id ? 0 : n), 0);
-      p.hp = Math.min(maxHp, Math.round(p.hp + ally + maxHp * teamHealPct / 100));
+      const hp = Effects.pickHeal('healForTeam', Effects.pickHeal('healFromTeammates', p.hp, pool, p), pool, p, maxHp);
+      p.hp = Math.min(maxHp, Math.round(hp));
     }
     for (const s of summary) {
       const p = this.players.get(s.playerId);

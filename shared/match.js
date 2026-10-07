@@ -3,20 +3,22 @@ import { LEVELS } from './level.js';
 import { Rng } from './rng.js';
 import { Terrain } from './terrain.js';
 import { Entity, poisonTick } from './entities.js';
-import { launchVelocity, makeProjectile, hitAction, bounceProjectile, shotTraits } from './weapons.js';
+import { launchVelocity, makeProjectile, hitAction, bounceProjectile, shotTraits, blastRadius } from './weapons.js';
 import { runVolley } from './volley.js';
 import { planShot } from './ai.js';
 import { clamp } from './utils.js';
 import { mechanicFor, snapshotOf } from './mechanics/index.js';
+import * as Effects from './effects/index.js';
 
 // 關卡 enemySpawns 的 type → config 裡的數值區塊（沒寫 type = 一般敵人 CONFIG.ENEMY）
 const ENEMY_TYPES = { sniper: 'SNIPER', artillery: 'ARTILLERY' };
 // 敵人種類的名字（type: 'random' 隨機抽到種類時，名字 = 這個 + 關卡給的 tag，例如「砲兵 B」）
 export const ENEMY_LABELS = { normal: '敵人', sniper: '狙擊手', artillery: '砲兵' };
 
-// 一場戰鬥（一關）的狀態與規則：地形、角色、回合順序、開火結算、裝備效果、勝負。
+// 一場戰鬥（一關）的狀態與規則：地形、角色、回合順序、開火結算、勝負。
+// 牌的效果（shared/effects/）只在這裡固定的槽與時間點貢獻數字 / 做事，怎麼組合、照什麼順序在這裡決定；Match 不認得任何一個效果。
 // 不碰 DOM、不碰網路；伺服器拿它當唯一的真相，客戶端拿同一份程式播動畫。
-// carry[playerId] = { hp, maxHp, maxStamina, moveSpeed, jumpSpeed, size, mods, weapons, soulPct }：肉鴿流程中玩家帶著跑的數值
+// carry[playerId] = { hp, maxHp, maxStamina, moveSpeed, jumpSpeed, size, mods, weapons, …效果帶著走的狀態, links }：肉鴿流程中玩家帶著跑的數值
 export class Match {
   constructor({ levelId = 'level1', players, seed, carry = {}, stage = 1 }) {
     this.levelId = levelId;
@@ -50,7 +52,7 @@ export class Match {
         hp: c.hp ?? CONFIG.PLAYER.hp, maxHp: c.maxHp ?? CONFIG.PLAYER.hp,
         stamina: c.maxStamina ?? CONFIG.PLAYER.stamina, maxStamina: c.maxStamina ?? CONFIG.PLAYER.stamina,
         moveSpeed: c.moveSpeed ?? CONFIG.PLAYER.moveSpeed, jumpSpeed: c.jumpSpeed ?? CONFIG.PLAYER.jumpSpeed,
-        mods: c.mods || {}, weapons: c.weapons, size: c.size, soulPct: c.soulPct, links: c.links,
+        mods: c.mods || {}, weapons: c.weapons, size: c.size, ...Effects.carriedState(c), links: c.links,
       }));
     });
     // 攜手之伴的連結只認這一關真的有的隊友
@@ -196,7 +198,7 @@ export class Match {
     return out;
   }
 
-  // ---- 回合開始 / 結束的裝備效果（裁判呼叫） ----
+  // ---- 回合開始 / 結束（裁判呼叫） ----
 
   // 輪到 e：體力回滿、自己的回合數 +1
   beginTurn(e) {
@@ -208,50 +210,44 @@ export class Match {
     e.movedThisTurn = 0;
   }
 
-  // 自己的回合開始時（轟炸之後、開始計時之前）：中毒結算（可能被毒倒）→ 地圖機制（例如站在蛇血上就喝掉）→ 恩賜之杖回血。
+  // 輪到 e 之後、開始計時之前（裁判呼叫）：有效果要出手（例如無差別轟炸）就回傳一個函式，
+  // 呼叫它才結算那一波、回傳跟開火同樣格式的結果；沒有 = null
+  turnBeginVolley(e) {
+    return Effects.turnBegin(this, e);
+  }
+
+  // 無差別轟炸一次（不看有沒有這張牌）：舊的進入點，留給測試與工具直接呼叫；規則在 shared/effects/bombard.js
+  resolveBombard(owner) {
+    return Effects.ACTIONS.resolveBombard(this, owner);
+  }
+
+  // 自己的回合開始時（轟炸之後、開始計時之前）：中毒結算（可能被毒倒）→ 地圖機制（例如站在蛇血上就喝掉）→ 效果（例如恩賜之杖回血）。
   // 回傳 fx 清單給客戶端飄字
   turnStartEffects(e) {
     const fx = [];
     const poison = poisonTick(e);
     if (poison) fx.push(poison);
     this.mechanic.turnStart(this, e, fx);
-    if (e.alive && e.mods.regenPct > 0) {
-      const n = this.heal(e, e.maxHp * e.mods.regenPct / 100);
-      if (n > 0) fx.push({ type: 'heal', id: e.id, amount: n });
-    }
+    Effects.turnStart(this, e, fx);
     return fx;
   }
 
   // 自己的回合結束時：
   // - 燃燒：先用這回合移動的距離甩掉層數（每回合最多 maxReducePerTurn 層），剩下的每層扣最大血量 pctPerStack%
   // - 地圖機制的回合結束效果（例如巨蟒被燒到跨過門檻掉蛇血、古樹的嘴巴張開）
-  // - 神佑之石：每過 shieldEveryTurns 個自己的回合，全隊獲得無敵
-  // - 時間扭曲：普通回合結束時冷卻好了就給一個額外回合（fx 裡的 extraTurn），之後冷卻 extraTurnCooldown 個普通回合。
-  //   額外回合（isExtra）本身不算冷卻、也不能再接額外回合
+  // - 效果的回合結束（照 shared/effects/ 登記的順序：神佑之石給全隊無敵 → 時間扭曲給額外回合）。
+  //   isExtra = 這是時間扭曲給的額外回合
   endTurn(e, isExtra = false) {
     const fx = [];
     if (!e.alive) return fx;
     this.burnTick(e, fx);
     this.mechanic.turnEnd(this, e, fx);
-    if (e.mods.teamShield > 0 && e.turnCount % CONFIG.EQUIP.shieldEveryTurns === 0) {
-      const ids = [];
-      for (const f of this.entities) {
-        if (f.alive && f.team === e.team) { f.shield = Math.max(f.shield, e.mods.teamShield); ids.push(f.id); }
-      }
-      fx.push({ type: 'shield', id: e.id, ids });
-    }
-    if (e.mods.extraTurn > 0 && e.alive && !isExtra && !this.result()) {   // 這一發已經分出勝負就不給（不會有下一回合）
-      if (e.extraTurnCd > 0) {
-        e.extraTurnCd--;
-      } else {
-        e.extraTurnCd = CONFIG.EQUIP.extraTurnCooldown;
-        fx.push({ type: 'extraTurn', id: e.id });
-      }
-    }
+    Effects.turnEnd(this, e, fx, isExtra);
     return fx;
   }
 
   // 燃燒結算（回合結束時）：先用這回合移動的距離甩掉層數，剩下的每層扣最大血量 pctPerStack%；燒死算點火的人的擊殺
+  // （擊殺的效果另外記進 fx，例如噬魂者）
   burnTick(e, fx) {
     if (!(e.burn > 0)) return;
     const B = CONFIG.EQUIP.burn;
@@ -265,9 +261,7 @@ export class Match {
     const igniter = this.byId(e.burnSource);
     if (igniter && igniter.team !== e.team) igniter.dealt += dmg;   // 燒掉的血算點火的人造成的傷害
     const src = !e.alive && igniter;
-    if (src && this.creditKills(src, [e]).length && src.mods.killDamagePct > 0) {
-      fx.push({ type: 'soul', id: src.id, soul: src.soulPct });
-    }
+    if (src) this.creditKills(src, [e], fx);
   }
 
   // ---- 傷害規則 ----
@@ -283,14 +277,6 @@ export class Match {
     return n;
   }
 
-  // 狂戰之斧：自己的第 N 回合 +rampDamagePct × N %，最多 rampDamageMaxPct
-  rampBonus(e) {
-    const m = e.mods;
-    if (!(m.rampDamagePct > 0)) return 0;
-    const v = m.rampDamagePct * e.turnCount;
-    return m.rampDamageMaxPct > 0 ? Math.min(m.rampDamageMaxPct, v) : v;
-  }
-
   // 狂熱：所有傷害的倍率（不分敵我、不分攻擊來源）
   feverMult() {
     return 1 + this.fever * CONFIG.FEVER.damagePct / 100;
@@ -302,44 +288,28 @@ export class Match {
     return feverStacks(round, this.playerCount);
   }
 
-  // 場上還活著的隊友有幾個（不含自己）：孤狼傳說、團結力量大看這個
+  // 場上還活著的隊友有幾個（不含自己）：看隊友人數的效果（孤狼傳說、團結力量大）看這個
   alliesAlive(e) {
     return this.entities.reduce((n, f) => n + (f !== e && f.alive && f.team === e.team ? 1 : 0), 0);
   }
 
-  // 看場上情況的武器傷害加成 %：腎上腺素（只在這一關）、孤狼傳說（沒有活著的隊友）、團結力量大（每個活著的隊友）
-  situationalDamagePct(e, allies = this.alliesAlive(e)) {
-    const m = e.mods;
-    return m.stageDamagePct + (allies === 0 ? m.loneDamagePct : 0) + allies * m.allyDamagePct;
-  }
-
-  // 看自己狀態的武器傷害加成 %：嗨到最高點（狂熱生效中）、磨刀霍霍（準備層數）、越戰越強（狂獵層數）
-  stateDamagePct(e) {
-    const m = e.mods;
-    return (this.fever > 0 ? m.feverDamagePct : 0) + e.readyStacks * m.missDamagePct + e.huntStacks * m.hitDamagePct;
-  }
-
   // 一次射擊結算完：有沒有打中敵人（直擊或波及到敵方都算，傷害 0 也算，例如閉上的古樹之口）。
-  // 磨刀霍霍：沒打中 +1 層準備（最多 missMaxStacks）、打中歸零；越戰越強：打中 +1 層狂獵（最多 hitMaxStacks）、沒打中歸零
-  updateShotStacks(e, events) {
-    const hit = events.some(ev => ev.damages && ev.damages.some(d => !d.friendly));
-    const m = e.mods;
-    if (m.missDamagePct > 0) e.readyStacks = hit ? 0 : Math.min(m.missMaxStacks, e.readyStacks + 1);
-    if (m.hitDamagePct > 0) e.huntStacks = hit ? Math.min(m.hitMaxStacks, e.huntStacks + 1) : 0;
-    return hit;
+  // 效果的 afterShot（磨刀霍霍、越戰越強）與結算畫面的命中率都照這個
+  hitEnemy(events) {
+    return events.some(ev => ev.damages && ev.damages.some(d => !d.friendly));
   }
 
-  // 受到的傷害 -N%：健壯藥丸類 + 團結力量大（每個活著的隊友，只算自己）
-  armorPct(e, allies = this.alliesAlive(e)) {
-    return e.mods.armorPct + allies * e.mods.allyArmorPct;
+  // 受到的傷害 -N%（效果的 armor 槽，例如健壯藥丸類、團結力量大）；allies = 活著的隊友數
+  armorOf(e, allies = this.alliesAlive(e)) {
+    return Effects.effectSum('armor', e, { match: this, allies });
   }
 
-  // 傷害吸血 %：血之爪類 + 孤狼傳說（沒有活著的隊友時）
-  lifestealPct(e, allies = this.alliesAlive(e)) {
-    return e.mods.lifestealPct + (allies === 0 ? e.mods.loneLifestealPct : 0);
+  // 傷害吸血 %（效果的 lifesteal 槽，例如血之爪類、孤狼傳說）；allies = 活著的隊友數
+  lifestealOf(e, allies = this.alliesAlive(e)) {
+    return Effects.effectSum('lifesteal', e, { match: this, allies });
   }
 
-  // 攜手之伴：e 現在跟哪些活著的隊友連結著
+  // 攜手之伴：e 現在跟哪些活著的隊友連結著（角色的 links；畫面的連結標記也照這個）
   linkPartners(e) {
     const out = [];
     for (const id of e.links) {
@@ -355,23 +325,24 @@ export class Match {
     return E.lateFromStage > 0 && this.stage >= E.lateFromStage ? (E.damageMultLate ?? E.damageMult) : E.damageMult;
   }
 
-  // 攻擊者對某武器的傷害倍率（牌的加成）。裝備產生的攻擊（轟炸）不吃武器傷害加成
+  // 攻擊者對某武器的傷害倍率（效果的加成）。裝備產生的攻擊（轟炸）不吃武器傷害加成。
+  // 效果的武器傷害 % 分三個槽、照這個順序相加：damage（自己的加成：所有武器 / 這把武器 → 每回合成長 → 擊殺累積）
+  // → situation（看場上：這一關的暫時加成、隊友人數）→ state（看自己的狀態：狂熱、層數）
   damageMult(attacker, weapon) {
     if (!attacker || weapon.fromEquip) return 1;
     if (attacker.team === 'enemies') return this.enemyDamageMult();
-    const m = attacker.mods;
-    const per = weapon.id === 'cannon' ? m.cannonDamagePct : weapon.id === 'sniper' ? m.sniperDamagePct : 0;
-    return Math.max(0, 1 + (m.damagePct + per + this.rampBonus(attacker) + attacker.soulPct
-      + this.situationalDamagePct(attacker) + this.stateDamagePct(attacker)) / 100);
+    const c = { match: this, weaponId: weapon.id, allies: this.alliesAlive(attacker) };
+    const pct = (slot) => Effects.effectSum(slot, attacker, c);
+    return Math.max(0, 1 + (pct('damage') + pct('damageSituation') + pct('damageState')) / 100);
   }
   explosionRadius(attacker, weapon) {
-    const pct = attacker && weapon.id === 'cannon' ? attacker.mods.radiusPct : 0;
-    return weapon.radius * Math.max(0.2, 1 + pct / 100);
+    return blastRadius(attacker, weapon);
   }
 
-  // 爆炸 / 命中：傷害（同隊含自己 ×FRIENDLY_FIRE，再吃雙方的牌加成與狂熱）、燃燒、擊退。回傳傷害清單。
+  // 爆炸 / 命中：傷害（同隊含自己 ×FRIENDLY_FIRE，再吃雙方的效果加成與狂熱）、燃燒、擊退。回傳傷害清單。
   // radius 0 的武器（迴力鏢）與 opts.directOnly（穿透）只打 directHit；opts.exclude 裡的角色不受影響。
-  // 有「連結」（攜手之伴）的人：傷害先減 link.damageCutPct%，再跟活著的連結對象平分（清單裡多一筆 shared = 被打的人）。
+  // 一個人要扣的傷害：武器傷害 × 距離 × 攻擊者的倍率與狂熱（× 誤傷）→ × 對首領 → × 減傷 → × 誤傷減傷 → 效果的 share（攜手之伴：
+  // 先減再跟活著的連結對象平分，清單裡多一筆 shared = 被打的人）。
   // 先照這一下之前的場面算好每個人要扣多少（誰活著、誰有無敵、隊友幾個），再一起扣：
   // 同一發炸到好幾個人時，結果不會因為角色的排列順序（誰先加入房間）而不同
   applyExplosion(x, y, weapon, attacker, directHit, opts = {}) {
@@ -380,9 +351,8 @@ export class Match {
     const R = radius + 6;
     const splash = radius > 0 && !opts.directOnly;
     const atk = this.damageMult(attacker, weapon) * this.feverMult();
-    const kbMult = attacker ? Math.max(0, 1 + attacker.mods.knockbackPct / 100) : 1;
+    const kbMult = attacker ? Math.max(0, 1 + Effects.effectSum('knockback', attacker, { match: this, weaponId: weapon.id }) / 100) : 1;
     const burn = opts.burn || 0;
-    const cut = Math.max(0, 1 - CONFIG.EQUIP.link.damageCutPct / 100);
     const aliveBefore = this.entities.filter(e => e.alive);
     const alive0 = new Set(aliveBefore);
     const alliesBefore = (e) => aliveBefore.reduce((n, f) => n + (f !== e && f.team === e.team ? 1 : 0), 0);
@@ -409,27 +379,14 @@ export class Match {
         continue;
       }
       let dmg = weapon.damage * factor * atk * (friendly ? CONFIG.FRIENDLY_FIRE : 1);
-      if (e.boss && attacker) dmg *= Math.max(0, 1 + attacker.mods.bossDamagePct / 100);
-      dmg *= Math.max(0, 1 - this.armorPct(e, alliesBefore(e)) / 100);
-      if (friendly) dmg *= Math.max(0, 1 - e.mods.friendlyArmorPct / 100);
+      if (e.boss && attacker) dmg *= Math.max(0, 1 + Effects.effectSum('damageBoss', attacker, { match: this, weaponId: weapon.id }) / 100);
+      dmg *= Math.max(0, 1 - this.armorOf(e, alliesBefore(e)) / 100);
+      if (friendly) dmg *= Math.max(0, 1 - Effects.effectSum('friendlyArmor', e, { match: this }) / 100);
       const entry = { id: e.id, dmg: 0, friendly };
       damages.push(entry);
       const hit = { e, entry, own: dmg, shares: [], factor };
-      const partners = this.linkPartners(e).filter(q => alive0.has(q));
-      if (partners.length) {
-        // 攜手之伴：減傷後取整，每個連結對象分到一樣多，除不盡的餘數算被打的人的；分到 0 就不用分
-        const total = Math.round(dmg * cut);
-        const each = Math.floor(total / (partners.length + 1));
-        hit.own = total - each * partners.length;
-        if (each > 0) {
-          for (const q of partners) {
-            const s = { id: q.id, dmg: 0, friendly, shared: e.id };
-            damages.push(s);
-            if (shielded.has(q)) { block(q); s.blocked = true; }   // 分到的那份一樣會被神佑之石擋下
-            else hit.shares.push({ q, entry: s, amount: each });
-          }
-        }
-      }
+      // 效果分走這一下（攜手之伴：分給活著的連結對象；分到的那份一樣會被無敵擋下）
+      Effects.share(this, hit, { alive0, shielded, block, friendly, damages });
       hits.push(hit);
     }
     // 2. 扣血（每個人最後扣的總數跟順序無關，扣到 0 就倒下）
@@ -474,17 +431,18 @@ export class Match {
   }
 
   // 吸血：這一下對敵人造成的傷害 × 吸血 %（pct 預設照現在的場面算；開火結算傳入打中之前的，孤狼傳說才不會被這一下改變）
-  lifesteal(attacker, damages, pct = attacker ? this.lifestealPct(attacker) : 0) {
+  lifesteal(attacker, damages, pct = attacker ? this.lifestealOf(attacker) : 0) {
     if (!attacker || !(pct > 0)) return 0;
     const dealt = damages.reduce((s, d) => s + (d.friendly ? 0 : d.dmg), 0);
     return dealt > 0 ? this.heal(attacker, dealt * pct / 100) : 0;
   }
 
-  // before 裡現在死掉的敵人算攻擊者的擊殺；噬魂者每殺一個武器傷害 +killDamagePct%（整場冒險累積）
-  creditKills(attacker, before) {
+  // before 裡現在死掉的敵人算攻擊者的擊殺，再交給效果的 onKill（例如噬魂者每殺一個武器傷害 +N%，整場冒險累積）。
+  // fx = 燒死時回合結束的 fx 清單（效果可以另外記一筆給客戶端飄字）；開火結算時不給
+  creditKills(attacker, before, fx = null) {
     const killed = before.filter(e => !e.alive && e.team !== attacker.team && !e.noKill);   // noKill：打倒不算擊殺（蜂巢不是活的）
     attacker.kills += killed.length;
-    if (killed.length && attacker.mods.killDamagePct > 0) attacker.soulPct += killed.length * attacker.mods.killDamagePct;
+    Effects.onKill(this, attacker, killed, fx);
     return killed.map(e => e.id);
   }
 
@@ -511,12 +469,12 @@ export class Match {
       const p = makeProjectile(actor, weapon, m.x, m.y, v.vx, v.vy);
       p.spawn = 1 + k * (weapon.volleyGap || 0);
       p.follow = k > 0;   // 後面幾發從射手「出發那一幀」的砲口射出（空中開火時射手會移動，不能從他腳下冒出來）
-      const traits = shotTraits(actor, weapon.id);   // 哈哈子彈 / 蹦蹦炸彈的彈射、高倍率望遠鏡的穿透
+      const traits = shotTraits(actor, weapon.id);   // 效果給的特性：在地形上彈射幾次、穿透角色
       p.bouncesLeft = traits.bounces;
       if (traits.pierce) p.pierce = true;
       projs.push(p);
     }
-    const burn = actor.mods.burnStacks + (weapon.id === 'cannon' ? actor.mods.cannonBurnStacks : 0);
+    const burn = Effects.effectSum('burnOnHit', actor, { match: this, weaponId: weapon.id });   // 擊中的敵人附加幾層燃燒
     return {
       kind: 'weapon', actorId: actor.id, weapon: weaponId, angle, power, facing: actor.facing,
       actor: actorPos,
@@ -524,27 +482,8 @@ export class Match {
     };
   }
 
-  // 無差別轟炸：持有者附近以外，整張地圖每隔 spacing 落下一發飛彈（由近到遠）。
-  // 會波及隊友（照一般誤傷規則），但炸不到持有者自己
-  resolveBombard(owner) {
-    const weapon = CONFIG.WEAPONS.bombard;
-    const B = CONFIG.EQUIP.bombard;
-    const xs = [];
-    for (let x = B.spacing / 2; x < CONFIG.WORLD_W; x += B.spacing) {
-      const jx = x + this.rng.range(-B.jitter, B.jitter);
-      if (Math.abs(jx - owner.x) >= B.safeDist) xs.push(jx);
-    }
-    xs.sort((a, b) => Math.abs(a - owner.x) - Math.abs(b - owner.x));
-    const projs = xs.map((x, k) => {
-      const p = makeProjectile(owner, weapon, x, B.startY, 0, weapon.speed);
-      p.spawn = 1 + k * B.gapFrames;
-      p.ignore.add(owner);
-      return p;
-    });
-    return { kind: 'bombard', actorId: owner.id, weapon: weapon.id, ...this.resolveVolley(owner, weapon, projs, 0) };
-  }
-
-  // isShot = 自己開的一槍（轟炸、Boss 招式不算）：結算完更新磨刀霍霍 / 越戰越強的層數，results 帶的是更新後的
+  // isShot = 自己開的一槍（效果的攻擊（轟炸）、Boss 招式不算）：結算完交給效果的 afterShot（例如磨刀霍霍 / 越戰越強的層數），
+  // results 帶的是更新後的。結果另外帶效果要給客戶端的狀態（例如噬魂者的 soul）
   resolveVolley(owner, weapon, projs, burn, isShot = false) {
     const specs = projs.map(p => ({ spawn: p.spawn, x: p.x, y: p.y, vx: p.vx, vy: p.vy, ...(p.follow ? { follow: true } : {}) }));
     const before = this.entities.filter(e => e.alive);
@@ -554,14 +493,15 @@ export class Match {
     this.mechanic.cascade(this);   // 地圖機制連帶的死亡（這一發打倒了古樹之眼 → 嘴巴與樹妖一起枯萎）：要在算擊殺之前，也算擊殺
     // 這一發途中才出現的角色（打到蜂巢飛出來的蜜蜂）被同一發後面的砲彈打死，也算擊殺
     const kills = this.creditKills(owner, [...before, ...this.entities.slice(n0)]);
-    const hitEnemy = isShot ? this.updateShotStacks(owner, events) : undefined;
-    if (isShot) {   // 結算畫面的命中率：一槍（不管幾顆砲彈）算一次，命中的定義同越戰越強
+    const hitEnemy = isShot ? this.hitEnemy(events) : undefined;
+    if (isShot) {   // 結算畫面的命中率：一槍（不管幾顆砲彈）算一次，命中的定義同 afterShot
+      Effects.afterShot(this, owner, hitEnemy);
       owner.shots++;
       if (hitEnemy) owner.hits++;
     }
     return {
       projectiles: specs, events, hit: summarizeHit(events),
-      kills, soul: owner.soulPct, ...(isShot ? { hitEnemy } : {}),
+      kills, ...Effects.shotState(owner), ...(isShot ? { hitEnemy } : {}),
       results: this.entities.map(e => e.toState()),
       flightFrames, settleFrames,
     };
@@ -574,7 +514,7 @@ export class Match {
     const ev = { f: frame, p: i, type: act === 'end' ? hit.type : act, x: hit.x, y: hit.y };
     const target = hit.type === 'entity' ? hit.entity : null;
     if (target) ev.target = target.id;
-    const lifestealPct = this.lifestealPct(owner);   // 打中之前的場面（孤狼傳說：這一下炸死隊友不算）
+    const stealPct = this.lifestealOf(owner);   // 打中之前的場面（看隊友人數的吸血：這一下炸死隊友不算）
     let damages = null;
     switch (act) {
       case 'end':
@@ -604,7 +544,7 @@ export class Match {
     }
     if (damages && damages.length) {
       ev.damages = damages;
-      const heal = this.lifesteal(owner, damages, lifestealPct);
+      const heal = this.lifesteal(owner, damages, stealPct);
       if (heal > 0) ev.heal = heal;
       const ids = new Set(damages.map(d => d.id));
       if (heal > 0) ids.add(owner.id);

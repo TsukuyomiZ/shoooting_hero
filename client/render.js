@@ -1,6 +1,7 @@
 import { CONFIG } from '../shared/config.js';
 import { displayAngle, clamp } from '../shared/utils.js';
 import { aimPreview } from '../shared/weapons.js';
+import { effectChips, STATUS_CHIP_ORDER } from '../shared/effects/index.js';
 import { VINE_HAND } from '../shared/entities.js';
 import { roundRect, text, drawBar, drawHpBar, FONT } from './draw.js';
 import { buildDecor } from './decor.js';
@@ -687,49 +688,21 @@ export class Renderer {
     hints.forEach((h, i) => text(ctx, h, W - 20, py + (hints.length > 3 ? 22 : 28) + i * gap, { size: 11, align: 'right', color: '#ccc' }));
   }
 
-  // 底部狀態列上方：自己身上正在生效的裝備效果
+  // 底部狀態列上方：自己身上正在生效的效果與狀態。效果的那幾格（文字、顏色、位置）由各效果給（shared/effects/ 的 chip），
+  // 這裡只畫；狀態（無敵、燃燒、中毒、生命鎖）排在 STATUS_CHIP_ORDER 的位置
   drawBuffs(me, x, y) {
     const ctx = this.ctx;
-    const m = me.mods;
-    const chips = [];
-    const ramp = this.view.match.rampBonus(me);
-    if (ramp > 0) chips.push([`狂戰 +${ramp}%`, '#f87171']);
-    if (me.soulPct > 0) chips.push([`噬魂 +${me.soulPct}%`, '#c084fc']);
-    if (m.bossDamagePct > 0) chips.push([`弒神 +${m.bossDamagePct}%`, '#fbbf24']);
-    if (m.lifestealPct > 0) chips.push([`吸血 ${m.lifestealPct}%`, '#fb7185']);
-    if (m.armorPct > 0) chips.push([`減傷 ${m.armorPct}%`, '#93c5fd']);
-    if (m.regenPct > 0) chips.push([`每回合回血 ${m.regenPct}%`, '#4ade80']);
-    if (m.extraJumps > 0) chips.push([m.extraJumps > 1 ? `${m.extraJumps + 1} 段跳` : '二段跳', '#7dd3fc']);
-    if (m.extraTurn > 0) chips.push([me.extraTurnCd > 0 ? `時間扭曲 冷卻 ${me.extraTurnCd}` : '時間扭曲 就緒', '#c4b5fd']);
-    if (m.bombard > 0) chips.push(['無差別轟炸', '#fb7185']);
-    if (m.teamShield > 0) chips.push([`神佑 ${me.turnCount % CONFIG.EQUIP.shieldEveryTurns}/${CONFIG.EQUIP.shieldEveryTurns}`, '#fde68a']);
-    if (me.shield > 0) chips.push([`無敵 ×${me.shield}`, '#fde68a']);
-    if (me.burn > 0) chips.push([`燃燒 ${me.burn} 層`, '#fb923c']);
-    if (me.poison > 0) chips.push([`中毒 ${me.poison} 層`, '#c084fc']);
-    if (me.poisonLock > 0) chips.push([`生命鎖 -${me.poisonLock}`, '#9ca3af']);
-    if (m.feverDamagePct > 0) {
-      chips.push(this.view.match.feverAt(this.view.round) > 0 ? [`嗨到最高點 +${m.feverDamagePct}%`, '#f97316'] : ['嗨到最高點（狂熱時）', '#64748b']);
-    }
-    if (m.fullArc > 0) chips.push(['全知之眼', '#a5f3fc']);
-    if (m.missDamagePct > 0) chips.push([`準備 ${me.readyStacks}/${m.missMaxStacks} · +${me.readyStacks * m.missDamagePct}%`, '#fcd34d']);
-    if (m.hitDamagePct > 0) chips.push([`狂獵 ${me.huntStacks}/${m.hitMaxStacks} · +${me.huntStacks * m.hitDamagePct}%`, '#f87171']);
-    if (m.stageDamagePct > 0) chips.push([`腎上腺素 +${m.stageDamagePct}%（這一關）`, '#f472b6']);
-    // 看場上隊友的牌：沒生效時用灰色標出來
-    const allies = this.view.match.alliesAlive(me);
-    const DIM = '#64748b';
-    if (m.loneDamagePct > 0 || m.loneLifestealPct > 0) {
-      chips.push(allies === 0 ? [`孤狼 +${m.loneDamagePct}% · 吸血 ${m.loneLifestealPct}%`, '#e2e8f0'] : ['孤狼（還有隊友）', DIM]);
-    }
-    if (m.allyDamagePct > 0 || m.allyArmorPct > 0) {
-      chips.push(allies > 0 ? [`團結 +${allies * m.allyDamagePct}% · 減傷 ${allies * m.allyArmorPct}%`, '#86efac'] : ['團結（沒有隊友）', DIM]);
-    }
-    if (me.links.length) {   // 攜手之伴（自己選的或被選的）：活著的才有在分，倒下的另外標
-      const partners = this.view.match.linkPartners(me);
-      const nameOf = (id) => { const q = this.view.match.byId(id); return q ? q.name : id; };
-      const up = partners.map(q => q.name).join('、');
-      const down = me.links.filter(id => !partners.some(q => q.id === id)).map(nameOf).join('、');
-      chips.push(partners.length ? [`連結 ${up}${down ? `（${down} 倒下了）` : ''}`, '#f0abfc'] : [`連結（${down} 倒下了）`, DIM]);
-    }
+    const status = [];
+    if (me.shield > 0) status.push([`無敵 ×${me.shield}`, '#fde68a']);
+    if (me.burn > 0) status.push([`燃燒 ${me.burn} 層`, '#fb923c']);
+    if (me.poison > 0) status.push([`中毒 ${me.poison} 層`, '#c084fc']);
+    if (me.poisonLock > 0) status.push([`生命鎖 -${me.poisonLock}`, '#9ca3af']);
+    const effects = effectChips(me, { match: this.view.match, round: this.view.round });
+    const chips = [
+      ...effects.filter(c => c.order < STATUS_CHIP_ORDER).map(c => [c.label, c.color]),
+      ...status,
+      ...effects.filter(c => c.order >= STATUS_CHIP_ORDER).map(c => [c.label, c.color]),
+    ];
     for (const [label, color] of chips) {
       ctx.save();
       ctx.font = `bold 12px ${FONT}`;

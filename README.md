@@ -294,45 +294,65 @@ npm start
   已經跟所有隊友連結了，就不會再出有 `link` 的牌。
 - `effects` 可用的鍵（數字可以是負的）：
 
-| 鍵 | 效果 |
-| --- | --- |
-| `maxHp` | 血量上限 +N（同時回 N 血） |
-| `heal` / `healPct` | 立刻回血 N / 上限的 N% |
-| `teamHealPct` | 全隊（含自己）立刻回復各自上限 N% 的血（大家的牌都套完才算） |
-| `damagePct` | 所有武器傷害 +N% |
-| `cannonDamagePct` / `sniperDamagePct` | 大砲 / 狙擊槍傷害 +N% |
-| `bossDamagePct` | 對首領傷害 +N%（另外乘上去，轟炸也吃） |
-| `rampDamagePct` / `rampDamageMaxPct` | 武器傷害每回合成長：自己的第 N 回合 +N×值 %，最多 `rampDamageMaxPct`%（每關重算） |
-| `killDamagePct` | 每擊殺一個敵人，武器傷害再 +N%（整場冒險累積；燒死、炸進水裡也算） |
-| `lifestealPct` | 傷害吸血：對敵人造成傷害的 N% 回復自己（不足 1 點的會累積） |
-| `radiusPct` | 大砲爆炸半徑 +N% |
-| `knockbackPct` | 擊退力道 +N% |
-| `sniperBounce` | 狙擊槍子彈碰到地形可以彈射 N 次 |
-| `sniperPierce` | 狙擊槍子彈穿透角色（填 1） |
-| `burnStacks` / `cannonBurnStacks` | 武器 / 只有大砲擊中的敵人附加 N 層燃燒（爆炸波及的也算） |
-| `armorPct` | 受到的傷害 -N% |
-| `friendlyArmorPct` | 受到的隊友誤傷再 -N% |
-| `regenPct` | 自己的回合開始時回復上限 N% 的血 |
-| `staminaMax` | 體力上限 +N |
-| `moveSpeedPct` / `jumpSpeedPct` | 移動速度 / 跳躍力 +N% |
-| `extraJumps` | 在空中可以再跳 N 次（1 = 二段跳；每次一樣消耗跳躍體力，落地補滿） |
-| `sizePct` | 體型（碰撞框與外觀）+N% |
-| `turnTime` | 每回合秒數 +N |
-| `extraTurn` | 自己的回合結束後再獲得一個額外回合（填 1；之後冷卻 3 個普通回合，`config.EQUIP.extraTurnCooldown`） |
-| `bombard` | 自己的回合開始時無差別轟炸（填 1；飛彈數值在 `config.WEAPONS.bombard`，不吃武器傷害加成） |
-| `teamShield` | 每過 3 個自己的回合，全隊獲得 N 次無敵 |
-| `allyHeal` | 隊友（不含自己）立刻各回血 N（大家的牌都套完才算；倒下的不回） |
-| `nextDamagePct` / `nextMaxHp` | 下一關武器傷害 +N% / 血量上限 +N（開打時同時回 N 血）；那一關打完就失效 |
-| `cannonBounce` | 大砲砲彈碰到地形可以彈射 N 次 |
-| `loneDamagePct` / `loneLifestealPct` | 場上沒有活著的隊友時（單人一直算），武器傷害 / 傷害吸血 +N% |
-| `allyDamagePct` / `allyArmorPct` | 場上每有一名活著的隊友，武器傷害 +N% / 受到的傷害 -N%（只算自己） |
-| `feverDamagePct` | 狂熱生效時武器傷害再 +N%（Boss 關沒有狂熱） |
-| `fullArc` | 拋射武器的瞄準預覽畫完整拋物線直到落點（填 1） |
-| `missDamagePct` / `missMaxStacks` | 射擊沒打中敵人 +1 層「準備」，每層武器傷害 +N%，最多幾層；打中歸零 |
-| `hitDamagePct` / `hitMaxStacks` | 射擊打中敵人 +1 層「狂獵」，每層武器傷害 +N%，最多幾層；沒打中歸零 |
-| `link` | 選牌時指定一名隊友「連結」（填 1）：受到的傷害先 -30%（`config.EQUIP.link.damageCutPct`）再跟連結的隊友平分 |
+| 鍵 | 效果 | 備註 |
+| --- | --- | --- |
+| `maxHp` | 血量上限 +N（同時回 N 血） |  |
+| `heal` | 立刻回血 N |  |
+| `healPct` | 立刻回血，上限的 N% |  |
+| `teamHealPct` | 全隊（含自己）立刻回復各自上限 N% 的血 | 大家的牌都套完才算 |
+| `damagePct` | 所有武器傷害 +N% |  |
+| `cannonDamagePct` | 大砲傷害 +N% |  |
+| `sniperDamagePct` | 狙擊槍傷害 +N% |  |
+| `bossDamagePct` | 對首領傷害 +N% | 另外乘上去，轟炸也吃 |
+| `rampDamagePct` | 武器傷害每回合成長 N%（自己的第 1 回合 +N%、第 2 回合 +2N%…） | 每關重算 |
+| `rampDamageMaxPct` | 上面「每回合成長」的上限 % |  |
+| `killDamagePct` | 每擊殺一個敵人，武器傷害再 +N%（整場冒險累積） | 燒死、炸進水裡也算 |
+| `lifestealPct` | 傷害吸血：對敵人造成傷害的 N% 回復自己 | 不足 1 點的會累積 |
+| `radiusPct` | 大砲爆炸半徑 +N% |  |
+| `knockbackPct` | 擊退力道 +N% |  |
+| `sniperBounce` | 狙擊槍子彈碰到地形可以彈射 N 次 |  |
+| `sniperPierce` | 狙擊槍子彈穿透角色（填 1） |  |
+| `cannonBounce` | 大砲砲彈碰到地形可以彈射 N 次 |  |
+| `burnStacks` | 武器擊中的敵人附加 N 層燃燒 | 爆炸波及的也算 |
+| `cannonBurnStacks` | 大砲擊中的敵人附加 N 層燃燒 | 爆炸波及的也算 |
+| `armorPct` | 受到的傷害 -N% |  |
+| `friendlyArmorPct` | 受到的隊友誤傷再 -N% |  |
+| `regenPct` | 自己的回合開始時回復上限 N% 的血 |  |
+| `staminaMax` | 體力上限 +N |  |
+| `moveSpeedPct` | 移動速度 +N% |  |
+| `jumpSpeedPct` | 跳躍力 +N% |  |
+| `sizePct` | 體型 +N%（越大越好被打中） | 碰撞框與外觀都變大 |
+| `turnTime` | 每回合秒數 +N |  |
+| `bombard` | 自己的回合開始時，自己以外的區域落下轟炸飛彈（填 1） | 飛彈數值在 `config.WEAPONS.bombard`，不吃武器傷害加成 |
+| `teamShield` | 每過 3 個自己的回合，全隊獲得 N 次無敵（擋下一次傷害） | `config.EQUIP.shieldEveryTurns` |
+| `extraJumps` | 在空中可以再跳 N 次（1 = 二段跳；每次一樣消耗跳躍體力，落地補滿） |  |
+| `extraTurn` | 自己的回合結束後再獲得一個額外回合（填 1；之後冷卻 3 個回合） | 冷卻算普通回合，`config.EQUIP.extraTurnCooldown` |
+| `allyHeal` | 隊友（不含自己）立刻各回血 N | 大家的牌都套完才算；倒下的不回 |
+| `nextDamagePct` | 下一關武器傷害 +N%（打完那一關就失效） |  |
+| `nextMaxHp` | 下一關血量上限 +N（開打時同時回 N 血；打完那一關就失效，超過原本上限的血會被扣掉） |  |
+| `loneDamagePct` | 場上沒有活著的隊友時（單人一直算），武器傷害 +N% |  |
+| `loneLifestealPct` | 場上沒有活著的隊友時（單人一直算），傷害吸血 +N% |  |
+| `allyDamagePct` | 場上每有一名活著的隊友，武器傷害 +N% |  |
+| `allyArmorPct` | 場上每有一名活著的隊友，受到的傷害 -N%（只算自己） |  |
+| `feverDamagePct` | 狂熱生效時（一般小關第 11 輪起；Boss 關沒有狂熱），武器傷害再 +N% | 實際幾輪開始依人數，見上面「狂熱」（說明裡的「第 11 輪」是舊的，待改） |
+| `fullArc` | 拋射武器（大砲等）的瞄準預覽畫出完整拋物線直到落點（填 1） |  |
+| `missDamagePct` | 每次射擊沒打中敵人得到一層「準備」，每層武器傷害 +N%；打中敵人就歸零 |  |
+| `missMaxStacks` | 上面「準備」最多幾層 |  |
+| `hitDamagePct` | 每次射擊打中敵人得到一層「狂獵」，每層武器傷害 +N%；沒打中就歸零 |  |
+| `hitMaxStacks` | 上面「狂獵」最多幾層 |  |
+| `link` | 選牌時指定一名隊友「連結」（填 1）：兩人受到的傷害先 -30%，再跟活著的連結對象平分 | 減傷在 `config.EQUIP.link.damageCutPct` |
 
 寫錯的稀有度、武器或效果鍵不會讓伺服器掛掉，啟動開局時會在終端機印出警告並略過那張牌 / 那個效果。
+
+每個**效果**（見 GLOSSARY.md）是 `shared/effects/` 裡的一個檔案：上表的鍵與說明、數值、選牌當下 / 下一關的行為、戰鬥規則、
+效果自己的角色狀態與同步欄位、開火紀錄的欄位，以及狀態列 / 飄字 / 橫幅要顯示什麼，都寫在那個檔案裡；
+`shared/effects/index.js` 是登記表（上表的鍵、哪些是立即效果 / 武器限定 / 多人限定、戰鬥的 mods 都從這裡算出來），也寫了每個掛勾的說明。
+
+- 新增一張用現有效果的牌：只改 `cards.json`。
+- 新增一個效果：`shared/effects/` 加一個檔案，`index.js` 的 `LIST` 最後面加一行，上表最後加一列（說明跟效果檔案寫的一字不差，備註可空），
+  再加用它的牌；不用改測試（步驟與各掛勾見 `shared/effects/index.js` 開頭）。`test/effects.js` 會檢查 key / 狀態欄位沒重複、掛勾名字沒寫錯、
+  上表跟效果檔案的說明一致。
+- 改一個效果：只改它自己的檔案。效果之間誰先誰後（例如武器傷害的各項怎麼相加、爆炸裡減傷與連結的順序、選牌的兩輪回血）在 `match.js` / `run.js` 決定。
 
 ## 調參數
 
@@ -431,6 +451,16 @@ npm test
   只給畫面用的欄位不寫在角色 / 道具上），以及真的 GameView 把每種地圖從開場播一段（含 render）；
   畫面跟著遊戲時間走（同一串訊息每步之間畫 0 ~ 3 次，遊戲畫面狀態都一樣；畫圖不改狀態）、巨蟒的頭平順縮回、大地震擊的碎屑、
   「閉上了！」的飄字、腳本中斷清掉出招狀態、復活後不再誤報「中毒倒下」。
+- `test/effects.js`：效果（`shared/effects/`）——登記表涵蓋 cards.json 用到的每個鍵，原本的 45 個鍵都在而且排在最前面（說明一字不差）、
+  鍵 / 效果 id / 狀態欄位 / 同步欄位不重複、算出來的 mods / 立即效果 / 武器限定 / 多人限定以原本的清單開頭（新的效果只排在後面；
+  mods 連順序都一樣）、同步格式不變（`toState` 原本的欄位與順序，只多出效果狀態的欄位）、README 的效果表跟登記表的說明一字不差、
+  寫錯名字的掛勾 / 重複的鍵、跟角色欄位或同步欄位撞名的效果狀態、要指定隊友卻沒有選牌畫面文字的效果載入時就報錯、
+  在一份副本裡加一個假效果（一個檔案 + 登記表一行）從選牌一路接到戰鬥與狀態列，
+  架構檢查（`shared/`、`client/`、`server/` 底下 `shared/effects/` 與 `config.js` 以外的程式碼不提任何效果鍵、效果狀態的欄位與同步欄位
+  ——清單從登記表現算，新的效果也在內：
+  跟效果鍵同名的通用欄位 / 同步訊息的欄位名（角色的 `maxHp`、`Match.heal`、選牌訊息的 `link`、回合訊息的 `turnTime`、
+  裁判的 `extraTurn`、武器 id `bombard`）只准照測試裡列的固定寫法出現；不讀 `mods.<鍵>`（entities.js 每一幀讀的二段跳次數除外）、
+  run.js 不讀選牌的 `now.<鍵>`；entities.js 不寫效果自己的狀態欄位；效果不往上 import）。
 - `test/version.js`：版本號設定與版本履歷——版本號格式、最上面一筆 = 目前版本、由新到舊不重複、日期合法不倒退、每筆都有內容、
   `package.json` 的 version 對得上、大廳需要的元素都在 `index.html`。
 - `test/log.js`：紀錄（LOG）——檔案格式（欄位順序、資料蓋不掉時間、跨午夜換檔、寫不進去不當掉）、一關裡每一步都有記
@@ -452,8 +482,13 @@ shared/     伺服器與瀏覽器共用（純邏輯，不碰 DOM / 網路）
   hive.js       小關「小心擊發」的蜂巢與蜜蜂：被打一次 -1 放一隻蜜蜂、蜜蜂的回合（待機 / 衝刺螫擊）
   mechanics/    地圖機制（見 GLOSSARY.md）：match.js 在固定時間點呼叫的掛勾（index.js），各張地圖什麼時候呼叫上面三個規則檔（tree / snake / hive / 一般小關 plain），common.js 是共用的出招小工具。
                 每一場機制的狀態（預定的下一招、召喚出來的角色、場上的蛇血…）是 match.mechState：機制的 build 建好回傳，Match 只存著
+  effects/      牌的效果（見 GLOSSARY.md）：一個效果一個檔案（鍵與說明、規則、自己的角色狀態、要顯示的資料），
+                index.js 是登記表與掛勾說明。match.js / referee.js / run.js / 畫面只在固定的槽與時間點問登記表，不認得任何一個效果
+  cards.js      牌庫：驗證 cards.json、抽牌、把牌加到玩家數值上、武器欄
+  run.js        肉鴿流程：關卡、選牌、關與關之間帶著走的數值
   entities.js   角色物理（移動 / 跳躍 / 爬坡 / 擊退 / 落水 / 爬藤蔓）與中毒結算（巨蟒、蜜蜂都會上毒）
-  weapons.js    彈道模擬（結算、預覽、AI 共用同一套）
+  projectile.js 飛行物的形狀（weapons.js 照樣匯出；效果也要建飛行物，單獨一個檔案才不會循環 import）
+  weapons.js    彈道模擬（結算、預覽、AI 共用同一套），效果給的飛行物特性（彈射、穿透）與爆炸半徑
   ai.js         AI 瞄準（試射找最佳角度與力量）
   stickers.js   反應貼圖清單與洗版限制
   match.js      一場遊戲的狀態與規則：回合順序、開火結算、爆炸、快照

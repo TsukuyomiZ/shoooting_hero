@@ -340,12 +340,12 @@ test('孤狼傳說：沒有活著的隊友（含單人）才生效：武器傷�
   const m = matchWith({ loneDamagePct: dmg, loneLifestealPct: ls }, { players: 2 });
   const [p1, p2] = m.players;
   const e1 = m.enemies[0];
-  assert(m.damageMult(p1, W.cannon) === 1 && m.lifestealPct(p1) === 0, 'teammate alive → no bonus');
+  assert(m.damageMult(p1, W.cannon) === 1 && m.lifestealOf(p1) === 0, 'teammate alive → no bonus');
   const before = e1.hp;
   p1.hp = 1000;
   assert(m.lifesteal(p1, m.applyExplosion(e1.cx, e1.cy, W.cannon, p1, e1)) === 0 && before - e1.hp === W.cannon.damage, 'no bonus damage / lifesteal with a teammate');
   p2.die('hit');
-  assert(Math.abs(m.damageMult(p1, W.cannon) - (1 + dmg / 100)) < 1e-12 && m.lifestealPct(p1) === ls, 'alone → +' + dmg + '% / ' + ls + '%');
+  assert(Math.abs(m.damageMult(p1, W.cannon) - (1 + dmg / 100)) < 1e-12 && m.lifestealOf(p1) === ls, 'alone → +' + dmg + '% / ' + ls + '%');
   const hp1 = e1.hp;
   const hit = m.applyExplosion(e1.cx, e1.cy, W.cannon, p1, e1);
   const dealt = hp1 - e1.hp;

@@ -1,15 +1,17 @@
 import { CONFIG } from '../shared/config.js';
 import { needsDiscard } from '../shared/cards.js';
+import { teammateEffect } from '../shared/effects/index.js';
 
 // 過關選牌畫面（DOM）：三張牌選一張，顯示倒數與其他玩家是否已選。
 // 武器牌：武器欄滿了（最多 EQUIP.maxWeapons 把）要先選一把丟掉才能拿，也可以取消改選別張
-// 攜手之伴：要先選一位隊友當「連結」對象（同一個面板），也可以取消改選別張
-const isLinkCard = (card) => !!(card.effects && card.effects.link > 0);
+// 要指定隊友的牌（效果的 target，例如攜手之伴）：要先選一位隊友當對象（同一個面板），也可以取消改選別張；文字由效果給（pickText）
+const isLinkCard = (card) => !!teammateEffect(card);
+const textOf = (card) => teammateEffect(card).pickText;
 
 export class CardsUi {
   constructor(root, onPick) {
     this.root = root;
-    this.onPick = onPick;   // (cardId, discardWeaponId | null, linkPlayerId | null)
+    this.onPick = onPick;   // (cardId, discardWeaponId | null, 指定的隊友 id | null)
     this.$ = (sel) => root.querySelector(sel);
     this.timer = null;
     this.players = [];
@@ -69,13 +71,13 @@ export class CardsUi {
     else this.pick(card.id, null);
   }
 
-  // 攜手之伴的牌：還有沒有隊友可以連結（這一輪別人先選了我，名單就會少一個；一個都不剩就不能拿）
+  // 要指定隊友的牌：還有沒有隊友可以選（這一輪別人先選了我，名單就會少一個；一個都不剩就不能拿）
   refreshLinkCards() {
     for (const el of this.$('#cards-list').querySelectorAll('.card')) {
       const card = (this.offers || []).find(c => c.id === el.dataset.id);
       if (!card || !isLinkCard(card)) continue;
       const none = !this.linkTargets.length;
-      el.querySelector('.swap').textContent = none ? '隊友都已經跟你連結了' : '要選一位隊友';
+      el.querySelector('.swap').textContent = none ? textOf(card).none : textOf(card).need;
       if (!this.$('#cards-list').classList.contains('locked')) el.disabled = none;
     }
   }
@@ -85,11 +87,11 @@ export class CardsUi {
     return p ? p.name : id;
   }
 
-  // 攜手之伴：列出還能連結的隊友，點一位 = 跟他連結。對方已經跟別人連結的話，被打時是好幾個人一起平分
+  // 要指定隊友的牌：列出還能選的隊友，點一位 = 選他（攜手之伴：跟他連結；對方已經跟別人連結的話，被打時是好幾個人一起平分）
   showLink(card) {
-    const cut = CONFIG.EQUIP.link.damageCutPct;
+    const T = textOf(card);
     this.linkCard = card;
-    this.$('#discard-title').textContent = `「${card.name}」：選一位隊友成為「連結」`;
+    this.$('#discard-title').textContent = T.title(card);
     const list = this.$('#discard-list');
     list.innerHTML = '';
     for (const id of this.linkTargets) {
@@ -98,10 +100,8 @@ export class CardsUi {
       btn.className = 'discard-btn link-btn';
       btn.dataset.player = id;
       btn.innerHTML = '<b></b><span></span>';
-      btn.querySelector('b').textContent = `連結 ${this.nameOf(id)}`;
-      btn.querySelector('span').textContent = others.length
-        ? `他已經跟 ${others.map(x => this.nameOf(x)).join('、')} 連結：受到的傷害 -${cut}%，再跟連結的人一起平分`
-        : `兩人受到的傷害 -${cut}%，再平分`;
+      btn.querySelector('b').textContent = T.button(this.nameOf(id));
+      btn.querySelector('span').textContent = T.hint(others.map(x => this.nameOf(x)));
       btn.addEventListener('click', () => { this.hideDiscard(); this.pick(card.id, null, id); });
       list.appendChild(btn);
     }
@@ -133,8 +133,8 @@ export class CardsUi {
     this.linkCard = null;
   }
 
-  pick(cardId, discard, link = null) {
-    this.onPick(cardId, discard, link);
+  pick(cardId, discard, teammate = null) {
+    this.onPick(cardId, discard, teammate);
     this.markPicked(cardId);
   }
 
@@ -151,11 +151,11 @@ export class CardsUi {
     this.renderOthers();
   }
 
-  // link = 他用攜手之伴選了誰。選的是我：選完就會連上，我不用（也不能）再選他
-  setPicked(playerId, link = null) {
+  // chosen = 他用要指定隊友的牌（攜手之伴）選了誰。選的是我：選完就會連上，我不用（也不能）再選他
+  setPicked(playerId, chosen = null) {
     this.picked.add(playerId);
     this.renderOthers();
-    if (link !== this.myId || !this.linkTargets.includes(playerId)) return;
+    if (chosen !== this.myId || !this.linkTargets.includes(playerId)) return;
     this.linkTargets = this.linkTargets.filter(id => id !== playerId);
     this.refreshLinkCards();
     if (this.linkCard) {

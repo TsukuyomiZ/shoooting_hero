@@ -6,7 +6,7 @@
   "description": "彈彈堂風格 PVE 回合制射擊遊戲，最多 4 人共鬥",
   "scripts": {
     "start": "node server/server.js",
-    "test": "node test/headless.js && node test/tree-boss.js && node test/snake-boss.js && node test/new-cards.js && node test/cards-1002.js && node test/grove.js && node test/new-maps.js && node test/volley.js && node test/mechanics.js && node test/map-views.js && node test/version.js && node test/log.js && node test/e2e-ws.js"
+    "test": "node test/headless.js && node test/tree-boss.js && node test/snake-boss.js && node test/new-cards.js && node test/cards-1002.js && node test/grove.js && node test/new-maps.js && node test/volley.js && node test/mechanics.js && node test/map-views.js && node test/effects.js && node test/version.js && node test/log.js && node test/e2e-ws.js"
   },
   "dependencies": {
     "ws": "^8.18.0"

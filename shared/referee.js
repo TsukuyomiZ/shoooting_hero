@@ -1,5 +1,6 @@
 import { CONFIG } from './config.js';
 import { clamp, logValue } from './utils.js';
+import { effectSum, grantsAgain, shotLogOf } from './effects/index.js';
 
 // 一發（或一波轟炸）結算完要等多久：飛行 + 落地 + 緩衝。客戶端的播放時間比這短，不會被下一個事件追上
 const shotSeconds = (shot) => (shot.flightFrames + shot.settleFrames) / 60 + CONFIG.TIMING.afterShotPad;
@@ -30,9 +31,10 @@ const SLOW_WHY = ['fire', 'land', 'stamina', 'release', 'reconnect'];
 // 同一份程式在 Node 房間裡跑（多人），也在瀏覽器裡跑（單人練習）。
 // io = { broadcast(msg, exceptId), schedule(fn, ms) → handle, cancel(handle), now() → ms }
 //
-// 一個回合：nextTurn（回合開始：無差別轟炸）→ startTurn（中毒結算、站在蛇血上就喝、恩賜之杖回血、開始計時 / AI 行動；被毒倒就直接換人）
-//          → 開火 / 超時 / AI 播完 → finishTurn（回合結束：燃燒、神佑之石、時間扭曲）→ 下一位的 nextTurn
-//          （時間扭曲給了額外回合的話，nextTurn 會讓同一位再來一次，不算新的一輪）
+// 一個回合：nextTurn（回合開始：效果的一波攻擊，例如無差別轟炸）→ startTurn（中毒結算、站在蛇血上就喝、效果（恩賜之杖回血）、
+//          開始計時 / AI 行動；被毒倒就直接換人）→ 開火 / 超時 / AI 播完 → finishTurn（回合結束：燃燒、地圖機制、效果（神佑之石、時間扭曲））
+//          → 下一位的 nextTurn（效果給了額外回合的話，nextTurn 會讓同一位再來一次，不算新的一輪）。
+// 牌的效果（shared/effects/）裁判一個都不認得：回合秒數、回合開始的攻擊、額外回合、開火紀錄的欄位都問效果的登記表
 export class Referee {
   // humans[i].connected 可省略（預設 true）；onGameOver(result) 讓肉鴿流程接手下一步
   constructor({ match, humans, io, onGameOver = null, stageInfo = null }) {
@@ -183,12 +185,11 @@ export class Referee {
     });
   }
 
-  // 一發（或一波轟炸）的結果：打到什麼、誰扣了多少血、誰倒下
+  // 一發（或一波轟炸）的結果：打到什麼、誰扣了多少血、誰倒下；效果要記的欄位（例如磨刀霍霍 / 越戰越強的層數 stacks）
   recordShot(shot, before) {
     const a = this.match.byId(shot.actorId);
-    const stacks = a && (a.mods.missDamagePct > 0 || a.mods.hitDamagePct > 0) ? { ready: a.readyStacks, hunt: a.huntStacks } : null;
     this.record('shot', {
-      ...(shot.hitEnemy !== undefined ? { hitEnemy: shot.hitEnemy } : {}), ...(stacks ? { stacks } : {}),
+      ...(shot.hitEnemy !== undefined ? { hitEnemy: shot.hitEnemy } : {}), ...shotLogOf(a),
       kind: shot.kind, pid: shot.actorId, name: (this.match.byId(shot.actorId) || {}).name, weapon: shot.weapon,
       hit: shot.hit && shot.hit.type, frames: shot.flightFrames, kills: shot.kills, changes: hpChanges(this.match, before),
     });
@@ -263,8 +264,9 @@ export class Referee {
     };
   }
 
+  // 這一位的回合秒數：基本秒數 + 效果的 turnSecs 槽
   turnTimeFor(actor) {
-    return CONFIG.TURN_TIME + (actor.mods ? actor.mods.turnTime : 0);
+    return CONFIG.TURN_TIME + effectSum('turnSecs', actor, { match: this.match });
   }
 
   schedule(fn, secs) {
@@ -279,8 +281,8 @@ export class Referee {
     }
   }
 
-  // 輪到下一位：回合開始的裝備效果（無差別轟炸）先播完，再由 startTurn 開始計時。
-  // again = 時間扭曲給了額外回合的角色：讓他再來一個完整的回合，不換人、不算新的一輪
+  // 輪到下一位：回合開始的效果攻擊（例如無差別轟炸）先播完，再由 startTurn 開始計時。
+  // again = 效果（時間扭曲）給了額外回合的角色：讓他再來一個完整的回合，不換人、不算新的一輪
   nextTurn(again = null) {
     this.timer = null;
     if (this.phase === 'over') return;
@@ -299,11 +301,12 @@ export class Referee {
     this.extraTurn = extra;
     this.match.beginTurn(actor);
 
-    if (actor.mods.bombard > 0) {
+    const volley = this.match.turnBeginVolley(actor);
+    if (volley) {
       this.phase = 'resolving';
       this.deadline = null;
       const before = hpOf(this.match);
-      const shot = this.match.resolveBombard(actor);
+      const shot = volley();
       this.recordShot(shot, before);
       this.io.broadcast({ t: 'shot', ...shot, round: this.round });
       this.schedule(() => this.startTurn(actor), shotSeconds(shot));
@@ -341,12 +344,12 @@ export class Referee {
       return;
     }
     if (isHuman) {
-      const turnTime = this.turnTimeFor(actor);
+      const secs = this.turnTimeFor(actor);
       this.phase = 'turn';
       this.slowOn = false;
-      this.deadline = this.io.now() + turnTime * 1000;
-      this.io.broadcast({ t: 'turn', actorId: actor.id, round: this.round, ai: false, turnTime, entities, items, fx, extra: this.extraTurn });
-      this.schedule(() => this.skipTurn('timeout'), turnTime);
+      this.deadline = this.io.now() + secs * 1000;
+      this.io.broadcast({ t: 'turn', actorId: actor.id, round: this.round, ai: false, turnTime: secs, entities, items, fx, extra: this.extraTurn });
+      this.schedule(() => this.skipTurn('timeout'), secs);
     } else {
       this.io.broadcast({ t: 'turn', actorId: actor.id, round: this.round, ai: true, turnTime: null, entities, items, fx, extra: this.extraTurn });
       this.runAiTurn(actor);
@@ -360,13 +363,13 @@ export class Referee {
     const actor = this.match.byId(this.currentId);
     const before = hpOf(this.match);
     const fx = actor ? this.match.endTurn(actor, this.extraTurn) : [];
-    // fx = 回合結束的效果（燃燒、神佑之石、時間扭曲、古樹嘴巴張開…）；changes = 這些效果造成的血量變化
+    // fx = 回合結束的狀態 / 地圖機制 / 效果（燃燒、神佑之石、時間扭曲、古樹嘴巴張開…）；changes = 這些造成的血量變化
     this.record('turn.end', {
       ...(actor ? { ...actorOf(actor), hp: r1(actor.hp), alive: actor.alive } : { actor: this.currentId }),
       ...(fx.length ? { fx, changes: hpChanges(this.match, before) } : {}),
     });
     if (!fx.length) return this.nextTurn();
-    const again = fx.some(f => f.type === 'extraTurn') ? actor : null;   // 時間扭曲：同一位再來一回合
+    const again = grantsAgain(fx) ? actor : null;   // 效果給了額外回合（時間扭曲）：同一位再來一回合
     this.phase = 'resolving';
     this.deadline = null;
     this.io.broadcast({ t: 'turnFx', actorId: this.currentId, fx, entities: this.match.snapshot().entities });
