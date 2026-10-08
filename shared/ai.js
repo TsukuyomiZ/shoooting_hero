@@ -1,9 +1,9 @@
 import { CONFIG } from './config.js';
 import { clamp } from './utils.js';
-import { simulateShot, shotTraits, blastRadius } from './weapons.js';
+import { simulateShot, shotTraits, blastRadius, shotRange } from './weapons.js';
 
 // 砲口到目標中心的直線上，第一個擋住的東西：'terrain'（地形）、擋在中間的角色，或 null（沒被擋住）。
-// 自己人的子彈穿得過的角色（蜂巢、蜜蜂，allyPass）不擋同隊的視線
+// 自己人的子彈穿得過的角色（蜂巢、蜜蜂，allyPass）不擋同隊的視線；地形照這一隊的子彈撞不撞得到算（別隊的掩體平台也擋，見 Terrain.blocksShot）
 export function lineBlocker(world, shooter, target) {
   const m = shooter.muzzle();
   const tx = target.cx, ty = target.cy;
@@ -12,7 +12,7 @@ export function lineBlocker(world, shooter, target) {
   for (let i = 1; i <= steps; i++) {
     const x = m.x + (tx - m.x) * i / steps;
     const y = m.y + (ty - m.y) * i / steps;
-    if (world.terrain.isSolid(x, y)) return 'terrain';
+    if (world.terrain.blocksShot(x, y, shooter.team)) return 'terrain';
     for (const e of world.entities) {
       if (!e.alive || e === shooter || e === target || (e.allyPass && e.team === shooter.team)) continue;
       if (e.containsPoint(x, y, 2)) return e;
@@ -28,24 +28,37 @@ export function hasLineOfSight(world, shooter, target) {
 
 // 拋射武器的偏好順序（AI 從自己的武器欄挑第一把有的）
 const ARC_PREFERENCE = ['plasma', 'cannon', 'boomerang', 'treeSpear'];
+// 直線武器（狙擊槍；蝙蝠的聲波照狙擊槍的打法；飛鏢有一點重力但幾乎是直線；高壓水炮只打得到射程內的）
+const LINE_PREFERENCE = ['sniper', 'sonic', 'darts', 'waterCannon'];
 
-// 幫 shooter 規劃一發：對敵隊試射找最接近的角度/力量，再加上誤差。只用 shooter 武器欄裡有的武器。
-// 敵人回合、以及斷線玩家的 AI 代打都用這個。回傳 { weapon, angle, power, facing, targetId } 或 null。
+// 幫 shooter 規劃一發：對敵隊試射找最接近的角度/力量，再加上誤差。只用 weapons 裡有的武器（預設 = 武器欄；
+// 射過飛鏢的回合被代打只能用飛鏢）。敵人回合、以及斷線玩家的 AI 代打都用這個。回傳 { weapon, angle, power, facing, targetId } 或 null。
 // 瞄準誤差 / 狙擊機率用敵人自己的設定（shooter.ai），代打的玩家沒有就用 CONFIG.ENEMY
-export function planShot(world, shooter, rng) {
+export function planShot(world, shooter, rng, weapons = shooter.weapons) {
   // 已經閉上的古樹之口不用再打（張著的嘴「血量」是 1，七成機率會被當成最好打的目標，等於 AI 會優先把嘴打閉）；
   // 蜂巢不打（打一下就放出一隻蜜蜂，斷線代打的玩家去戳它只會害到隊伍）
   const avoid = (e) => e.kind === 'hive';
   const targets = world.entities.filter(e => e.alive && e.team !== shooter.team && !(e.closeOnHit && e.closedTurns > 0) && !avoid(e));
   if (!targets.length) return null;
-  const arcId = ARC_PREFERENCE.find(id => shooter.weapons.includes(id));
-  // 只有狙擊槍（狙擊手）：直線打得到的人優先；都被擋住的話，挑被地形（或其他敵方）擋住的隨便打一槍，
-  // 但不隔著自己人開槍（大亂鬥的平地上，排在後面的狙擊手會打到前面的同伴）——每個人都被自己人擋住就不開火
+  const arcId = ARC_PREFERENCE.find(id => weapons.includes(id));
+  // AI 一回合只射一發：有拋射武器時不拿一回合可以射好幾次的武器（飛鏢）只丟一支
+  const lineId = LINE_PREFERENCE.find(id => weapons.includes(id) && !(arcId && CONFIG.WEAPONS[id].shotsPerTurn > 1));
+  // 直線武器的射程（高壓水炮 300px；其他不限）：砲口到目標中心超過就打不到。
+  // 會爆開一大片的直線武器（高壓水炮）：目標旁邊有自己人（含自己）或蜂巢會被波及就不用它（狙擊槍那種小爆炸照舊不管）
+  const lineW = lineId ? CONFIG.WEAPONS[lineId] : null;
+  const lineReach = lineW ? shotRange(lineW, 100) : Infinity;
+  const lineSplash = lineW && lineW.radius > 10 ? blastRadius(shooter, lineW) + 20 : 0;
+  const m0 = shooter.muzzle();
+  const inReach = (t) => (lineReach === Infinity || Math.hypot(t.cx - m0.x, t.cy - m0.y) <= lineReach - 8) &&
+    (!lineSplash || !world.entities.some(f => f.alive && (f.team === shooter.team || avoid(f)) && Math.hypot(f.cx - t.cx, f.cy - t.cy) < lineSplash));
+  // 只有狙擊槍（狙擊手；蝙蝠的聲波也一樣）：直線打得到的人優先；都被擋住的話，挑被地形（或其他敵方）擋住的隨便打一槍，
+  // 但不隔著自己人開槍（大亂鬥的平地上，排在後面的狙擊手會打到前面的同伴）——每個人都被自己人擋住就不開火。射程外 / 會波及自己人的不算
   let pool = targets;
-  if (!arcId && shooter.weapons.includes('sniper')) {
-    const blockers = targets.map(t => lineBlocker(world, shooter, t));
-    const visible = targets.filter((t, i) => blockers[i] === null);
-    pool = visible.length ? visible : targets.filter((t, i) => blockers[i] === 'terrain' || blockers[i].team !== shooter.team);
+  if (!arcId && lineId) {
+    const inRange = targets.filter(inReach);
+    const blockers = inRange.map(t => lineBlocker(world, shooter, t));
+    const visible = inRange.filter((t, i) => blockers[i] === null);
+    pool = visible.length ? visible : inRange.filter((t, i) => blockers[i] === 'terrain' || blockers[i].team !== shooter.team);
     if (!pool.length) return null;
   }
   // 七成機率打血最少的，三成隨機
@@ -57,11 +70,11 @@ export function planShot(world, shooter, rng) {
   const err = ai.aimError;
   const noise = (a) => (rng.float() * 2 - 1) * a;
 
-  // 有直線視野時，有機率直接用狙擊槍（沒有能拋射的武器就只能用狙擊槍）
-  if (shooter.weapons.includes('sniper') && (!arcId || (hasLineOfSight(world, shooter, target) && rng.chance(ai.sniperChance)))) {
+  // 有直線視野時，有機率直接用狙擊槍（沒有能拋射的武器就只能用狙擊槍 / 聲波）
+  if (lineId && (!arcId || (hasLineOfSight(world, shooter, target) && inReach(target) && rng.chance(ai.sniperChance)))) {
     const m = shooter.muzzle();
     const angle = Math.atan2(-(target.cy - m.y), target.cx - m.x) * 180 / Math.PI + noise(ai.sniperSpread ?? 1.2);
-    return { weapon: 'sniper', angle, power: 100, facing, targetId: target.id };
+    return { weapon: lineId, angle, power: 100, facing, targetId: target.id };
   }
   if (!arcId) return null;
 

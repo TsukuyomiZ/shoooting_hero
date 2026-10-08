@@ -1,7 +1,8 @@
 // node test/log-coverage.js
 // 「每個動作都要記 LOG」的結構保證（收訊息的入口：伺服器 RoomManager.onMessage、單人 LocalTransport.send）：
 // - 客戶端會送的訊息種類從 client/ 的原始碼抓（新加一種訊息自動被測到，不用改這個檔）；
-//   每一種在每個階段（還沒 hello、大廳、房間裡（房主 / 成員 / 都準備好了）、遊戲中；戰鬥輪到自己 / 別人、結算中、選牌、選完、結束）
+//   每一種在每個階段（還沒 hello、大廳、房間裡（房主 / 成員 / 都準備好了）、遊戲中；戰鬥輪到自己 / 別人、結算中、
+//   飛鏢兩支之間（射過一支、回合接著繼續，這回合只能用飛鏢）、選牌、選完、結束）
 //   都送一次：一定留下至少一筆紀錄，而且不是入口補的 msg.unlogged（處理的程式自己記了）；
 // - 入口的保底：處理途中一筆都沒記 → 補一筆 msg.unlogged（算雜訊類，有上限）；
 // - 模糊測試：同樣的訊息、一次把一個欄位換成亂送的值（超長字串、toString 壞掉的物件、陣列、NaN），
@@ -129,7 +130,8 @@ class FakeIo {
   }
 }
 const until = (io, pred, max = 600_000) => { const s = io.t; while (!pred() && io.t - s < max) io.advance(100); return pred(); };
-const RUN_PHASES = ['ownTurn', 'otherTurn', 'resolving', 'pick', 'picked', 'over'];
+// betweenDarts = 飛鏢射完一支、回合接著繼續（resume）：這回合只能用飛鏢，換別把 / 開別把要記 action.ignored weaponLocked
+const RUN_PHASES = ['ownTurn', 'otherTurn', 'resolving', 'betweenDarts', 'pick', 'picked', 'over'];
 function runAt(phase) {
   const io = new FakeIo();
   const run = new Run({ players: [{ id: 'p1', name: '甲' }, { id: 'p2', name: '乙' }], seed: 3, io, cards: CARDS });
@@ -138,6 +140,12 @@ function runAt(phase) {
   for (const e of run.match.entities) e.hp = e.maxHp = 5000;
   const me = run.match.byId('p1');
   if (phase === 'resolving') run.handle('p1', { t: 'fire', weapon: 'cannon', angle: 45, power: 50, x: me.x, y: me.y, facing: 1, stamina: 0 });
+  if (phase === 'betweenDarts') {
+    me.weapons = ['darts', 'cannon', 'sniper'];   // 範本的 weapon（狙擊槍）/ fire（大砲）都是他有的武器：被擋下只會是因為鎖定
+    run.handle('p1', { t: 'fire', weapon: 'darts', angle: 0, power: 50, x: me.x, y: me.y, facing: 1, stamina: me.stamina });
+    const ref = run.referee;
+    assert(until(io, () => ref.phase === 'turn' && ref.currentId === 'p1' && ref.lockWeapon === 'darts' && ref.shotsLeft === 2), 'resumed between darts');
+  }
   if (phase === 'pick' || phase === 'picked' || phase === 'over') {
     for (const e of (phase === 'over' ? run.match.players : run.match.enemies)) e.die('hit');
     io.advance(31_000);
@@ -178,6 +186,18 @@ await test('戰鬥 / 選牌（肉鴿流程 + 裁判）：每種訊息在每個�
   }
   assert(!bad.length, 'no record:\n        ' + bad.join('\n        '));
   return { phases: RUN_PHASES.length };
+});
+
+await test('飛鏢兩支之間（這回合鎖定飛鏢）：換別把 / 用別把開火 → action.ignored weaponLocked；換回飛鏢、射下一支照常記（fire + shot 帶 shotsLeft）', () => {
+  const only = (recs) => recs.length === 1 ? recs[0] : null;
+  const w = only(sendToRun('betweenDarts', (c) => messageOf('weapon', c)));   // 範本：狙擊槍
+  assert(w && w.ev === 'action.ignored' && w.t === 'weapon' && w.reason === 'weaponLocked' && w.weapon === 'sniper' && w.pid === 'p1', 'weapon: ' + J(w));
+  const f = only(sendToRun('betweenDarts', (c) => messageOf('fire', c)));   // 範本：大砲
+  assert(f && f.ev === 'action.ignored' && f.t === 'fire' && f.reason === 'weaponLocked' && f.weapon === 'cannon' && f.angle === 45 && f.power === 50, 'fire: ' + J(f));
+  const back = sendToRun('betweenDarts', () => ({ t: 'weapon', weapon: 'darts' }));
+  assert(back.some(r => r.ev === 'weapon' && r.weapon === 'darts') && !back.some(r => r.ev === 'action.ignored'), 'switching to darts: ' + J(back.map(r => r.ev)));
+  const d = sendToRun('betweenDarts', (c) => ({ ...messageOf('fire', c), weapon: 'darts' }));
+  assert(d.some(r => r.ev === 'fire' && r.weapon === 'darts') && d.some(r => r.ev === 'shot' && r.weapon === 'darts' && r.shotsLeft === 1), 'next dart: ' + J(d.map(r => [r.ev, r.reason || r.shotsLeft])));
 });
 
 await test('入口的保底：處理途中一筆都沒記 → 補一筆 msg.unlogged（算雜訊類：每 10 秒最多 30 筆，斷線時補 log.suppressed）', () => {
@@ -256,7 +276,7 @@ await test('模糊測試（伺服器的大廳 / 房間）：照樣有紀錄、�
 });
 
 await test('模糊測試（戰鬥 / 選牌）：照樣有紀錄、亂送的值不會原封不動寫進紀錄，處理的程式也不會丟錯', () => {
-  const { bad, cases } = fuzz(sendToRun, ['ownTurn', 'pick']);
+  const { bad, cases } = fuzz(sendToRun, ['ownTurn', 'betweenDarts', 'pick']);
   assert(!bad.length, `${bad.length} problems:\n        ` + bad.slice(0, 40).join('\n        '));
   return { cases };
 });

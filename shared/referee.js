@@ -9,6 +9,15 @@ const splashOf = (e) => ({ id: e.id, n: e.splash.n, x: e.splash.x, dmg: e.splash
 
 // ---- 紀錄（LOG）用的小工具：結算前後各拍一張血量快照，一比就知道誰扣 / 回了多少血、誰倒下、誰是新召喚的 ----
 const r1 = (n) => (Number.isFinite(n) ? Math.round(n * 10) / 10 : n);
+// 一發改到的地形與場景（地圖機制附在事件上的）：掉下來的鐘乳石 falls、點燃的火把 lights（第幾根 / 第幾支），沒有就不帶
+function sceneChanges(shot) {
+  const out = {};
+  for (const key of ['falls', 'lights']) {
+    const list = shot ? shot.events.flatMap(ev => ev[key] || []) : [];
+    if (list.length) out[key] = list;
+  }
+  return out;
+}
 const hpOf = (match) => new Map(match.entities.map(e => [e.id, { hp: e.hp, alive: e.alive }]));
 function hpChanges(match, before) {
   const out = [];
@@ -46,6 +55,10 @@ export class Referee {
     this.currentId = null;
     this.extraTurn = false;   // 目前這個回合是不是時間扭曲給的額外回合
     this.slowOn = false;      // 行動玩家現在是不是開著慢動作（他回報的；每個回合開始重設）
+    // 一回合可以分開射好幾次的武器（武器的 shotsPerTurn，例如飛鏢）：射出第一發之後這回合只能用它（lockWeapon），
+    // shotsLeft = 這回合還能射幾次。還沒用這種武器是 null；每個回合開始重設
+    this.lockWeapon = null;
+    this.shotsLeft = null;
     this.phase = 'idle';   // idle | starting | turn | resolving | over
     this.timer = null;
     this.deadline = null;
@@ -129,6 +142,8 @@ export class Referee {
         break;
       }
       case 'weapon': {
+        // 這回合已經射過一回合可以射好幾次的武器（飛鏢）：只能用它，換不了別把
+        if (this.lockWeapon && msg.weapon !== this.lockWeapon) return this.ignored(playerId, msg, 'weaponLocked');
         if (actor.weapons.includes(msg.weapon)) {   // 只能切換自己武器欄裡的武器
           actor.weapon = msg.weapon;
           this.record('weapon', { pid: actor.id, name: actor.name, weapon: msg.weapon });
@@ -142,6 +157,8 @@ export class Referee {
         if (!actor.weapons.includes(msg.weapon) || !Number.isFinite(msg.angle) || !Number.isFinite(msg.power)) {
           return this.ignored(playerId, msg, actor.weapons.includes(msg.weapon) ? 'badAim' : 'weaponNotOwned');
         }
+        // 位置回報之前就擋掉：被擋下的開火不能移動他
+        if (this.lockWeapon && msg.weapon !== this.lockWeapon) return this.ignored(playerId, msg, 'weaponLocked');
         // 空中也能開火：就在回報的位置出手，並接著他當下的垂直速度往下飛 / 落地（開火的回報不收 safe：重生點只認走路掉水那次回報的）
         const report = this.match.applyPositionReport(actor, { ...msg, safe: null });
         this.announcePickup(report.pickup);
@@ -156,13 +173,23 @@ export class Referee {
         });
         // 出手的位置已經在水裡：淹死就結束，撐住了就從重生點出手
         if (report.water && this.actorFellInWater(actor)) return;
+        // 一回合可以射好幾次的武器（飛鏢）：第一發起鎖定這把、扣次數；計時暫停（飛行與結算不算），還有次數就照開火這一刻剩下的秒數接著算
+        const per = CONFIG.WEAPONS[msg.weapon].shotsPerTurn || 1;
+        const timeLeft = this.deadline ? Math.max(0, (this.deadline - this.io.now()) / 1000) : 0;
+        if (per > 1) {
+          if (this.shotsLeft === null) { this.lockWeapon = msg.weapon; this.shotsLeft = per; }
+          this.shotsLeft--;
+        }
+        const again = per > 1 && this.shotsLeft > 0;
         this.phase = 'resolving';
         this.deadline = null;
         const before = hpOf(this.match);
         const shot = this.match.resolveShot(actor, msg.weapon, msg.angle, power);
-        this.recordShot(shot, before);
-        this.io.broadcast({ t: 'shot', ...shot });
-        this.schedule(() => this.finishTurn(), shotSeconds(shot));
+        const left = per > 1 ? { shotsLeft: this.shotsLeft } : {};   // 這一發之後還能射幾次（客戶端顯示、紀錄用）
+        this.recordShot(shot, before, left);
+        this.io.broadcast({ t: 'shot', ...shot, ...left });
+        if (again) this.schedule(() => this.resumeTurn(actor, timeLeft), (shot.flightFrames + shot.settleFrames) / 60 + CONFIG.TIMING.againPad);
+        else this.schedule(() => this.finishTurn(), shotSeconds(shot));
         break;
       }
       default:
@@ -180,14 +207,39 @@ export class Referee {
     });
   }
 
-  // 一發（或一波轟炸）的結果：打到什麼、誰扣了多少血、誰倒下；效果要記的欄位（例如磨刀霍霍 / 越戰越強的層數 stacks）
-  recordShot(shot, before) {
+  // 一發（或一波轟炸）的結果：打到什麼、誰扣了多少血、誰倒下；效果要記的欄位（例如磨刀霍霍 / 越戰越強的層數 stacks）。
+  // extra = 另外要記的（一回合射好幾次的武器：這一發之後還能射幾次 shotsLeft）
+  recordShot(shot, before, extra = {}) {
     const a = this.match.byId(shot.actorId);
     this.record('shot', {
       ...(shot.hitEnemy !== undefined ? { hitEnemy: shot.hitEnemy } : {}), ...shotLogOf(a),
       kind: shot.kind, pid: shot.actorId, name: (this.match.byId(shot.actorId) || {}).name, weapon: shot.weapon,
       hit: shot.hit && shot.hit.type, frames: shot.flightFrames, kills: shot.kills, changes: hpChanges(this.match, before),
+      ...sceneChanges(shot), ...extra,
     });
+  }
+
+  // 一回合可以射好幾次的武器（飛鏢）射完一發、還有次數：回合接著繼續，計時從開火那一刻剩下的秒數接著算，可以再移動、瞄準
+  // （不是新的回合：不重算體力、回合數、回合開始 / 結束的效果）。這一發已經分出勝負、或他被連帶打倒，就照平常結束這回合；
+  // 飛行途中斷線的（setConnected 只在 turn 階段接手）在這裡交給 AI 代打（只能用鎖定的這把，射一次就結束）
+  resumeTurn(actor, timeLeft) {
+    this.timer = null;
+    if (this.phase === 'over') return;
+    if (this.match.result() || !actor.alive) return this.finishTurn();
+    const human = this.humans.get(actor.id);
+    if (!human || !human.connected) {
+      this.record('turn.takeover', { pid: actor.id, name: actor.name, alive: true, shotsLeft: this.shotsLeft });
+      return this.runAiTurn(actor);
+    }
+    this.phase = 'turn';
+    this.slowOn = false;
+    this.deadline = this.io.now() + timeLeft * 1000;
+    this.record('turn.resume', { ...actorOf(actor), weapon: this.lockWeapon, shotsLeft: this.shotsLeft, timeLeft: r1(timeLeft) });
+    this.io.broadcast({
+      t: 'resume', actorId: actor.id, weapon: this.lockWeapon, shotsLeft: this.shotsLeft, timeLeft,
+      entities: this.match.snapshot().entities,
+    });
+    this.schedule(() => this.skipTurn('timeout'), timeLeft);
   }
 
   // 行動玩家回報自己掉進水裡（位置回報已經扣完血、把他放回岸上，見 Match.applyPositionReport）。
@@ -221,7 +273,8 @@ export class Referee {
     this.io.broadcast({ t: 'playerStatus', id, connected });
     if (!connected && this.phase === 'turn' && this.currentId === id) {
       const actor = this.match.byId(id);
-      this.record('turn.takeover', { pid: id, name: h.name, alive: !!(actor && actor.alive) });   // 輪到他時斷線：AI 接手這回合
+      // 輪到他時斷線：AI 接手這回合（已經射過飛鏢的話 shotsLeft = 還剩幾次，AI 只能用鎖定的那把再射一次）
+      this.record('turn.takeover', { pid: id, name: h.name, alive: !!(actor && actor.alive), ...(this.shotsLeft !== null ? { shotsLeft: this.shotsLeft } : {}) });
       if (actor) this.closeSlow(actor, 'takeover');
       if (actor && actor.alive) this.runAiTurn(actor);
       else this.skipTurn('disconnected');
@@ -238,6 +291,8 @@ export class Referee {
       phase: this.phase,
       timeLeft: this.deadline ? Math.max(0, (this.deadline - this.io.now()) / 1000) : null,
       slowOn: this.slowOn,   // 行動玩家開著慢動作（重連的是他自己：客戶端送關；別人：在他身上畫光環）
+      lockWeapon: this.lockWeapon,   // 這回合射過飛鏢：只能用它、還能射幾次（沒有是 null）
+      shotsLeft: this.shotsLeft,
       players: this.match.players.map(p => ({
         id: p.id, name: p.name, slot: p.slot, color: p.color,
         connected: this.humans.has(p.id) ? this.humans.get(p.id).connected : false,
@@ -293,6 +348,8 @@ export class Referee {
     if (!extra && (prev < 0 || this.match.entities.indexOf(actor) <= prev)) this.match.round++;
     this.currentId = actor.id;
     this.extraTurn = extra;
+    this.lockWeapon = null;   // 新的回合（含額外回合）：飛鏢的次數重算
+    this.shotsLeft = null;
     this.match.beginTurn(actor);
 
     const volley = this.match.turnBeginVolley(actor);
@@ -382,7 +439,9 @@ export class Referee {
     const splashes = actor.team === 'players' ? this.settleWithSplashes() : [];
     if (!actor.alive) { this.skipTurn('water', splashes, before); return; }   // 掉下去淹死了（紀錄的血量變化從落地前算起）
     const entities = this.match.snapshot().entities;   // 走路前的狀態，客戶端從這裡開始重播
-    const { walk, plan, boss } = this.match.planAiTurn(actor);
+    // 已經射過飛鏢的回合被接手：AI 只能用鎖定的那把，射這一支就結束（不會再回到他手上：剩下的次數歸零，重連的狀態也照這個）
+    const { walk, plan, boss } = this.match.planAiTurn(actor, this.lockWeapon ? [this.lockWeapon] : null);
+    if (this.shotsLeft !== null) this.shotsLeft = 0;
     const T = CONFIG.TIMING;
     const who = { ...actorOf(actor), ...(actor.team === 'players' ? { takeover: true } : {}) };
     let secs;
@@ -392,6 +451,7 @@ export class Referee {
         const o = {};
         for (const [k, v] of Object.entries(st)) if (v === null || typeof v !== 'object') o[k] = v;
         if (Array.isArray(st.spawns)) o.spawns = st.spawns.map(s => s.id);
+        if (st.shot) Object.assign(o, sceneChanges(st.shot));   // 這一招改到的場景（例如獨眼巨人猛捶震下來的鐘乳石 falls）
         return o;
       });
       this.record('ai.turn', { ...who, boss: steps, next: boss.next && boss.next.action, changes: hpChanges(this.match, before) });
@@ -404,7 +464,7 @@ export class Referee {
       this.record('ai.turn', {
         ...who, walk: walk ? { dir: walk.dir, frames: walk.frames } : null,
         ...(plan ? { weapon: plan.weapon, angle: r1(plan.angle), power: r1(plan.power), hit: shot.hit && shot.hit.type, kills: shot.kills } : { noShot: true }),
-        changes: hpChanges(this.match, before),
+        changes: hpChanges(this.match, before), ...sceneChanges(shot),
       });
       this.io.broadcast({ t: 'aiTurn', actorId: actor.id, entities, walk, shot, splashes });
       secs = T.aiThink

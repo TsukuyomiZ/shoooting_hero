@@ -4,6 +4,7 @@ export const BACKGROUNDS = {
   dusk: buildDuskBackground,
   forest: buildForestBackground,
   jungle: buildJungleBackground,
+  cave: buildCaveBackground,
 };
 
 const canvasOf = (W, H) => {
@@ -86,6 +87,48 @@ function buildForestBackground(W, H) {
     ctx.fillStyle = `rgba(217,249,157,${0.15 + (i % 5) * 0.08})`;
     ctx.beginPath(); ctx.arc(x, y, 1.5 + (i % 3), 0, Math.PI * 2); ctx.fill();
   }
+  return c;
+}
+
+// 洞穴：深色的岩壁、遠處的石筍與鐘乳石剪影、零星發光的礦石、地底湖上的霧（大部分會被照明的遮光蓋住）
+function buildCaveBackground(W, H) {
+  const c = canvasOf(W, H);
+  const ctx = c.getContext('2d');
+  const wall = ctx.createLinearGradient(0, 0, 0, H);
+  wall.addColorStop(0, '#0c0a09');
+  wall.addColorStop(0.5, '#1c1917');
+  wall.addColorStop(1, '#292524');
+  ctx.fillStyle = wall;
+  ctx.fillRect(0, 0, W, H);
+  // 岩壁上一塊塊的凹凸
+  for (let i = 0; i < 60; i++) {
+    const x = (i * 197) % W, y = 40 + (i * 89) % (H - 160), r = 18 + (i * 13) % 40;
+    ctx.fillStyle = `rgba(${i % 2 ? '68,64,60' : '20,18,16'},0.35)`;
+    ctx.beginPath(); ctx.ellipse(x, y, r * 1.4, r, (i % 7) * 0.4, 0, Math.PI * 2); ctx.fill();
+  }
+  // 遠處的鐘乳石（上）與石筍（下）剪影，兩層
+  const layers = [{ color: 'rgba(41,37,36,0.8)', seed: 3, len: 90 }, { color: 'rgba(23,20,19,0.9)', seed: 7, len: 140 }];
+  for (const L of layers) {
+    ctx.fillStyle = L.color;
+    for (let x = -10; x < W; x += 46 + ((x * L.seed) % 34)) {
+      const w = 12 + ((x * L.seed) % 16), len = L.len * (0.5 + Math.abs(Math.sin(x * 0.07 * L.seed)));
+      ctx.beginPath(); ctx.moveTo(x - w, 0); ctx.lineTo(x + w, 0); ctx.lineTo(x, len); ctx.closePath(); ctx.fill();
+      const up = len * 0.8;
+      ctx.beginPath(); ctx.moveTo(x + 20 - w, H); ctx.lineTo(x + 20 + w, H); ctx.lineTo(x + 20, H - 120 - up); ctx.closePath(); ctx.fill();
+    }
+  }
+  // 發光的礦石
+  for (let i = 0; i < 26; i++) {
+    const x = (i * 251) % W, y = 80 + (i * 167) % (H - 260);
+    ctx.fillStyle = i % 3 ? `rgba(125,211,252,${0.18 + (i % 4) * 0.06})` : `rgba(196,181,253,${0.2 + (i % 4) * 0.06})`;
+    ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x + 2.5, y); ctx.lineTo(x, y + 4); ctx.lineTo(x - 2.5, y); ctx.closePath(); ctx.fill();
+  }
+  // 地底湖上的霧
+  const mist = ctx.createLinearGradient(0, 540, 0, 660);
+  mist.addColorStop(0, 'rgba(160,170,190,0)');
+  mist.addColorStop(1, 'rgba(160,170,190,0.12)');
+  ctx.fillStyle = mist;
+  ctx.fillRect(0, 540, W, 120);
   return c;
 }
 

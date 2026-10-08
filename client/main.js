@@ -7,6 +7,7 @@ import { StickerUi } from './stickers.js';
 import { SettingsUi } from './settings-ui.js';
 import { SummaryUi } from './summary-ui.js';
 import { ChangelogUi } from './changelog-ui.js';
+import { stageTypeOf } from './stage-look.js';
 
 const canvas = document.getElementById('game');
 const view = new GameView(canvas);
@@ -129,6 +130,7 @@ function attach(t) {
           cardsUi.show({
             stage: msg.run.stage, stageCount: msg.run.stageCount, offers: msg.offers, pickTime: msg.pickTimeLeft, players: msg.players, myId, picked: msg.picked,
             weapons: msg.weapons || [], linkTargets: msg.linkTargets || [], links: msg.links || {},
+            type: msg.run.type || null, nextType: msg.nextType || null, bonus: msg.bonus || null,
           });
         }
         break;
@@ -136,6 +138,7 @@ function attach(t) {
         cardsUi.show({
           stage: msg.stage, stageCount: msg.stageCount, offers: msg.offers[myId] || [], pickTime: msg.pickTime, players: view.players, myId,
           weapons: (msg.weapons && msg.weapons[myId]) || [], linkTargets: (msg.linkTargets && msg.linkTargets[myId]) || [], links: msg.links || {},
+          type: msg.type || null, nextType: msg.nextType || null, bonus: msg.bonus || null,
         });
         break;
       case 'picked':
@@ -149,7 +152,7 @@ function attach(t) {
         break;
       case 'runOver':
         cardsUi.hide();
-        summaryUi.show(msg, { myId: view.myId, isBoss: !!(view.stageInfo && view.stageInfo.isBoss) });
+        summaryUi.show(msg, { myId: view.myId, type: msg.type || stageTypeOf(view.stageInfo) });
         sessionStorage.removeItem('sh_token');   // 之後按 R 重新整理會回到大廳，而不是重連進已結束的冒險
         break;
       case 'disconnected':

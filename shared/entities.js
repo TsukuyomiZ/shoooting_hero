@@ -405,6 +405,15 @@ export class Entity {
     this.vineRegrab = VINE_REGRAB;
   }
 
+  // 被往 (ux, uy)（單位向量）推 kb 的力道：爆炸 / 命中的擊退（Match.applyExplosion）與開火的後座力（weapons.js applyRecoil）共用。
+  // 水平照方向，垂直一律往上彈一點；抓著藤蔓的人被打下來。只用加減乘除，伺服器與客戶端一致
+  knockBack(ux, uy, kb) {
+    this.vx += ux * kb;
+    this.vy = Math.min(this.vy, 0) - Math.abs(uy) * kb * 0.6 - kb * 0.35;
+    this.onGround = false;
+    this.letGoVine();
+  }
+
   // 腳底在 (x, y) 的人能不能掛在第 i 條藤蔓上（伺服器檢查玩家回報的位置用）
   canHangAt(terrain, i, x, y) {
     const v = terrain.vines[i];

@@ -6,10 +6,11 @@ import { Referee } from './referee.js';
 import { baseStats, drawOffers, applyCard, derivePlayerStats, needsDiscard, equipWeapon } from './cards.js';
 import * as Effects from './effects/index.js';
 import { logValue } from './utils.js';
-import { isBossStage } from './stage-rules.js';
+import { isBossStage, isEliteStage, stageType } from './stage-rules.js';
 
 // 一場冒險（肉鴿流程）：
 //   共 RUN.stageCount 關，關卡規則說是 Boss 關的那幾關（RUN.bossStages，見 shared/stage-rules.js）從 Boss 池抽地圖（同一場不重複同一隻王），
+//   菁英關的那幾關（RUN.eliteStages）從菁英池抽地圖（一隻強力的菁英怪鎮守，打贏後選牌的稀有度權重另外加 RUN.eliteRarityBonus），
 //   其他是小關（每關隨機一張地圖）；
 //   每關勝利後（Boss 關也是）每人三選一張牌 → 下一關 … → 打贏最後一關 = 通關；任何一關全滅 = 結束
 // 玩家的血量、牌、加成、武器欄在關與關之間帶著走。伺服器（Room）與單人模式（LocalTransport）都用這個。
@@ -44,6 +45,7 @@ export class Run {
     this.referee = null;
     this.lastLevelId = null;
     this.bossesUsed = [];  // 這場冒險已經打過的 Boss 關（同一隻王不會再出現）
+    this.elitesUsed = [];  // 這場冒險已經打過的菁英關地圖（先挑還沒打過的）
     this.offers = null;    // pick 階段：playerId → [card...]
     this.picks = null;     // pick 階段：playerId → cardId
     this.discards = null;  // pick 階段：playerId → 武器欄滿了要丟掉的武器 id
@@ -53,6 +55,8 @@ export class Run {
   }
 
   get isBoss() { return isBossStage(this.stage, this.config); }
+  get isElite() { return isEliteStage(this.stage, this.config); }
+  get stageType() { return stageType(this.stage, this.config); }   // 'boss' | 'elite' | 'normal'（= 地圖池）
   get isLastStage() { return this.stage >= this.stageCount; }
 
   // 寫一筆紀錄（玩家看不到）：io 有 record 才記（同 Referee.record）
@@ -69,10 +73,12 @@ export class Run {
   }
 
   // ---- 關卡 ----
-  // 小關：不跟上一關同一張。Boss 關：先挑這場還沒打過的王，都打過了才重複（也避開上一隻）
+  // 小關：不跟上一關同一張。Boss 關 / 菁英關：先挑這場還沒打過的，都打過了才重複（也避開上一關）
   pickLevel() {
-    const pool = levelsInPool(this.isBoss ? 'boss' : 'normal');
-    const fresh = this.isBoss ? pool.filter(id => !this.bossesUsed.includes(id)) : [];
+    const type = this.stageType;
+    const pool = levelsInPool(type);
+    const used = type === 'boss' ? this.bossesUsed : type === 'elite' ? this.elitesUsed : null;
+    const fresh = used ? pool.filter(id => !used.includes(id)) : [];
     const choices = fresh.length ? fresh : pool.length > 1 ? pool.filter(id => id !== this.lastLevelId) : pool;
     return this.rng.pick(choices);
   }
@@ -113,7 +119,7 @@ export class Run {
 
   stageInfo() {
     return {
-      stage: this.stage, stageCount: this.stageCount, isBoss: this.isBoss,
+      stage: this.stage, stageCount: this.stageCount, isBoss: this.isBoss, type: this.stageType,
       levelId: this.match ? this.match.levelId : null,
       levelName: this.match ? LEVELS[this.match.levelId].name : null,
       cards: Object.fromEntries([...this.players.values()].map(p => [p.id, p.cards.map(c => c.id)])),
@@ -127,6 +133,7 @@ export class Run {
     const levelId = this.pickLevel();
     this.lastLevelId = levelId;
     if (this.isBoss) this.bossesUsed.push(levelId);
+    if (this.isElite) this.elitesUsed.push(levelId);
     const carry = {};
     const list = [...this.players.values()];
     for (const p of list) {
@@ -139,7 +146,7 @@ export class Run {
     this.phase = 'battle';
     // 這一關每位玩家帶進來的血量、武器欄、手上的牌
     this.record('stage.start', {
-      stage: this.stage, stageCount: this.stageCount, boss: this.isBoss, level: levelId,
+      stage: this.stage, stageCount: this.stageCount, boss: this.isBoss, type: this.stageType, level: levelId,
       players: list.map(p => ({ pid: p.id, name: p.name, hp: carry[p.id].hp, maxHp: carry[p.id].maxHp, weapons: p.weapons.slice(), cards: p.cards.map(c => c.id) })),
     });
     this.match = new Match({ levelId, players: list, seed: this.rng.int(0, 0xffffffff), carry, stage: this.stage, config: this.config });
@@ -170,11 +177,13 @@ export class Run {
     // 過關回血 + 發牌（先讓大家看 2.5 秒勝利畫面，廣播 stageClear 後才進入選牌階段）
     this.phase = 'clear';
     const offers = {};
+    // 打贏菁英關：這次選牌的稀有度權重另外加（綠 / 紫 / 金比較容易出）
+    const bonus = this.clearBonus();
     for (const p of this.players.values()) {
       const maxHp = derivePlayerStats(p.stats).maxHp;
       if (p.hp > 0) p.hp = Math.min(maxHp, Math.round(p.hp + maxHp * CONFIG.RUN.healPctOnClear));
       offers[p.id] = drawOffers(this.cards, this.rng, this.stage, CONFIG.RUN.offers, p.cards.map(c => c.id), p.weapons, {
-        solo: this.players.size === 1, linkTargets: this.linkTargets(p).length,
+        solo: this.players.size === 1, linkTargets: this.linkTargets(p).length, rarityBonus: bonus,
       });
     }
     this.schedule(() => {
@@ -186,11 +195,12 @@ export class Run {
       this.pickDeadline = this.io.now() + CONFIG.RUN.pickTime * 1000;
       // 每個人拿到哪三張牌可以選（過關回血後的血量）
       this.record('pick.offer', {
-        stage: this.stage, pickTime: CONFIG.RUN.pickTime,
+        stage: this.stage, pickTime: CONFIG.RUN.pickTime, ...(bonus ? { type: this.stageType, bonus } : {}),
         players: [...this.players.values()].map(p => ({ pid: p.id, name: p.name, hp: p.hp, offers: (offers[p.id] || []).map(c => c.id) })),
       });
       this.io.broadcast({
         t: 'stageClear', stage: this.stage, stageCount: this.stageCount,
+        type: this.stageType, nextType: stageType(this.stage + 1, this.config), bonus,
         offers, pickTime: CONFIG.RUN.pickTime,
         hp: Object.fromEntries([...this.players.values()].map(p => [p.id, p.hp])),
         weapons: Object.fromEntries([...this.players.values()].map(p => [p.id, p.weapons])),
@@ -303,7 +313,10 @@ export class Run {
     this.picks = null;
     this.discards = null;
     this.linkPicks = null;
-    this.io.broadcast({ t: 'picks', summary, nextStage: this.stage + 1, isBoss: isBossStage(this.stage + 1, this.config) });
+    this.io.broadcast({
+      t: 'picks', summary, nextStage: this.stage + 1,
+      isBoss: isBossStage(this.stage + 1, this.config), nextType: stageType(this.stage + 1, this.config),
+    });
     this.phase = 'between';
     this.schedule(() => this.nextStage(), 2.5);
   }
@@ -317,7 +330,14 @@ export class Run {
       result, stage: this.stage, stageCount: this.stageCount,
       players: [...this.players.values()].map(p => ({ pid: p.id, name: p.name, hp: p.hp, cards: p.cards.map(c => c.id), weapons: p.weapons.slice(), ...p.totals })),
     });
-    this.io.broadcast({ t: 'runOver', result, stage: this.stage, stageCount: this.stageCount, cards: this.stageInfo().cards, summary: this.summary() });
+    this.io.broadcast({
+      t: 'runOver', result, stage: this.stage, stageCount: this.stageCount, type: this.stageType, cards: this.stageInfo().cards, summary: this.summary(),
+    });
+  }
+
+  // 這一關打贏之後的選牌，稀有度權重另外加多少：菁英關 = RUN.eliteRarityBonus，其他 = null
+  clearBonus() {
+    return this.isElite ? { ...CONFIG.RUN.eliteRarityBonus } : null;
   }
 
   // 結算畫面：每個人整場的統計與拿到的牌（同一張拿好幾次合成一筆 count）
@@ -354,6 +374,7 @@ export class Run {
       return {
         ...(this.referee ? this.referee.statePayload() : {}), ...base,
         offers: this.offers[forPlayerId] || [], picked: this.picks[forPlayerId] || null,
+        nextType: stageType(this.stage + 1, this.config), bonus: this.clearBonus(),
         weapons: this.players.has(forPlayerId) ? this.players.get(forPlayerId).weapons : [],
         linkTargets: this.players.has(forPlayerId) ? this.linkTargets(this.players.get(forPlayerId)) : [],
         links: this.allLinks(),

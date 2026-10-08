@@ -15,7 +15,8 @@ function resolveBombard(match, owner) {
   }
   xs.sort((a, b) => Math.abs(a - owner.x) - Math.abs(b - owner.x));
   const projs = xs.map((x, k) => {
-    const p = makeProjectile(owner, weapon, x, B.startY, 0, weapon.speed);
+    // 洞穴這種有天花板的地圖：從天花板下面落下（不然全部炸在天花板上）
+    const p = makeProjectile(owner, weapon, x, match.terrain.skyStart(x, B.startY), 0, weapon.speed);
     p.spawn = 1 + k * B.gapFrames;
     p.ignore.add(owner);
     return p;

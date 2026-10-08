@@ -32,7 +32,7 @@ const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion fai
 const J = JSON.stringify;
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
 const HOOKS = ['create', 'musicTrack', 'turnScript', 'abortScript', 'update', 'showEvent', 'showDamage', 'turnFx', 'statusFx', 'onPickup', 'predictMove', 'onDeath',
-  'drawScene', 'drawEntityFirst', 'drawEntityBare', 'drawEntity', 'drawFigure', 'hpBar', 'drawProjectile', 'hud'];
+  'drawScene', 'shaded', 'drawShade', 'drawEntityFirst', 'drawEntityBare', 'drawEntity', 'drawFigure', 'hpBar', 'drawProjectile', 'hud'];
 // 只給畫面用、不該出現在 Entity / 場上的道具（地圖機制的狀態 match.mechState.items）上的欄位（以前放在角色、道具身上的那些）
 const VIEW_ONLY = ['viewOpen', 'viewDx', 'viewDy', 'viewT', 'windup', 'windDir', 'charging', 'floatedClosed', 'splashShown',
   'poisonDeath', 'deathHandled', 'netTarget', 'netVy', 'slowMo', 'stepDist', 'anim'];
@@ -56,7 +56,7 @@ function fakeCtx(match, state) {
   return { c: { match, time: 1, currentId: null, projectiles: [], state, fx: sink, *shotScript() {} }, fx };
 }
 
-await test('每張地圖拿到對的地圖畫面（照 match.mechanic.type）：古樹之庭 / 叢林巨蟒 / 小心擊發各自一個，其他都是 plain；每個掛勾都在', () => {
+await test('每張地圖拿到對的地圖畫面（照 match.mechanic.type）：古樹之庭 / 叢林巨蟒 / 小心擊發 / 岩穴各自一個，其他都是 plain；每個掛勾都在', () => {
   const got = {};
   for (const id of Object.keys(LEVELS)) {
     const m = matchOf(id);
@@ -69,7 +69,7 @@ await test('每張地圖拿到對的地圖畫面（照 match.mechanic.type）：
     const s1 = v.create(m), s2 = v.create(m);
     assert(s1 && typeof s1 === 'object' && s1 !== s2, `${id}: create builds a fresh state every time`);
   }
-  assert(Object.values(got).filter(t => t !== 'plain').sort().join() === 'hive,snake,tree', 'one map each: ' + J(got));
+  assert(Object.values(got).filter(t => t !== 'plain').sort().join() === 'cave,cyclops,hive,snake,tree', 'one map each: ' + J(got));
   return got;
 });
 
@@ -122,8 +122,8 @@ const clientFiles = () => fs.readdirSync(path.join(ROOT, 'client'), { recursive:
 await test('render.js / game-view.js 不認得任何一張地圖：程式碼（註解除外）不提地圖的名字，只透過 map-views/index.js', () => {
   // 地圖的名字：英文的（camelCase 的開頭或中間，例如 treeSpear、snakeBlood、drawTreeScene；全大寫的，例如 SNAKE_BOSS）與畫面上的中文。
   // 不能用 /i：(?![a-z]) 會連大寫字母一起擋掉，treeSpear 就漏掉了
-  const MAP_NAMES = /\b(tree|snake|hive|bees?|eye|mouth|treant|minion)(?![a-z])|(Tree|Snake|Hive|Bees?|Eye|Mouth|Treant|Minion)(?![a-z])|\b(TREE|SNAKE|HIVE|BEES?|EYE|MOUTH|TREANT|MINION)(?![A-Z])|closeOnHit|\.part\b|古樹|巨蟒|蜂巢|蜜蜂|樹妖|蛇血/;
-  const caught = ['treeSpear', 'snakeBlood', 'drawTreeScene', 'beeTurnScript', 'CONFIG.SNAKE_BOSS', "e.kind === 'hive'", 'e.minion', 'drawEye(ctx)'];
+  const MAP_NAMES = /\b(tree|snake|hive|bees?|eye|mouth|treant|minion|cave|torch(?:es)?|stalactites?|cyclops|boulder)(?![a-z])|(Tree|Snake|Hive|Bees?|Eye|Mouth|Treant|Minion|Cave|Torch(?:es)?|Stalactites?|Cyclops|Boulder)(?![a-z])|\b(TREE|SNAKE|HIVE|BEES?|EYE|MOUTH|TREANT|MINION|CAVE|CYCLOPS)(?![A-Z])|closeOnHit|\.part\b|古樹|巨蟒|蜂巢|蜜蜂|樹妖|蛇血|洞穴|岩穴|鐘乳石|火把|獨眼巨人|地心探險/;
+  const caught = ['treeSpear', 'snakeBlood', 'drawTreeScene', 'beeTurnScript', 'CONFIG.SNAKE_BOSS', "e.kind === 'hive'", 'e.minion', 'drawEye(ctx)', 'drawTorches', "id === 'stalactite'"];
   assert(caught.every(s => MAP_NAMES.test(s)), 'the scan misses: ' + caught.filter(s => !MAP_NAMES.test(s)));
   assert(!['street', 'eyes', 'keyEvent', 'archive'].some(s => MAP_NAMES.test(s)), 'the scan flags ordinary words');
   const out = {};
@@ -134,7 +134,7 @@ await test('render.js / game-view.js 不認得任何一張地圖：程式碼（�
     const imports = importsOf(src);
     const views = imports.filter(s => /map-views\//.test(s));
     assert(views.every(s => s === './map-views/index.js'), `${f} imports a map view directly: ${views}`);
-    assert(!imports.some(s => /shared\/(tree-boss|snake-boss|hive)\.js$|-view\.js$/.test(s)), `${f} imports map code: ${imports}`);
+    assert(!imports.some(s => /shared\/(tree-boss|snake-boss|hive|cave|cyclops)\.js$|-view\.js$/.test(s)), `${f} imports map code: ${imports}`);
     out[f] = views;
   }
   assert(out['client/game-view.js'].length === 1, 'game-view.js picks the map view through index.js');
@@ -144,8 +144,8 @@ await test('render.js / game-view.js 不認得任何一張地圖：程式碼（�
 await test('地圖畫面不碰 GameView 本身：不 import 音效 / 畫面模組（只 import shared/ 與通用的繪圖小工具），不寫 view.particles / shake / treeFx…（特效走 c.fx）', () => {
   const dir = 'client/map-views/';
   const files = fs.readdirSync(path.join(ROOT, dir)).filter(f => f.endsWith('.js'));
-  assert(['index.js', 'plain.js', 'tree.js', 'snake.js', 'hive.js'].every(f => files.includes(f)), 'map-views/: ' + files);
-  const ALLOWED = /^(\.\.\/\.\.\/shared\/[\w-]+\.js|\.\.\/(draw|weapon-art)\.js|\.\/(plain|tree|snake|hive)\.js)$/;
+  assert(['index.js', 'plain.js', 'tree.js', 'snake.js', 'hive.js', 'cave.js', 'cyclops.js'].every(f => files.includes(f)), 'map-views/: ' + files);
+  const ALLOWED = /^(\.\.\/\.\.\/shared\/[\w-]+\.js|\.\.\/(draw|weapon-art)\.js|\.\/(plain|tree|snake|hive|cave|cyclops)\.js)$/;
   const GAMEVIEW = /\bview\s*\.|\bsfx\b|\baudio\b|\bdocument\b|\bwindow\b|\.(particles|flashes|linkFlashes|floatTexts|treeFx|snakeFx|painter|banner|shake)\s*(=(?!=)|\.push\b|\[)/;
   for (const f of files) {
     const src = read(dir + f);
@@ -230,7 +230,7 @@ const fakeIo = () => ({ t: 0, timers: [], log: [], seq: 0,
 
 await test('真的 GameView：每種地圖（一般 / 古樹之庭 / 叢林巨蟒 / 小心擊發）從開場播一段（全員 AI 代打、小心擊發先打蜂巢一槍；每幀 update + render），有地圖畫面的都播到王 / 蜜蜂的回合：setup 換成那張地圖的畫面與新的狀態，角色 / 道具身上沒有畫面用的欄位', () => {
   const out = {};
-  for (const levelId of ['level1', 'treeGarden', 'jungleSerpent', 'beehive']) {
+  for (const levelId of ['level1', 'treeGarden', 'jungleSerpent', 'beehive', 'depths']) {
     const players = mkPlayers(2);
     const m = new Match({ levelId, players, seed: 7, stage: LEVELS[levelId].pool === 'boss' ? 5 : 1 });
     for (const p of m.players) { p.hp = p.maxHp = 2000; }

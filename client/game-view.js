@@ -9,11 +9,13 @@ import { mapViewFor } from './map-views/index.js';
 import { Music } from './music.js';
 import { audio } from './audio.js';
 import { sfx } from './sfx.js';
+import { STAGE_LOOK, stageTypeOf, stageLook } from './stage-look.js';
 
 const FPS = 60;
 const inRect = (p, r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 const SLOT_KEYS = { Digit1: 0, Digit2: 1, Digit3: 2 };
 const STEP_STRIDE = 34;   // 走多少 px 踩一步（移動速度 130 px/s ≈ 每秒 4 步）
+const LAUNCH_SOUNDS = { sniper: 'sniper', sonic: 'sonic', darts: 'dart', waterCannon: 'waterJet' };   // 開火的聲音（沒列的都是大砲聲）
 
 // 客戶端的遊戲畫面：
 // - 自己的回合：本地物理即時操作，定時把位置回報給裁判，放開滑鼠送 fire
@@ -37,6 +39,9 @@ export class GameView {
     this.deadline = null;              // 本地時間 (performance.now)
     this.canAct = false;               // 現在能不能操作自己
     this.waiting = false;              // 已送出 fire，等伺服器結果
+    // 這回合射過一回合可以射好幾次的武器（飛鏢）：只能用它（lockWeapon）、還能射幾次（shotsLeft）。伺服器說了算（shot / resume / state），新的回合清掉
+    this.lockWeapon = null;
+    this.shotsLeft = null;
     this.queue = [];
     this.script = null;
     this.wait = null;
@@ -48,6 +53,7 @@ export class GameView {
     this.floatTexts = [];
     this.mapView = null;               // 這張地圖的地圖畫面（setup 時照地圖機制選，見 client/map-views/index.js）
     this.mapCtx = null;                // 給地圖畫面的掛勾用的 c（見 mapContext）
+    this.scratch = null;               // 地圖畫面的暫存畫布（見 scratchLayer）
     this.looks = new WeakMap();        // 角色 → 只給畫面用的狀態（見 look）
     this.keys = {};
     this.mouse = { x: 0, y: 0, down: false };
@@ -56,10 +62,11 @@ export class GameView {
     this.time = 0;
     this.shake = 0;
     this.banner = null;
+    this.nextBanner = null;    // 排著的橫幅（目前的那張是 hold，見 showBanner）
     this.hint = null;
     this.result = null;        // 本關戰鬥結果 'win' | 'lose' | null
     this.runOver = null;       // 整場冒險結束 { result, stage }
-    this.stageInfo = null;     // { stage, stageCount, isBoss, levelName, cards }
+    this.stageInfo = null;     // { stage, stageCount, isBoss, type（'normal' | 'elite' | 'boss'）, levelName, cards }
     this.started = false;
     this.lastMoveSent = 0;
     this.lastSent = null;
@@ -108,18 +115,23 @@ export class GameView {
       // water 也走佇列：畫面還在播前面的事件時（分頁在背景、很卡），才不會先套上、又被之後才播的舊快照（他的 turn）蓋回掉水前的血量
       // pickup（喝到蛇血）也一樣：會改上限，不能被之後才播的舊快照蓋回去
       // slow（別人開 / 關慢動作）也是：畫面落後時，之後才播的他的 turn 會把光環清掉
-      case 'turn': case 'aiTurn': case 'shot': case 'skip': case 'turnFx': case 'gameOver': case 'water': case 'pickup': case 'slow':
+      // resume（飛鏢射完一發、回合接著繼續）一定要等那一發重播完才套：重播中能操作的話，按著的方向鍵會混進重播的物理
+      case 'turn': case 'aiTurn': case 'shot': case 'skip': case 'turnFx': case 'gameOver': case 'water': case 'pickup': case 'slow': case 'resume':
         if (msg.t === 'turn' && document.hidden) this.cueTurn(msg);   // 分頁在背景：輪到自己的提示音收到就響，不等前面的動畫播完
+        if (msg.t === 'resume') msg.at = performance.now();   // 伺服器收到這則就開始倒數：剩下的秒數從收到的時候算
         this.queue.push(msg);
         this.pump();
         break;
       case 'picks':
         // 大家選完牌：更新手牌清單（下一關的 start 會帶完整資料）
         if (this.stageInfo) for (const s of msg.summary) (this.stageInfo.cards[s.playerId] ||= []).push(s.cardId);
-        this.showBanner(msg.isBoss ? 'Boss 關即將開始…' : `準備進入第 ${msg.nextStage} 關…`, msg.isBoss ? '#f87171' : '#fde047');
+        {
+          const next = STAGE_LOOK[stageTypeOf({ type: msg.nextType, isBoss: msg.isBoss })];
+          this.showBanner(next.name ? `${next.name}即將開始…` : `準備進入第 ${msg.nextStage} 關…`, next.banner);
+        }
         break;
       case 'runOver':
-        this.runOver = { result: msg.result, stage: msg.stage, stageCount: msg.stageCount, isBoss: !!(this.stageInfo && this.stageInfo.isBoss) };
+        this.runOver = { result: msg.result, stage: msg.stage, stageCount: msg.stageCount, type: msg.type || stageTypeOf(this.stageInfo) };
         this.canAct = false;
         this.waiting = false;
         break;
@@ -171,13 +183,18 @@ export class GameView {
     this.mapCtx = this.mapContext(this.mapView.create(this.match));
     this.stageInfo = msg.stageInfo || msg.run || null;
     this.runOver = null;
+    this.banner = null;       // 上一關（或斷線前）還在播 / 排著的橫幅不帶過來
+    this.nextBanner = null;
     if (this.stageInfo) {
-      this.showBanner(this.stageInfo.isBoss ? `Boss 關：${this.stageInfo.levelName}` : `第 ${this.stageInfo.stage} 關：${this.stageInfo.levelName}`, this.stageInfo.isBoss ? '#f87171' : '#fde047');
+      const L = stageLook(this.stageInfo);
+      // 菁英關多一行說明；剛開場（start，不是重連的 state）時停滿時間（hold）：第一個回合的橫幅等它播完才出來
+      const sub = stageTypeOf(this.stageInfo) === 'elite' ? '強力的菁英怪鎮守　打贏後選牌比較容易出稀有牌' : null;
+      this.showBanner(L.name ? `${L.name}：${this.stageInfo.levelName}` : `第 ${this.stageInfo.stage} 關：${this.stageInfo.levelName}`, L.banner, sub, { hold: !!sub && msg.t === 'start' });
     }
     for (const e of this.match.entities) if (!e.alive) this.look(e).deathHandled = true;   // 重連時不要重播死亡特效
     this.players = msg.players;
     for (const p of msg.players) this.playerStatus.set(p.id, p.connected !== false);
-    this.painter = new TerrainPainter(this.match.terrain, { platformStyle: this.match.level.platformStyle });
+    this.painter = new TerrainPainter(this.match.terrain, { platformStyle: this.match.level.platformStyle, style: this.match.level.terrainStyle });
     this.queue = [];
     this.script = null;
     this.wait = null;
@@ -192,6 +209,8 @@ export class GameView {
     this.waiting = false;
     this.currentId = null;
     this.deadline = null;
+    this.lockWeapon = null;
+    this.shotsLeft = null;
     this.match.round = msg.round || 0;   // 第幾輪記在 Match：新的一關從第 0 輪開始（重連的 state 會帶目前的輪數）
     this.feverShown = this.match.fever;
     this.started = true;
@@ -206,6 +225,7 @@ export class GameView {
       get currentId() { return view.currentId; },
       get projectiles() { return view.projectiles; },
       shotScript: (shot, extra) => view.shotScript(shot, extra),
+      layer: () => view.scratchLayer(),
       state,
       // 特效出口：地圖畫面不直接動粒子、震動、橫幅、音效
       fx: {
@@ -217,8 +237,20 @@ export class GameView {
         shake: (n) => { view.shake = Math.max(view.shake, n); },
         splash: (x) => view.splash(x),
         wither: () => { if (view.painter) view.painter.setWithered(true); },
+        repaint: (rect) => { if (view.painter) view.painter.repaintRect(rect); },
       },
     };
+  }
+
+  // 跟畫面一樣大的暫存畫布（地圖畫面的 c.layer()：先在上面畫好再整張疊上去，例如洞穴的遮光），第一次用到才建，之後一直用同一張
+  scratchLayer() {
+    if (!this.scratch) {
+      const canvas = document.createElement('canvas');
+      canvas.width = CONFIG.WORLD_W;
+      canvas.height = CONFIG.WORLD_H;
+      this.scratch = { canvas, ctx: canvas.getContext('2d') };
+    }
+    return this.scratch;
   }
 
   // 重連：直接回到目前的回合
@@ -229,6 +261,7 @@ export class GameView {
     this.currentIsAi = !mine;
     this.canAct = mine;
     this.deadline = mine && msg.timeLeft != null ? performance.now() + msg.timeLeft * 1000 : null;
+    this.setShotLock(msg.lockWeapon || null, msg.shotsLeft ?? null);   // 這回合射過飛鏢：只能用它、還剩幾次
     if (msg.phase === 'over') this.result = this.match.result();
     // 伺服器記得行動玩家開著慢動作：是自己（重連前沒來得及送關，新的頁面沒開著）→ 送關（記一筆、別人的光環也會清掉）；
     // 是別人 → 在他身上畫光環
@@ -236,6 +269,33 @@ export class GameView {
       if (mine) this.transport.send({ t: 'slow', on: false, why: 'reconnect' });
       else { const a = this.match.byId(msg.currentId); if (a) this.look(a).slowMo = true; }
     }
+  }
+
+  // 這回合的武器鎖定（一回合可以射好幾次的武器，例如飛鏢）：weapon = 只能用哪一把、left = 還能射幾次。
+  // 沒有次數了（射完最後一支、被 AI 代打）就等於沒鎖：這回合不會再回到他手上，下一個回合（或回合開始的轟炸）也不該還鎖著。
+  // 鎖著的時候行動的人手上的武器也換成它
+  setShotLock(weapon, left) {
+    const on = !!weapon && left > 0;
+    this.lockWeapon = on ? weapon : null;
+    this.shotsLeft = on ? left : null;
+    const actor = on && this.currentId ? this.match.byId(this.currentId) : null;
+    if (actor) actor.weapon = weapon;
+  }
+
+  // 飛鏢射完一發、還有次數：回合接著繼續（不是新的回合：沒有橫幅、沒有提示音），計時從伺服器給的剩餘秒數接著算
+  onResume(msg) {
+    if (msg.entities) this.match.applyEntities(msg.entities);
+    this.currentId = msg.actorId;
+    const mine = msg.actorId === this.myId;
+    this.currentIsAi = false;
+    this.canAct = mine;
+    this.waiting = false;
+    this.mouse.down = false;
+    this.lastSent = null;
+    this.deadline = mine ? (msg.at ?? performance.now()) + msg.timeLeft * 1000 : null;
+    this.setShotLock(msg.weapon, msg.shotsLeft);
+    const w = CONFIG.WEAPONS[msg.weapon];
+    if (mine && w) this.showHint(`${w.name}還可以射 ${msg.shotsLeft} 次`);
   }
 
   // 行動中的玩家開 / 關慢動作（只放慢他自己的畫面，他的動作會看起來變慢）：在他身上畫光環
@@ -312,6 +372,9 @@ export class GameView {
       case 'turnFx':
         yield* this.turnFxScript(msg);
         break;
+      case 'resume':
+        this.onResume(msg);
+        break;
       case 'gameOver':
         if (msg.entities) this.match.applyEntities(msg.entities);
         yield { frames: 40 };
@@ -319,6 +382,7 @@ export class GameView {
         this.canAct = false;
         this.waiting = false;
         this.currentId = null;
+        this.setShotLock(null, null);
         break;
     }
   }
@@ -326,6 +390,7 @@ export class GameView {
   beginTurn(msg) {
     this.match.applyEntities(msg.entities);
     this.setItems(msg);
+    this.setShotLock(null, null);   // 新的回合：飛鏢的鎖定與次數清掉
     for (const e of this.match.entities) {
       e.moveDir = 0; e.vineDir = 0; e.aiming = false;
       const v = this.look(e);
@@ -380,7 +445,8 @@ export class GameView {
   // 曲目表在 music.js 的 TRACKS
   musicTrack() {
     if (!this.started || !this.match) return null;
-    if (this.match.level.pool === 'normal') return this.match.fever > 0 ? 'fever' : 'normal';
+    // 小關、菁英關（狂熱照小關的規則）：山谷曲 / 狂熱版；Boss 關由地圖畫面決定
+    if (this.match.level.pool !== 'boss') return this.match.fever > 0 ? 'fever' : 'normal';
     return this.mapView.musicTrack(this.mapCtx);
   }
 
@@ -397,6 +463,7 @@ export class GameView {
     const v = this.look(actor);
     v.netTarget = null;
     v.slowMo = false;   // 開著慢動作時斷線、AI 代打：光環清掉
+    this.setShotLock(null, null);   // 射過飛鏢的回合被代打：AI 射一支就結束，不會再回到他手上
     yield { frames: CONFIG.TIMING.aiThink * FPS };
     if (msg.walk && actor.alive) {
       actor.moveDir = msg.walk.dir;
@@ -425,11 +492,12 @@ export class GameView {
     const weapon = CONFIG.WEAPONS[shot.weapon];
     const look = volleyLook(shot.kind);   // 效果的一波攻擊（例如無差別轟炸）：橫幅由效果給
     if (look) {
-      // 回合開始的效果攻擊：這時已經輪到持有者了（turn 訊息要等那一波播完才會來）
+      // 回合開始的效果攻擊：這時已經輪到持有者了（turn 訊息要等那一波播完才會來）；新的回合，上一回合的飛鏢鎖定不算
       this.currentId = shot.actorId;
       if (shot.round) this.match.round = shot.round;
       this.canAct = false;
       this.waiting = false;
+      this.setShotLock(null, null);
       this.showBanner(look.banner(actor ? actor.name : ''), look.color, this.feverNotice());
     } else if (actor) {
       // 射手的位置 / 血量 / 藤蔓由重播模組照 shot.actor 擺好（第一個 next()）；這裡只清客戶端自己的狀態
@@ -437,6 +505,8 @@ export class GameView {
       v.netTarget = null;
       v.slowMo = false;
       if (actor.id === this.myId) this.waiting = false;   // 結果到了，射手接著照伺服器的狀態動
+      // 一回合可以射好幾次的武器（飛鏢）：這一發之後還能射幾次（還有的話，重播完會再收到 resume）
+      if (shot.shotsLeft !== undefined) this.setShotLock(shot.weapon, shot.shotsLeft);
     }
 
     // 重播中隊友的 move 先收著（見 onMessage 的 'move'）：他照物理跑、跟伺服器一致，播完才套最新的那筆
@@ -446,8 +516,9 @@ export class GameView {
     let played = false;
     try {
       yield* run.frames({
-        spawn: (p) => { if (shot.kind === 'weapon') this.showLaunch(weapon, p); },
-        event: (ev, p, made) => this.showShotEvent(shot, weapon, ev, made),
+        // 半路才出現的飛行物（例如被打下來的鐘乳石）不是開火：沒有砲聲，它的演出由地圖畫面的 showEvent 播
+        spawn: (p) => { if (shot.kind === 'weapon' && !p.added) this.showLaunch(weapon, p); },
+        event: (ev, p, made) => this.showShotEvent(shot, p.weapon, ev, made),   // 照這顆飛行物自己的武器（半路才出現的不是這一波的武器）
         frame: extra.frame,
       });   // 剛好 flightFrames + settleFrames 幀（沉降也照伺服器的幀數）
       played = true;
@@ -473,9 +544,11 @@ export class GameView {
 
   // 一顆飛行物出發（自己 / 隊友 / AI 開火）：砲聲、砲口的火花、震一下
   showLaunch(weapon, p) {
-    sfx.play(weapon.id === 'sniper' ? 'sniper' : 'cannon', { x: p.x });
-    this.spawnParticles(p.x, p.y, 8, { speed: 140, life: 0.25, size: 3, color: weapon.id === 'plasma' ? '#67e8f9' : '#ffcc66', gravity: 0 });
-    this.shake = Math.max(this.shake, weapon.gravity > 0 ? 5 : 2);
+    sfx.play(LAUNCH_SOUNDS[weapon.id] || 'cannon', { x: p.x });
+    const color = weapon.id === 'plasma' ? '#67e8f9' : weapon.id === 'waterCannon' ? '#bae6fd' : '#ffcc66';
+    this.spawnParticles(p.x, p.y, weapon.id === 'darts' ? 3 : 8, { speed: 140, life: 0.25, size: 3, color, gravity: 0 });
+    // 飛鏢輕輕一甩、高壓水炮有後座力（射手被推出去由重播的物理演），其他照拋射 / 直線
+    this.shake = Math.max(this.shake, weapon.id === 'darts' ? 1 : weapon.recoil ? 6 : weapon.gravity > 0 ? 5 : 2);
   }
 
   // 一個飛行事件的畫面（狀態已經由 shared/volley.js 套好：飛行物、挖坑、角色的事件狀態、地圖機制建的道具 / 角色）：
@@ -488,8 +561,18 @@ export class GameView {
       case 'pierce':
         this.spawnParticles(ev.x, ev.y, 8, { speed: 150, life: 0.35, size: 3, color: '#fca5a5', gravity: 400 });
         break;
-      case 'return':
-        this.spawnParticles(ev.x, ev.y, 6, { speed: 120, life: 0.3, size: 3, color: '#fcd34d', gravity: 300 });
+      case 'return':   // 迴力鏢折返：撞到地形噴火花、落水濺水花，飛到最遠處（半空中）只閃一下
+        if (ev.on === 'water') {
+          this.splash(ev.x);
+          sfx.play('plop', { x: ev.x });
+        } else {
+          this.spawnParticles(ev.x, ev.y, ev.on ? 3 : 6, { speed: 120, life: 0.3, size: 3, color: '#fcd34d', gravity: 300 });
+        }
+        break;
+      case 'range':   // 飛到最長路徑還沒打到東西（高壓水炮）：散成水霧。半路被設了路徑長度的招式（例如跑到岩柱盡頭的衝擊）由地圖畫面演
+        if (weapon.range === undefined) break;
+        sfx.play('fizzle', { x: ev.x });
+        this.spawnParticles(ev.x, ev.y, 14, { speed: 110, life: 0.45, size: 3, color: '#bae6fd', gravity: 250 });
         break;
       case 'water':
         this.splash(ev.x);
@@ -497,11 +580,25 @@ export class GameView {
         break;
       case 'explode': {
         if (made.rect) this.painter.repaintRect(made.rect);
-        const r = ev.carve ? ev.carve.r : 8;
+        const r = ev.carve ? ev.carve.r : ev.blast || 8;   // 不挖地形的爆炸（無差別轟炸、高壓水炮）照 blast 演
         const big = r >= 25;
+        if (weapon.id === 'darts') {   // 飛鏢：插進去「咚」一聲，不爆炸
+          sfx.play('thunk', { x: ev.x });
+          this.spawnParticles(ev.x, ev.y, 4, { speed: 90, life: 0.3, size: 2, color: '#e7e5e4', gravity: 500 });
+          break;
+        }
+        if (weapon.id === 'waterCannon') {   // 高壓水炮：水柱打散、水花四濺（不是爆炸）
+          sfx.play('splash', { x: ev.x });
+          this.spawnParticles(ev.x, ev.y, 22, { speed: 260, life: 0.6, size: 3, color: '#bae6fd', gravity: 600 });
+          this.spawnParticles(ev.x, ev.y, 8, { speed: 90, life: 0.5, size: 7, color: 'rgba(125,211,252,0.8)', gravity: -40 });
+          this.flashes.push({ x: ev.x, y: ev.y, r: r * 1.2, life: 0.2, maxLife: 0.2, tint: '186,230,253' });
+          this.shake = Math.max(this.shake, 6);
+          break;
+        }
         sfx.play('explode', { x: ev.x, big });
         const tint = weapon.id === 'plasma' ? '165,243,252' : weapon.id === 'bombard' ? '251,113,133' : '255,220,120';
-        this.spawnParticles(ev.x, ev.y, big ? 24 : 8, { speed: big ? 240 : 120, life: 0.7, size: 4, color: '#8b5a2b', gravity: 700 });
+        // 挖到地形才噴土，沒挖的（無差別轟炸）噴灰煙
+        this.spawnParticles(ev.x, ev.y, big ? 24 : 8, { speed: big ? 240 : 120, life: 0.7, size: 4, color: ev.carve || !ev.blast ? '#8b5a2b' : '#78716c', gravity: 700 });
         this.spawnParticles(ev.x, ev.y, big ? 12 : 4, { speed: 90, life: 0.5, size: big ? 8 : 5, color: `rgb(${tint})`, gravity: -60 });
         this.flashes.push({ x: ev.x, y: ev.y, r: r * 1.4, life: 0.25, maxLife: 0.25, tint });
         this.shake = Math.max(this.shake, big ? (weapon.id === 'bombard' ? 7 : 12) : 3);
@@ -551,6 +648,7 @@ export class GameView {
       if (msg.round) this.match.round = msg.round;
       this.canAct = false;
       this.waiting = false;
+      this.setShotLock(null, null);
     }
     const banners = [];   // 同一次回合結束可能同時有好幾個（例如神佑之石 + 時間扭曲），合成一行才不會互相蓋掉
     for (const fx of msg.fx) {
@@ -646,6 +744,7 @@ export class GameView {
     this.canAct = false;
     this.waiting = false;
     this.mouse.down = false;
+    this.setShotLock(null, null);   // 飛鏢射到一半時間到：這回合結束了
   }
 
   // ---------- 輸入 ----------
@@ -698,6 +797,11 @@ export class GameView {
   selectWeapon(id) {
     const me = this.me;
     if (!me || !me.weapons.includes(id)) return;
+    // 自己這回合已經射過飛鏢：只能繼續用它（伺服器也會擋；兩支之間還沒輪回自己操作時也不准換，下一發才不會送錯武器）
+    if (this.lockWeapon && this.currentId === this.myId && id !== this.lockWeapon) {
+      this.showHint(`這回合只能用${CONFIG.WEAPONS[this.lockWeapon].name}`);
+      return;
+    }
     me.weapon = id;
     if (this.canAct) this.transport.send({ t: 'weapon', weapon: id });
   }
@@ -750,6 +854,7 @@ export class GameView {
     this.waiting = true;
     me.moveDir = 0;
     me.vineDir = 0;
+    if (this.lockWeapon) me.weapon = this.lockWeapon;   // 射過飛鏢的回合只能射飛鏢（送別的伺服器會擋掉，就卡在等結果）
     // 空中也能開火：連同當下的垂直速度一起送，伺服器從同一個狀態接著算落地；掛在藤蔓上開火就帶 vine
     this.transport.send({
       t: 'fire', weapon: me.weapon, angle: me.aimAngle, power: me.aimPower,
@@ -796,7 +901,10 @@ export class GameView {
   update(dt) {
     this.time += dt;
     this.shake = Math.max(0, this.shake - 24 * dt);
-    if (this.banner && (this.banner.timer -= dt) <= 0) this.banner = null;
+    if (this.banner && (this.banner.timer -= dt) <= 0) {
+      this.banner = this.nextBanner || null;   // 排著的橫幅（hold 的那張播完才輪到它）
+      this.nextBanner = null;
+    }
     if (this.hint && (this.hint.timer -= dt) <= 0) this.hint = null;
     this.music.play(this.musicTrack());
     if (!this.match) return;
@@ -923,10 +1031,14 @@ export class GameView {
   }
 
   // ---------- 特效 ----------
-  // sub = 主標題底下的第二行（狂熱提示），有的話橫幅多停一下
-  showBanner(str, color, sub = null) {
+  // sub = 主標題底下的第二行（狂熱提示），有的話橫幅多停一下。
+  // hold = 這張要停滿時間（例如菁英關的開場說明）：還沒播完時來的新橫幅先排著，等它播完才出來（只排最新的一張）
+  showBanner(str, color, sub = null, { hold = false } = {}) {
     const t = sub ? 2.4 : 1.6;
-    this.banner = { text: str, color, sub, timer: t, total: t };
+    const banner = { text: str, color, sub, timer: t, total: t, hold };
+    if (this.banner && this.banner.hold && this.banner.timer > 0) { this.nextBanner = banner; return; }
+    this.banner = banner;
+    this.nextBanner = null;
   }
   showHint(str) { this.hint = { text: str, timer: 1.5 }; }
 

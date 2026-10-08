@@ -1,7 +1,8 @@
 // node test/volley.js
 // shared/volley.js（一波的重播 / 結算）的合約：出發那一幀就撞到的事件（貼臉開火）、負向測試（reach 檢查真的會抓到錯）、
 // 沉降剛好 S 幀（不符記在 settle）、drift（不認得的角色 / 跳過的事件 / 輪不到的事件）、F+S = 0、格式壞掉當場丟 TypeError、不改 shot、tick 只步進一次，
-// 以及真的 client/game-view.js（在 Node 裡載入）播一發 / AI 一發：每個 update 剛好一次 match.step、總共 F+S+24 個 update
+// 以及真的 client/game-view.js（在 Node 裡載入）播一發 / AI 一發：每個 update 剛好一次 match.step、總共 F+S+24 個 update；
+// 高壓水炮的後座力在 GameView 裡也照伺服器推射手（每一幀一樣）
 import { CONFIG } from '../shared/config.js';
 import { Match } from '../shared/match.js';
 import { Referee } from '../shared/referee.js';
@@ -67,17 +68,26 @@ const sameResults = (cm, shot, label) => {
 
 // ---------- 貼臉開火：出發那一幀就撞到 ----------
 
-test('貼臉開火：出發那一幀的事件（f === spawn）照樣套上（大砲 / 狙擊 / 等離子三發 / 迴力鏢），drift 是空的、結果一致', () => {
+test('貼臉開火：出發那一幀的事件（f === spawn）照樣套上（大砲 / 狙擊 / 等離子三發 / 迴力鏢 / 飛鏢 / 高壓水炮），drift 是空的、結果一致', () => {
   const out = {};
-  for (const w of ['cannon', 'sniper', 'plasma', 'boomerang']) {
-    // 腹背受敵、3 人：往前下方打，砲口前面不到一幀的飛行距離就是隊友 / 地面
+  // 敵人貼在砲口前面（腳底同一高度、往右開）
+  const enemyAhead = (m) => { const p = m.players[0], e = m.enemies[0]; e.x = p.x + 20; e.y = p.y; e.vx = e.vy = 0; m.settle(120); p.facing = 1; };
+  for (const w of ['cannon', 'sniper', 'plasma', 'boomerang', 'darts', 'waterCannon']) {
+    // 腹背受敵、3 人：往前下方打，砲口前面不到一幀的飛行距離就是隊友 / 地面。
+    // 迴力鏢穿過隊友、出發那一幀也碰不到地面：改成敵人貼在砲口前面，第一幀就穿過他（之後照樣飛出去、回來）
+    const tries = w === 'boomerang' ? [[0, { setup: enemyAhead }]]
+      : [-20, -30, -45, -60, -90].map(a => [a, { levelId: 'flanked', players: 3 }]);
     let found = null;
-    for (const a of [-20, -30, -45, -60, -90]) {
-      const r = fire(w, a, w === 'sniper' ? 35 : 75, { levelId: 'flanked', players: 3 });
+    for (const [a, opts] of tries) {
+      const r = fire(w, a, w === 'sniper' ? 35 : 75, opts);
       const spawnHits = r.shot.events.filter(ev => ev.f === r.shot.projectiles[ev.p].spawn);
       if (spawnHits.length) { found = { ...r, a, spawnHits }; break; }
     }
     assert(found, `${w}: no angle produced a spawn-frame event`);
+    if (w === 'boomerang') {
+      const t = found.shot.events.map(e => e.type + (e.target ? ':' + e.target : '')).join('>');
+      assert(found.spawnHits[0].type === 'pierce' && t === 'pierce:e1>return>pierce:e1>catch', 'boomerang: pierced the enemy on frame 1, kept going, came back through him: ' + t);
+    }
     const seen = [];
     replayChecked(found.cm, found.shot, w, { event: (ev, p, made) => { if (ev.f === found.shot.projectiles[ev.p].spawn) seen.push([ev.type, made.before.state]); } });
     assert(seen.length === found.spawnHits.length && seen.every(([, st]) => st === 'flying'), `${w}: spawn-frame events applied ${JSON.stringify(seen)}`);
@@ -96,18 +106,28 @@ test('貼臉開火：出發那一幀的事件（f === spawn）照樣套上（大
 
 // ---------- 負向：檢查真的會抓到錯 ----------
 
-test('負向：把 payload 的初速改掉（vx +15%），reach 檢查一定會抓到；迴力鏢 catch 的位置差 0.001px 也抓得到', () => {
+test('負向：把 payload 的初速改掉（vx +15%），reach 檢查一定會抓到；迴力鏢 catch 的位置差 0.001px 也抓得到；回程打到人的點離開客戶端這一幀走的那一段 0.01px 也抓得到', () => {
   const { cm, shot } = fire('cannon', 20, 60);
   const bad = J(shot);
   bad.projectiles[0].vx *= 1.15;
   const msg = throws(() => replayChecked(cm, bad, 'perturbed'), Error, /px from the server event/);
-  const b = fire('boomerang', 0, 50, { setup: (m) => { m.enemies[0].x = m.players[0].x + 160; m.settle(200); } });
+  const boom = () => fire('boomerang', 0, 50, { setup: (m) => { m.enemies[0].x = m.players[0].x + 160; m.settle(200); } });
+  const b = boom();
   const ev = b.shot.events.find(e => e.type === 'catch');
   assert(ev, 'boomerang got caught: ' + b.shot.events.map(e => e.type));
   const bad2 = J(b.shot);
   bad2.events.find(e => e.type === 'catch').x += 0.001;
   const msg2 = throws(() => replayChecked(b.cm, bad2, 'catch'), Error, /return path/);
-  return { reach: msg.slice(0, 70), catch: msg2.slice(0, 60) };
+  // 回程打到人（pierce）：伺服器掃到的點要落在客戶端這一幀的回程線段上（客戶端不校正位置，只有這個檢查看得到）
+  const ret = b.shot.events.find(e => e.type === 'return');
+  assert(b.shot.events.some(e => e.type === 'pierce' && e.target === 'e1' && e.f > ret.f), 'return-leg pierce: ' + b.shot.events.map(e => e.type + '@' + e.f));
+  const ok = boom();
+  replayChecked(ok.cm, ok.shot, 'return-leg pierce untouched');   // 沒改過的照樣通過
+  const c = boom();
+  const bad3 = J(c.shot);
+  bad3.events.find(e => e.type === 'pierce' && e.f > ret.f).y += 0.01;   // 回程幾乎是水平的：往下移就離開線段
+  const msg3 = throws(() => replayChecked(c.cm, bad3, 'return-leg pierce'), Error, /return step/);
+  return { reach: msg.slice(0, 70), catch: msg2.slice(0, 60), returnLeg: msg3.slice(0, 90) };
 });
 
 // ---------- 沉降 ----------
@@ -317,6 +337,43 @@ test('真的 GameView（client/game-view.js 在 Node 載入）：玩家開一槍
   assert(log2.length === pre + F2 + S2 + 24, `aiTurn: ${log2.length} updates, expected ${pre} + ${F2 + S2} + 24`);
   assert(log2.slice(pre, pre + F2 + S2).every(u => u.tick), 'the volley updates are contiguous right after aiAim');
   return { shot: { F, S, updates: log.length }, aiTurn: { actor: ai.actorId, pre, F: F2, S: S2, updates: log2.length } };
+});
+
+test('真的 GameView：高壓水炮（空中開火）的後座力照 shot 帶的初速推射手，重播的射手每一幀都跟伺服器一模一樣（被推回去、落地）', () => {
+  const m = matchWith({}, { players: 1, hp: 300, weapons: ['waterCannon'] });   // 武器欄最多 3 把：直接只帶高壓水炮
+  const io = fakeIo();
+  const ref = new Referee({ match: m, humans: mkPlayers(1), io });
+  ref.start();
+  const view = makeView();
+  for (const msg of io.log.splice(0)) view.onMessage(msg);
+  io.advance(2500);
+  assert(ref.currentId === 'p1', 'p1 turn');
+  for (const msg of io.log.splice(0)) view.onMessage(msg);
+  drive(view);
+  const serverTrace = [], clientTrace = [];
+  const sstep = m.step.bind(m);
+  m.step = (dt) => { sstep(dt); const a = m.byId('p1'); serverTrace.push(a.x, a.y); };
+  const p1 = m.byId('p1');
+  const x0 = p1.x, air = p1.y - 50;
+  // 跳到半空中往前開：後座力往後（左）推，接在他當下的垂直速度上
+  ref.handle('p1', { t: 'fire', weapon: 'waterCannon', angle: 0, power: 50, x: p1.x, y: air, vy: -150, facing: 1, stamina: p1.stamina });
+  delete m.step;
+  const shotMsg = io.take('shot')[0];
+  assert(shotMsg && shotMsg.weapon === 'waterCannon' && shotMsg.actor.y === air, 'water cannon fired from the air: ' + JSON.stringify(shotMsg && shotMsg.actor));
+  const cstep = view.match.step.bind(view.match);
+  view.match.step = (dt) => { cstep(dt); const a = view.match.byId('p1'); clientTrace.push(a.x, a.y); };
+  view.onMessage(shotMsg);
+  const log = drive(view);
+  delete view.match.step;
+  const F = shotMsg.flightFrames, S = shotMsg.settleFrames;
+  const ticks = log.filter(u => u.tick);
+  assert(ticks.length === F + S && ticks.every(u => u.steps === 1), `${ticks.length} tick updates (F+S ${F + S})`);
+  assert(serverTrace.length === 2 * (F + S) && serverTrace.length === clientTrace.length && serverTrace.every((v, i) => v === clientTrace[i]),
+    `shooter trajectory differs (server ${serverTrace.length / 2} frames, GameView ${clientTrace.length / 2})`);
+  const end = shotMsg.results.find(s => s.id === 'p1');
+  const me = view.match.byId('p1');
+  assert(end.x < x0 - 10 && end.y > air && me.x === end.x && me.y === end.y && me.onGround, `pushed back by the recoil and landed: ${x0} → ${end.x.toFixed(1)}, GameView ${me.x.toFixed(1)},${me.y.toFixed(1)}`);
+  return { F, S, pushedBack: Math.round(x0 - end.x) };
 });
 
 test('重播中收到隊友的 move：先收著（隊友照物理跑、不插值），套完伺服器結果才套最新的那筆；重播到一半丟錯也會馬上套上', () => {

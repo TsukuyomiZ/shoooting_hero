@@ -2,6 +2,8 @@ import { plain } from './plain.js';
 import { tree } from './tree.js';
 import { snake } from './snake.js';
 import { hive } from './hive.js';
+import { cave } from './cave.js';
+import { cyclops } from './cyclops.js';
 
 // 地圖畫面（見 GLOSSARY.md）：某一張地圖特有的畫面與演出——Boss 出招的動畫、王與招式的畫法、場景、HUD 上的提示、選曲、死亡特效。
 // 跟地圖機制（shared/mechanics/）成對：機制決定發生什麼，畫面決定怎麼演出來。照 match.mechanic.type 選（一般小關 = plain，什麼都沒有）。
@@ -14,6 +16,7 @@ import { hive } from './hive.js';
 //   c.currentId     現在輪到誰（眼睛看著他）
 //   c.projectiles   正在重播的飛行物（shotScript 期間 = 重播模組原地更新的那個陣列，其他時候是空的）
 //   c.shotScript(shot, extra)   重播一波（yield*）；extra.frame(live) = 每個飛行幀結束時呼叫
+//   c.layer()       跟畫面一樣大的暫存畫布 { canvas, ctx }（每次都是同一張，用之前自己清掉）：先畫好再整張疊上去（例如洞穴的遮光）
 //   c.state         這個地圖畫面自己的狀態（create(match) 建的，每次 setup 重建）：出招的預兆、王的畫面位移、
 //                   還在飛的道具等只給畫面用的東西放這裡，不放在 Entity / 地圖機制的狀態（c.match.mechState，例如場上的道具）上
 //   c.fx            特效出口（sink）——地圖畫面不直接動 GameView 的粒子 / 震動 / 橫幅，也不直接出聲：
@@ -25,11 +28,12 @@ import { hive } from './hive.js';
 //     shake(n)                  畫面至少震這麼大（跟現在的取大的）
 //     splash(x)                 水面的水花
 //     wither()                  地形的樹皮變成枯灰色（古樹倒下）※ 原本直接叫 GameView 的 painter（地形畫布），所以也走出口
+//     repaint(rect)             重畫地形畫布的這一塊 { x0, y0, x1, y1 }（地形被地圖機制改掉，例如鐘乳石掉下來）
 //
 // 每個掛勾都可以不寫（不寫 = 下面的預設）。ctx2d = canvas 的 2D context；e = 角色；hurt = 剛被打到（畫成白色）。
 // 標 ※ 的是當初規劃之外、為了畫面一模一樣（畫圖、飄字、粒子的順序跟改之前相同，見 golden 比對）才多拆出來的：
 //   create(match) → state                 每次 setup：這一場的畫面狀態（c.state）
-//   musicTrack(c) → 曲目 | null           Boss 關的背景音樂（music.js 的 TRACKS；小關的曲目由 GameView 決定）
+//   musicTrack(c) → 曲目 | null           Boss 關的背景音樂（music.js 的 TRACKS；小關、菁英關的曲目由 GameView 決定）
 //   turnScript(c, msg)                    （generator）aiTurn 帶 boss.steps 的回合：出招的動畫，照伺服器的結果套用
 //   abortScript(c)                        事件腳本播到一半被丟掉（丟錯、setup 換一場）：清掉 turnScript 留下的出招狀態
 //                                         （預兆、蓄力、閉眼…），不然會一直畫著。腳本自己的 finally 不一定跑得到，所以另外通知
@@ -47,6 +51,8 @@ import { hive } from './hive.js';
 //   predictMove(c, me, px, py) → boolean  自己的回合本地走了一幀（從 px, py）：先在本地撿；true = GameView 馬上回報位置
 //   onDeath(c, e) → boolean               角色倒下：true = 處理過了，不播一般的「被擊倒」橫幅
 //   drawScene(ctx2d, c)                   地形（與它前面的裝飾）之後、瞄準線與角色之前：場景
+//   shaded(c) → boolean                   這張地圖有遮光（例如洞穴很暗）：true = 角色畫完之後呼叫 drawShade，瞄準線改畫在遮光上面
+//   drawShade(ctx2d, c)                   （shaded 才會呼叫）角色之後、瞄準線與飛行物之前：遮光 / 照明
 //   drawEntityFirst(c, e) → boolean       true = 這個角色比其他角色先畫（被蓋在下面）
 //   drawEntityBare(ctx2d, c, e) → boolean ※ 一般的畫法（淡出、身體、血條、名字…）之前：true = 自己處理完了（自己畫、或不畫）
 //                                         （倒下的古樹之眼 / 沉下去的巨蟒 / 衝出去的蜜蜂原本在 ctx.save() 與淡出之前就畫完返回）
@@ -75,6 +81,8 @@ const HOOKS = {
   predictMove: () => false,
   onDeath: () => false,
   drawScene: NOOP,
+  shaded: () => false,
+  drawShade: NOOP,
   drawEntityFirst: () => false,
   drawEntityBare: () => false,
   drawEntity: () => false,
@@ -94,7 +102,7 @@ export function defineMapView(adapter) {
   return Object.freeze(v);
 }
 
-const VIEWS = Object.fromEntries([plain, tree, snake, hive].map(a => [a.type, defineMapView(a)]));
+const VIEWS = Object.fromEntries([plain, tree, snake, hive, cave, cyclops].map(a => [a.type, defineMapView(a)]));
 
 /** 這場（match.mechanic.type）的地圖畫面。沒有對應的畫面 → 丟錯（新的地圖機制要配一個，沒有演出就寫一個空的） */
 export function mapViewFor(match) {

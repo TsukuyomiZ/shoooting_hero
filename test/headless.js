@@ -893,7 +893,7 @@ test('哈哈子彈：狙擊槍打到地形彈射一次（預覽線跟實際一�
   return { bounceAt: { x: Math.round(bounce.x), y: Math.round(bounce.y) }, pierced };
 });
 
-test('等離子飛彈：同一條彈道連射三發；迴力鏢：命中後沿原路飛回手上，只打直接命中的角色、不挖地', () => {
+test('等離子飛彈：同一條彈道連射三發；迴力鏢：飛到最長路徑（或先撞到地形）才沿原路飛回手上，去程、回程都穿過路上的敵人各打一次，隊友打不到、不挖地', () => {
   const m = matchWith({}, { weapons: ['plasma'] });
   const shot = m.resolveShot(m.players[0], 'plasma', 45, 40);
   const P = CONFIG.WEAPONS.plasma;
@@ -902,26 +902,55 @@ test('等離子飛彈：同一條彈道連射三發；迴力鏢：命中後沿�
   const ends = shot.events.filter(e => ['explode', 'water', 'out'].includes(e.type));
   assert(ends.length === 3 && ends.every(e => e.type !== 'explode' || e.carve.r === P.radius), 'each missile ends, radius 30: ' + shot.events.map(e => e.type));
 
+  const B = CONFIG.WEAPONS.boomerang;
+  const evs = (s) => s.events.map(e => e.type + (e.target ? ':' + e.target : '') + (e.on ? '(' + e.on + ')' : '') + '@' + e.f).join(' ');
+  // 往前下方丟：撞到地面就折返（不帶 on = 地形），沒有傷害、不挖地，原路飛回來剛好接在手上
   const b = matchWith({}, { weapons: ['boomerang'] });
   const p1 = b.players[0];
   const muzzle = p1.muzzle();
   const bt = b.resolveShot(p1, 'boomerang', -30, 30);
   const types = bt.events.map(e => e.type);
-  assert(types.join() === 'return,catch' && !bt.events[0].damages, 'hit the ground, came back without damage: ' + types);
+  assert(types.join() === 'return,catch' && !bt.events[0].damages && bt.events[0].on === undefined, 'hit the ground, came back without damage: ' + evs(bt));
+  assert(bt.hit.type === 'terrain' && b.entities.every(e => e.hp === e.maxHp), 'turned on the terrain, nobody hurt: ' + JSON.stringify(bt.hit));
   assert(b.terrain.holes.length === 0, 'boomerang does not dig');
   const c = bt.events[1];
   assert(Math.abs(c.x - muzzle.x) < 1e-9 && Math.abs(c.y - muzzle.y) < 1e-9, 'caught at the hand');
   assert(c.f > bt.events[0].f, 'return trip takes time');
 
-  const h = matchWith({}, { weapons: ['boomerang'] });
+  // 最長路徑 = rangeMin + 力量 × rangePerPower：往正上方丟（還沒到最高點就飛滿），在半空中折返的高度 = 最長路徑（子步 2px 以內）
+  const rises = {};
+  for (const pw of [40, 50]) {
+    const v = matchWith({}, { weapons: ['boomerang'] });
+    const vp = v.players[0];
+    const top = vp.muzzle().y;
+    const vs = v.resolveShot(vp, 'boomerang', 90, pw);
+    const r = vs.events[0];
+    const range = B.rangeMin + pw * B.rangePerPower;
+    rises[pw] = Math.round(top - r.y);
+    assert(r.type === 'return' && r.on === 'range' && vs.hit.type === 'range' && vs.events.at(-1).type === 'catch', `power ${pw}: turned in mid-air at the max range, then caught: ${evs(vs)}`);
+    assert(Math.abs((top - r.y) - range) <= 2, `power ${pw}: turned ${(top - r.y).toFixed(1)}px above the hand, max range ${range}`);
+  }
+
+  // 敵人擋在路上：去程穿過他（25、擊退）接著飛，撞到地形才折返；回程沿原路再穿過他一次（再 25，往丟的人這邊擊退），最後接住。
+  // 隊友站在路上：去回都穿過去、打不到；丟的人也打不到
+  const h = matchWith({}, { weapons: ['boomerang'], players: 2 });
+  const [hp1, hp2] = h.players;
   const e1 = h.enemies[0];
   placeAt(h, e1, 150);
-  const hs = h.resolveShot(h.players[0], 'boomerang', 0, 50);
-  const hitEv = hs.events[0];
-  assert(hitEv.type === 'return' && hitEv.target === 'e1', 'boomerang hit e1: ' + JSON.stringify(hitEv).slice(0, 120));
-  assert(hitEv.damages.length === 1 && hitEv.damages[0].dmg === CONFIG.WEAPONS.boomerang.damage, 'only the direct hit takes 25');
-  assert(hitEv.ents.find(s => s.id === 'e1').vx > 0, 'knocked back');
-  assert(hs.events.at(-1).type === 'catch', 'comes back after the hit');
+  placeAt(h, hp2, 220);
+  const e1hp = e1.hp;
+  const hs = h.resolveShot(hp1, 'boomerang', 0, 50);
+  assert(evs(hs).replace(/@\d+/g, '') === 'pierce:e1 return pierce:e1 catch', 'pierce out, turn on the terrain, pierce back, caught: ' + evs(hs));
+  const [out, turn, back, caught] = hs.events;
+  for (const [k, ev] of [['outbound', out], ['return leg', back]]) {
+    assert(ev.damages.length === 1 && ev.damages[0].id === 'e1' && ev.damages[0].dmg === B.damage, `${k}: only e1 takes ${B.damage}: ${JSON.stringify(ev.damages)}`);
+  }
+  assert(out.ents.find(s => s.id === 'e1').vx > 0 && back.ents.find(s => s.id === 'e1').vx < 0, 'knocked away from the boomerang both times (outbound → right, return leg → back towards the thrower)');
+  assert(turn.x > out.x + 100 && turn.on === undefined && hs.hit.type === 'terrain', `kept flying past e1 and turned on the terrain: pierce x ${out.x.toFixed(0)}, return x ${turn.x.toFixed(0)}`);
+  assert(back.f > turn.f && caught.f > back.f, 'the second hit is on the way back');
+  assert(e1hp - e1.hp === 2 * B.damage, `e1 hit twice: ${e1hp - e1.hp}`);
+  assert(hp1.hp === hp1.maxHp && hp2.hp === hp2.maxHp && !hs.events.some(e => e.target === 'p1' || e.target === 'p2'), 'the thrower and the ally standing in the way are never hit');
+  assert(h.terrain.holes.length === 0, 'no holes');
 
   // 在空中丟：角色在迴力鏢飛回來之前就掉下去了，要追到他「現在」的手上接住，而不是停在出手的空中
   const air = matchWith({}, { weapons: ['boomerang'] });
@@ -937,7 +966,7 @@ test('等離子飛彈：同一條彈道連射三發；迴力鏢：命中後沿�
   const hand = hands[ac.f - 1];
   assert(Math.abs(ac.x - hand.x) < 1e-9 && Math.abs(ac.y - hand.y) < 1e-9, `caught at the thrower's current hand: ${JSON.stringify(ac)} vs ${JSON.stringify(hand)}`);
   assert(ac.y > fireMuzzle.y + 30, `the thrower had fallen well below the throw point: catch y ${ac.y.toFixed(1)} vs throw y ${fireMuzzle.y.toFixed(1)}`);
-  return { plasmaEnds: ends.map(e => e.type), boomerangFrames: hs.flightFrames };
+  return { plasmaEnds: ends.map(e => e.type), boomerang: evs(hs), rangeRise: rises };
 });
 
 test('燃燒：燃燒子彈 / 反裝甲子彈附加層數；回合結束依移動距離甩掉（每回合最多 10 層），剩下每層扣最大血量 0.1%', () => {
@@ -1096,19 +1125,99 @@ test('裁判：燃燒在敵人自己的回合結束時結算，廣播 turnFx 後
   return { burn };
 });
 
-test('客戶端照事件重播（只跑運動學）的結果，跟伺服器結算位元級一致：大砲 / 彈射+穿透狙擊 / 等離子 / 迴力鏢 / 轟炸 / 落水重生', () => withWater(() => {
+test('客戶端照事件重播（只跑運動學）的結果，跟伺服器結算位元級一致：大砲 / 彈射+穿透狙擊 / 等離子 / 迴力鏢（去回穿過敵人、半空 / 落水折返、回程點燃火把）/ 轟炸 / 飛鏢 / 高壓水炮（後座力、空中、藤蔓、把自己推進水裡）/ 落水重生；轟炸與高壓水炮不挖地', () => withWater(() => {
+  const seq = (shot) => shot.events.map(e => e.type + (e.target ? ':' + e.target : '') + (e.on ? '(' + e.on + ')' : '')).join('>');
+  const W = CONFIG.WEAPONS;
   const cases = [
     { name: 'cannon', fx: {}, weapons: undefined, fire: (m) => m.resolveShot(m.players[0], 'cannon', 40, 55) },
     { name: 'sniper', fx: { sniperBounce: 1, sniperPierce: 1 }, place: true, fire: (m) => m.resolveShot(m.players[0], 'sniper', -6, 100) },
     { name: 'plasma', fx: { burnStacks: 30, lifestealPct: 3 }, weapons: ['plasma'], fire: (m) => m.resolveShot(m.players[0], 'plasma', 30, 45) },
-    { name: 'boomerang', fx: {}, weapons: ['boomerang'], place: true, fire: (m) => m.resolveShot(m.players[0], 'boomerang', 0, 50) },
-    { name: 'bombard', fx: {}, players: 2, fire: (m) => m.resolveBombard(m.players[0]) },
+    // 迴力鏢：e1、e2 站在路上，去程穿過兩個、撞到地形折返，回程再各穿過一次（回程打到人：客戶端不校正、照原路走）
+    { name: 'boomerang', fx: {}, weapons: ['boomerang'], place: true, fire: (m) => m.resolveShot(m.players[0], 'boomerang', 0, 50),
+      check: (m, shot) => assert(seq(shot) === 'pierce:e1>pierce:e2>return>pierce:e2>pierce:e1>catch', 'boomerang: both enemies pierced on both legs: ' + seq(shot)) },
+    // 力量大：去程穿過兩個敵人、飛滿最長路徑在水面上空折返，回程再穿過兩個
+    { name: 'boomerang-range-pierce', fx: {}, weapons: ['boomerang'], place: true, fire: (m) => m.resolveShot(m.players[0], 'boomerang', 5, 100),
+      check: (m, shot) => assert(seq(shot) === 'pierce:e1>pierce:e2>return(range)>pierce:e2>pierce:e1>catch', 'boomerang-range-pierce: ' + seq(shot)) },
+    // 力量小：還沒碰到任何東西就飛滿最長路徑，在半空中折返
+    { name: 'boomerang-range', fx: {}, weapons: ['boomerang'], fire: (m) => m.resolveShot(m.players[0], 'boomerang', 20, 10),
+      check: (m, shot) => {
+        const r = shot.events[0];
+        assert(seq(shot) === 'return(range)>catch' && !m.terrain.isSolid(r.x, r.y + 4), `boomerang-range: turned in mid-air: ${seq(shot)} at ${r.x.toFixed(0)},${r.y.toFixed(0)}`);
+      } },
+    // 撞到地形折返的那一點就在 e2 身上（去程先撞到地形）：回程的第一幀就打到他（回程從折返點出發）
+    { name: 'boomerang-turn-on-enemy', fx: {}, weapons: ['boomerang'], place: true, fire: (m) => m.resolveShot(m.players[0], 'boomerang', 5, 10),
+      check: (m, shot) => {
+        const [, r, h] = shot.events;
+        assert(seq(shot) === 'pierce:e1>return>pierce:e2>pierce:e1>catch' && h.f === r.f + 1, 'boomerang-turn-on-enemy: e2 hit on the first return frame: ' + shot.events.map(e => e.type + '@' + e.f).join(' '));
+      } },
+    // 兩個敵人靠得很近、力量大：回程的同一幀先後穿過 e2、e1（照碰到的順序，兩個點不一樣；客戶端不能因為第一個就把迴力鏢拉過去）
+    { name: 'boomerang-two-in-one-frame', fx: {}, weapons: ['boomerang'], setup: (m) => { placeAt(m, m.enemies[0], 140); placeAt(m, m.enemies[1], 160); },
+      fire: (m) => m.resolveShot(m.players[0], 'boomerang', 0, 80),
+      check: (m, shot) => {
+        const r = shot.events.find(e => e.type === 'return');
+        const back = shot.events.filter(e => e.f > r.f && e.type === 'pierce');
+        assert(back.map(e => e.target).join() === 'e2,e1' && back[0].f === back[1].f && back[0].x > back[1].x, 'boomerang-two-in-one-frame: e2 then e1 in one return frame: ' + shot.events.map(e => `${e.type}:${e.target || ''}@${e.f}`).join(' '));
+      } },
+    // 站在崖邊往下丟：掉進水裡就折返，原路飛回手上
+    { name: 'boomerang-water', fx: {}, weapons: ['boomerang'], setup: (m) => placeAt(m, m.players[0], 345), fire: (m) => m.resolveShot(m.players[0], 'boomerang', -60, 40),
+      check: (m, shot) => assert(seq(shot) === 'return(water)>catch' && shot.hit.type === 'water', 'boomerang-water: ' + seq(shot)) },
+    // 岩穴：站在岩台上、火把左邊，跳起來往正上方丟。人先落回岩台，迴力鏢原路回來後追向手上，路過還沒亮的火把 → 回程才點燃（pass）
+    { name: 'boomerang-cave-pass', fx: {}, levelId: 'cave', weapons: ['boomerang'],
+      setup: (m) => { const t = LEVELS.cave.mechanic.torches.reduce((a, b) => (b.y < a.y ? b : a)); placeAt(m, m.players[0], t.x - 10); },
+      fire: (m) => { const a = m.players[0]; a.y -= 90; a.vy = 0; return m.resolveShot(a, 'boomerang', 90, 10); },
+      check: (m, shot, applied) => {
+        const r = shot.events.find(e => e.type === 'return');
+        const pass = shot.events.find(e => e.type === 'pass');
+        assert(r && pass && pass.f > r.f && pass.lights && applied.includes('pass/returning'), 'boomerang-cave-pass: lit the torch on the way back: ' + shot.events.map(e => e.type + '@' + e.f).join(' ') + ' | ' + applied.join(' '));
+      } },
+    // 無差別轟炸：照樣爆炸（範圍傷害），但不挖地形：事件只帶爆炸半徑 blast、不帶 carve
+    { name: 'bombard', fx: {}, players: 2, noCarve: true, fire: (m) => m.resolveBombard(m.players[0]) },
     { name: 'airborne', fx: {}, fire: (m) => { const a = m.players[0]; a.y -= 70; a.vy = -120; return m.resolveShot(a, 'cannon', 50, 45); } },
     // 空中丟迴力鏢：回程時射手已經掉下去了，要追到他現在的手上
     { name: 'air-boomerang', fx: {}, weapons: ['boomerang'], fire: (m) => { const a = m.players[0]; a.y -= 70; a.vy = -200; return m.resolveShot(a, 'boomerang', -30, 30); } },
     // 起跳後馬上往上低吊（射手跟著往上飛）
     // （伺服器在玩家回合不推進別人，所以只讓射手自己跳一幀，跟實際流程一樣）
     { name: 'jump-lob', fx: {}, weapons: ['plasma'], fire: (m) => { const a = m.players[0]; a.stamina = a.maxStamina; a.wantJump = true; a.update(CONFIG.FIXED_DT, m.world); return m.resolveShot(a, 'plasma', 80, 15); } },
+    // 飛鏢：速度固定（跟力量無關），力量 5 和 100 的結果要完全一樣（下面比）
+    { name: 'darts-low', fx: {}, weapons: ['darts'], place: true, fire: (m) => m.resolveShot(m.players[0], 'darts', 0, 5) },
+    { name: 'darts-high', fx: {}, weapons: ['darts'], place: true, fire: (m) => m.resolveShot(m.players[0], 'darts', 0, 100),
+      check: (m, shot) => {
+        const ev = shot.events[0];
+        assert(seq(shot) === 'explode:e1' && ev.damages.length === 1 && ev.damages[0].id === 'e1' && !ev.carve && m.terrain.holes.length === 0, 'darts: one direct hit (only e1), no hole: ' + seq(shot) + ' ' + JSON.stringify(ev.damages));
+      } },
+    // 高壓水炮：直擊 e1（範圍傷害、擊退）不挖地形；射手被後座力往後推（站著開火也一樣，兩邊每一幀都要一樣）
+    { name: 'waterCannon', fx: {}, weapons: ['waterCannon'], place: true, noCarve: true, fire: (m) => m.resolveShot(m.players[0], 'waterCannon', 0, 50),
+      check: (m, shot) => {
+        const s = shot.results.find(r => r.id === 'p1');
+        assert(seq(shot) === 'explode:e1' && s.x < shot.actor.x - 5, `waterCannon: hit e1, recoil pushed the shooter back (${shot.actor.x} → ${s.x.toFixed(1)}): ${seq(shot)}`);
+      } },
+    // 飛滿 300px 還沒打到東西就消散：沒有傷害、沒有爆炸
+    { name: 'waterCannon-range', fx: {}, weapons: ['waterCannon'], noCarve: true, fire: (m) => m.resolveShot(m.players[0], 'waterCannon', 45, 50),
+      check: (m, shot) => assert(seq(shot) === 'range' && !shot.events[0].damages && !shot.events[0].blast && shot.hit.type === 'range', 'waterCannon-range: fizzled: ' + seq(shot)) },
+    // 空中開火（往上跳的途中）：後座力接在他當下的速度上，飛行途中照物理往後飛
+    { name: 'waterCannon-air', fx: {}, weapons: ['waterCannon'], place: true, noCarve: true,
+      fire: (m) => { const a = m.players[0]; a.y -= 70; a.vy = -120; return m.resolveShot(a, 'waterCannon', -30, 50); },
+      check: (m, shot) => assert(/^explode:e[12]$/.test(seq(shot)), 'waterCannon-air: hit an enemy: ' + seq(shot)) },
+    // 掛在藤蔓上開火（叢林巨蟒）：後座力把他從藤蔓上打下來，掉到橋上
+    { name: 'waterCannon-vine', fx: {}, levelId: 'jungleSerpent', weapons: ['waterCannon'], noCarve: true,
+      setup: (m) => {
+        const a = m.players[0], v = m.terrain.vines[2];
+        a.x = v.x; a.y = 420; a.vx = a.vy = 0; a.onVine = 2; a.onGround = false;
+        assert(a.canHangAt(m.terrain, 2, a.x, a.y), 'waterCannon-vine: can hang there');
+      },
+      fire: (m) => m.resolveShot(m.players[0], 'waterCannon', -30, 50),
+      check: (m, shot) => {
+        const s = shot.results.find(r => r.id === 'p1');
+        assert(shot.actor.vn === 2 && s.vn === -1 && m.players[0].onGround, `waterCannon-vine: fired hanging on vine 2, knocked off and landed (vn ${shot.actor.vn} → ${s.vn}): ${seq(shot)}`);
+      } },
+    // 站在崖邊往後開（往左）：後座力把自己推下崖、掉進水裡 → 扣血、回到站穩的地方（兩邊每一幀都要一樣）
+    { name: 'waterCannon-recoil-water', fx: {}, weapons: ['waterCannon'], noCarve: true,
+      setup: (m) => { const a = m.players[0]; placeAt(m, a, 345); a.safeX = a.x; a.safeY = a.y; },
+      fire: (m) => m.resolveShot(m.players[0], 'waterCannon', 180, 50),
+      check: (m, shot) => {
+        const a = m.players[0];
+        assert(a.waterFalls === 1 && a.alive && a.hp === 60 - 18 && a.x === 345, `waterCannon-recoil-water: pushed into the water by the recoil, respawned where he stood (${a.waterFalls} falls, hp ${a.hp}, at ${a.x},${a.y})`);
+      } },
     // 隊友換過位置（站穩點只能從快照同步過去）、腳下被挖到水面以下 → 掉進水裡扣血，原本站的地方也沒了 → 兩邊找到同一個最近的地面重生
     { name: 'water-respawn', fx: {}, players: 2, setup: (m) => {
         const b = m.players[1];   // 像是自己走過去站好（直接擺在站得住的地方，不用跑 settle）
@@ -1135,12 +1244,16 @@ test('客戶端照事件重播（只跑運動學）的結果，跟伺服器結�
     const step = match.step.bind(match);
     match.step = (dt) => { step(dt); const a = match.byId(id); out.push(a.x, a.y); };
   };
+  // 地形的洞與地圖機制的欄位（例如點亮的火把、巨蟒掉的蛇血）：快照裡角色以外的部分
+  const scene = (mm) => { const { entities, ...r } = mm.snapshot(); return JSON.stringify(r); };
   const out = {};
+  const shots = {};
   for (const c of cases) {
-    const m = matchWith(c.fx, { players: c.players || 1, weapons: c.weapons, hp: 60 });
+    const m = matchWith(c.fx, { players: c.players || 1, levelId: c.levelId, weapons: c.weapons, hp: 60 });
     if (c.place) { placeAt(m, m.enemies[0], 150); placeAt(m, m.enemies[1], 230); }
     if (c.setup) c.setup(m);
     const snap = m.snapshot();
+    const mask0 = Buffer.from(m.terrain.mask);
     const cm = new Match({ levelId: m.levelId, players: mkPlayers(c.players || 1), seed: m.seed, carry: m.carry });
     cm.applySnapshot(snap);
     const serverTrace = [], clientTrace = [];
@@ -1151,11 +1264,13 @@ test('客戶端照事件重播（只跑運動學）的結果，跟伺服器結�
     }
     const shot = JSON.parse(JSON.stringify(c.fire(m)));   // 跟網路一樣走一趟 JSON
     traceSteps(cm, 'p1', clientTrace);
-    replayChecked(cm, shot, c.name);
+    const applied = [];   // 客戶端套用每個事件的當下，飛行物是什麼狀態（飛行中 / 回程中）
+    replayChecked(cm, shot, c.name, { event: (ev, p, made) => applied.push(`${ev.type}/${made.before.state}`) });
     for (const s of shot.results) {
       const e = cm.byId(s.id);
       assert(e.x === s.x && e.y === s.y && e.hp === s.hp && e.alive === s.alive, `${c.name}: ${s.id} client ${e.x},${e.y},${e.hp},${e.alive} vs server ${s.x},${s.y},${s.hp},${s.alive}`);
       assert(e.waterFalls === m.byId(s.id).waterFalls && e.safeX === s.sx && e.safeY === s.sy, `${c.name}: ${s.id} water falls / safe spot differ`);
+      assert(e.onVine === s.vn, `${c.name}: ${s.id} vine differs (client ${e.onVine}, server ${s.vn})`);
     }
     if (c.name === 'water-respawn') {
       const b = m.players[1];
@@ -1170,11 +1285,27 @@ test('客戶端照事件重播（只跑運動學）的結果，跟伺服器結�
       const a = m.players[0];
       assert(a.waterFalls === 1 && a.alive && a.hp === 30 - 18 && a.x === 150, `water-self: shooter respawned where he last stood on the server (${a.waterFalls} falls, at ${a.x},${a.y})`);
     }
+    if (c.check) c.check(m, shot, applied);
+    // 迴力鏢去回都打不到丟的人（隊友也打不到：上面各個 seq 只會出現敵人）
+    if (shot.weapon === 'boomerang') assert(!shot.events.some(e => e.target === 'p1' || (e.damages || []).some(d => d.id === 'p1')), `${c.name}: the boomerang hit its thrower: ${seq(shot)}`);
+    // 不挖地形的（無差別轟炸、高壓水炮）：伺服器的地形跟開火前一模一樣，事件不帶 carve；爆炸的事件改帶 blast（爆炸多大，客戶端照這個演）
+    if (c.noCarve) {
+      assert(Buffer.compare(mask0, Buffer.from(m.terrain.mask)) === 0 && m.terrain.holes.length === snap.holes.length, `${c.name}: the server terrain changed (${m.terrain.holes.length - snap.holes.length} new holes)`);
+      const explodes = shot.events.filter(e => e.type === 'explode');
+      assert(!shot.events.some(e => e.carve) && explodes.every(e => e.blast === W[shot.kind === 'bombard' ? 'bombard' : shot.weapon].radius),
+        `${c.name}: explosions carry blast, not carve: ${JSON.stringify(explodes.map(e => ({ carve: e.carve, blast: e.blast })))}`);
+    }
     assert(serverTrace.length > 0 && serverTrace.length === clientTrace.length && serverTrace.every((v, i) => v === clientTrace[i]),
       `${c.name}: shooter trajectory differs (server ${serverTrace.length / 2} frames, client ${clientTrace.length / 2})`);
     assert(Buffer.compare(Buffer.from(cm.terrain.mask), Buffer.from(m.terrain.mask)) === 0, c.name + ': terrain differs');
+    assert(scene(cm) === scene(m), `${c.name}: holes / map mechanic state differ: client ${scene(cm).slice(0, 160)} vs server ${scene(m).slice(0, 160)}`);
     out[c.name] = shot.events.map(e => e.type).join('>');
+    shots[c.name] = shot;
   }
+  // 飛鏢的速度跟力量無關：力量 5 跟 100 的初速、事件（打在哪裡、傷害、擊退）、結果完全一樣
+  const [lo, hi] = [shots['darts-low'], shots['darts-high']];
+  assert(lo.power !== hi.power && JSON.stringify(lo.projectiles) === JSON.stringify(hi.projectiles) && JSON.stringify(lo.events) === JSON.stringify(hi.events) && JSON.stringify(lo.results) === JSON.stringify(hi.results),
+    `darts: power changed the throw: ${JSON.stringify(lo.projectiles)} vs ${JSON.stringify(hi.projectiles)}`);
   return out;
 }));
 
@@ -1253,17 +1384,21 @@ test('空中開火：照回報的空中位置出手（不先落地）、帶著�
   return { air: Math.round(air), landed: Math.round(after.y) };
 });
 
-test('空中開火不會一出手就炸到自己（射手跟著往上飛、子彈還沒離開身體時）', () => {
+test('空中開火不會一出手就炸到自己（射手跟著往上飛、子彈還沒離開身體時）；迴力鏢（去程、回程）從頭到尾都打不到丟的人', () => {
   const hits = [];
-  for (const [w, ang, pow] of [['cannon', 75, 10], ['cannon', 80, 15], ['plasma', 90, 20], ['plasma', 80, 10], ['boomerang', 90, 10], ['boomerang', 75, 10]]) {
+  const shots = [['cannon', 75, 10], ['cannon', 80, 15], ['plasma', 90, 20], ['plasma', 80, 10],
+    ['boomerang', 90, 10], ['boomerang', 75, 10], ['boomerang', 90, 20], ['boomerang', 100, 20],   // 90°/20：剛起跳就丟，丟的人追上往上飛的迴力鏢
+    ['darts', 90, 50], ['darts', 75, 50], ['waterCannon', 90, 50], ['waterCannon', 75, 50]];
+  for (const [w, ang, pow] of shots) {
     for (const k of [1, 3, 6, 10]) {   // 起跳後第 k 幀開火（往上飛得最快的時候）
       const m = matchWith({}, { weapons: [w] });
       const p = m.players[0];
       p.stamina = p.maxStamina;
       p.wantJump = true;
       for (let i = 0; i < k; i++) m.step();
-      const early = m.resolveShot(p, w, ang, pow).events.find(e => e.target === 'p1' && e.f <= 20);
-      if (early) hits.push(`${w} ${ang}°/${pow} k=${k} f=${early.f}`);
+      // 迴力鏢不管第幾幀打到丟的人都算錯（他一開始就在 ignore 裡、回程也跳過他）；其他武器只看剛出手的 20 幀
+      const self = m.resolveShot(p, w, ang, pow).events.find(e => e.target === 'p1' && (w === 'boomerang' || e.f <= 20));
+      if (self) hits.push(`${w} ${ang}°/${pow} k=${k} f=${self.f} ${self.type}`);
     }
   }
   assert(!hits.length, 'self-hit right after firing mid-jump: ' + hits.join('; '));
@@ -1699,6 +1834,9 @@ test('新武器與裝備也維持確定性：同 seed 同輸入兩次結果完�
     log.push(m.resolveShot(p1, 'plasma', 35, 60));
     log.push(m.resolveShot(p1, 'sniper', -10, 100));
     log.push(m.resolveShot(p1, 'boomerang', 50, 70));
+    log.push(m.resolveShot(p1, 'darts', 8, 30), m.resolveShot(p1, 'darts', -5, 90));
+    log.push(m.resolveShot(p1, 'waterCannon', 10, 50));   // 後座力把射手往後推：之後的每一發都從新的位置開
+    log.push(m.resolveShot(p1, 'boomerang', 15, 100));
     for (const e of m.enemies) if (e.alive) log.push(m.endTurn(e), m.planAiTurn(e));
     return JSON.stringify({ log, snap: m.snapshot() });
   };

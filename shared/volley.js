@@ -1,5 +1,5 @@
 import { CONFIG } from './config.js';
-import { advanceProjectile, stepReturn } from './weapons.js';
+import { advanceProjectile, stepReturn, sweepReturn, makeProjectile, applyRecoil } from './weapons.js';
 
 // 一波（Volley）：一次開火 / 轟炸 / Boss 招式的飛行物，從第 1 幀飛到全部結束，再沉降到大家站穩。
 // 伺服器（runVolley）與客戶端重播（replayVolley）走同一個幀迴圈（loop），差別只在「撞到東西」那一步：
@@ -10,6 +10,13 @@ import { advanceProjectile, stepReturn } from './weapons.js';
 // 每一幀的順序（兩邊一樣，伺服器 Match.runVolley 以前就是這樣）：
 //   match.step(FIXED_DT) 一次 → 每顆飛行物照索引順序：出發（spawn === f）→ 回程 stepReturn / 飛行 advanceProjectile
 //   → 這顆、這一幀的事件（照陣列順序）→ 沒事件又還在飛就記路徑 → 尾跡 / 旋轉 → 全部跑完後濾掉結束的（frame 掛勾）
+//
+// 半路才出現的飛行物（例如被打下來的鐘乳石）：事件帶 adds = [{ w: 武器 id, x, y, vx, vy, k?, passAllies? }]，兩邊都在套用那個事件時
+// 接到飛行物清單的最後面（索引照順序往下排），下一幀出發；用它自己的武器結算（傷害、重力），不吃這一波的燃燒。
+// 它們不在 shot.projectiles 裡（那是開火當下就有的）
+//
+// 飛過去（pass）：飛行物這一幀沒撞到東西，但地圖機制要它留下記號（例如玩家的子彈從火把旁邊飛過去 → 點燃）。
+// 伺服器寫成一個 type 'pass' 的事件（位置 = 這一幀結束的位置），狀態機不變（繼續飛），客戶端照事件套用地圖機制帶的欄位
 
 const FDT = CONFIG.FIXED_DT;
 const SETTLE_CAP = 360;   // 伺服器沉降的上限幀數（Match.resolveVolley 一直是 360）；剛好到上限時客戶端不檢查有沒有站穩
@@ -77,6 +84,7 @@ export function replayVolley(match, shot) {
  * @property {{x: number, y: number}[]} trail  最近 18 個位置（事件之後才記）
  * @property {number} spin  每幀 +0.45
  * @property {'pending'|'flying'|'returning'|'done'} state
+ * @property {boolean} [added]  半路才出現的（事件的 adds，例如被打下來的鐘乳石）；k = 第幾根（地圖畫面照它畫）
  */
 
 /**
@@ -96,12 +104,34 @@ export function runVolley(match, owner, weapon, projs, burn) {
   const side = {
     get world() { return match.world; },
     more: (f) => f < maxFrames && projs.some(p => p.state !== 'done'),
-    events(p, i, f, hit, caught) {
-      const ev = caught ? { f, p: i, type: 'catch', x: p.x, y: p.y }
-        : hit ? match.resolveHit(owner, weapon, p, i, hit, f, burn) : null;
-      if (!ev) return NONE;
-      events.push(ev);
-      return [ev];
+    // 迴力鏢回程：這一幀路上碰到的敵人（sweepReturn，可能好幾個；沒有 = null）
+    sweep(p, x0, y0) {
+      const hits = sweepReturn(match.world, p, x0, y0);
+      return hits.length ? hits : null;
+    },
+    events(p, i, f, hit, caught, x0, y0) {
+      const out = [];
+      if (Array.isArray(hit)) {   // 迴力鏢回程打到的（照碰到的順序），這一幀接住的話 catch 排在最後
+        for (const h of hit) out.push(match.resolveHit(owner, weapon, p, i, h, f, burn));
+        if (caught) out.push({ f, p: i, type: 'catch', x: p.x, y: p.y });
+      } else {
+        const ev = caught ? { f, p: i, type: 'catch', x: p.x, y: p.y }
+          : hit ? match.resolveHit(owner, p.added ? p.weapon : weapon, p, i, hit, f, p.added ? 0 : burn)
+            : p.added ? null : match.resolvePass(owner, p, i, f, x0, y0);
+        if (ev) out.push(ev);
+      }
+      if (!out.length) return NONE;
+      for (const ev of out) {
+        events.push(ev);
+        for (const a of ev.adds || NONE) {   // 半路才出現的飛行物（見最上面的說明）
+          const q = makeProjectile(owner, CONFIG.WEAPONS[a.w], a.x, a.y, a.vx, a.vy);
+          Object.assign(q, { spawn: f + 1, state: 'pending', added: true, k: a.k });
+          // 穿過射手自己與他的隊友（例如獨眼巨人震下來的鐘乳石不會砸到他自己）。只有伺服器的碰撞用得到
+          if (a.passAllies) { q.passAllies = true; q.ignore.add(owner); }
+          projs.push(q);
+        }
+      }
+      return out;
     },
     gate: () => PASS,
     flightDone(f) {   // 超時還沒結束的視為飛出場外；沒出發過的直接結束
@@ -121,10 +151,11 @@ export function runVolley(match, owner, weapon, projs, burn) {
 
 // ---------- 內部 ----------
 
-// 飛行物的狀態機（唯一的一份）：bounce / pierce 繼續飛；return 開始沿原路回程；其他（explode、water、out、catch）結束
+// 飛行物的狀態機（唯一的一份）：bounce / pierce / pass 繼續飛（迴力鏢回程打到人也是 pierce）；return 開始沿原路回程；
+// 其他（explode、water、out、range（飛到最長路徑消散）、catch）結束
 function transition(p, ev) {
   switch (ev.type) {
-    case 'bounce': case 'pierce': return;
+    case 'bounce': case 'pierce': case 'pass': return;
     case 'return': p.state = 'returning'; p.retIdx = p.path.length; return;
     default: p.state = 'done';
   }
@@ -157,10 +188,13 @@ function* loop(match, actor, weapon, projs, side) {
         if (side.launched) side.launched(p);
       }
       let hit = null, caught = false;
-      if (p.state === 'returning') caught = stepReturn(p, weapon.returnSpeed || 1, home(), weapon.homingSpeed);
-      else if (p.state === 'flying') hit = advanceProjectile(side.world, p, FDT);
+      const x0 = p.x, y0 = p.y;   // 這一幀出發的位置（飛過去的判定用）
+      if (p.state === 'returning') {
+        caught = stepReturn(p, weapon.returnSpeed || 1, home(), weapon.homingSpeed);
+        if (side.sweep) hit = side.sweep(p, x0, y0);   // 伺服器：回程路上碰到的敵人（陣列）；客戶端照事件播
+      } else if (p.state === 'flying') hit = advanceProjectile(side.world, p, FDT);
       else { if (side.idle) side.idle(p, i, f); continue; }
-      const evs = side.events(p, i, f, hit, caught);
+      const evs = side.events(p, i, f, hit, caught, x0, y0);
       for (const ev of evs) {
         const before = side.gate(p, ev, f);
         if (!before) continue;
@@ -205,6 +239,9 @@ function place(a, shot) {
   a.weapon = shot.weapon;
   if (shot.angle !== undefined) a.aimAngle = shot.angle;
   if (shot.power !== undefined) a.aimPower = Math.round(shot.power);
+  // 後座力（高壓水炮）：伺服器在開火的當下照初速把射手往後推，這裡擺好之後照同一組數字推一次
+  const p0 = shot.projectiles[0];
+  if (p0) applyRecoil(a, CONFIG.WEAPONS[shot.weapon], p0.vx, p0.vy);
 }
 
 const where = (ev) => `#${ev.p} f${ev.f} ${ev.type}`;
@@ -240,12 +277,22 @@ function* replay(match, shot, weapon, live, drift, end, look) {
       unreached.delete(ev);
       if (p.state !== 'flying' && p.state !== 'returning') { drift.push(`${where(ev)} skipped: projectile ${p.state}`); return null; }
       const before = { x: p.x, y: p.y, vx: p.vx, vy: p.vy, state: p.state };
+      // 迴力鏢回程打到人：回程照原路走（兩邊一樣、不停下來），事件的 x / y 是路上碰到的那一點，不校正
+      if (p.state === 'returning' && ev.type === 'pierce') return before;
       p.x = ev.x;   // 伺服器停在撞擊的子步，客戶端跑完整幀：校正到撞擊點
       p.y = ev.y;
       if (ev.type === 'bounce' || ev.type === 'pierce') { p.vx = ev.vx; p.vy = ev.vy; }
       return before;
     },
     made(p, ev, before) {
+      for (const a of ev.adds || NONE) {   // 半路才出現的飛行物（見最上面的說明）：跟伺服器一樣接在最後面
+        const w = CONFIG.WEAPONS[a.w];
+        if (!w) { drift.push(`${where(ev)} adds: unknown weapon ${a.w}`); continue; }
+        projs.push({
+          i: projs.length, weapon: w, x: a.x, y: a.y, x0: a.x, y0: a.y, vx: a.vx, vy: a.vy, gravity: w.gravity, age: 0,
+          spawn: ev.f + 1, follow: false, state: 'pending', path: null, retIdx: 0, trail: [], spin: 0, added: true, k: a.k,
+        });
+      }
       const rect = ev.type === 'explode' && ev.carve ? match.terrain.carve(ev.carve.x, ev.carve.y, ev.carve.r) : null;
       for (const s of ev.ents || NONE) {
         const e = match.byId(s.id);

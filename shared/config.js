@@ -16,6 +16,9 @@ export const CONFIG = {
     // 第幾關是 Boss 關：從 Boss 池抽，同一場冒險不會抽到同一隻（Boss 池有幾隻就最多幾關不重複，再多才會重複）。
     // 其他關都是小關；Boss 關打贏後一樣回血、選牌，再接著打下去
     bossStages: [5, 10],
+    // 第幾關是菁英關：從菁英池（level 的 pool: 'elite'）抽地圖，一隻強力的菁英怪鎮守（同一場冒險先挑還沒打過的，菁英池只有一張就重複）。
+    // 跟 Boss 關重疊的關卡算 Boss 關。血量、傷害、狂熱照小關的規則（見 shared/stage-rules.js）；打贏後選牌的稀有度權重另外加 eliteRarityBonus
+    eliteStages: [3, 8],
     // Boss 關的血量成長：從第一個 Boss 關開始算，之後每多一關 +N（跟小關的 enemyHpPerStage 一樣 15%）。
     // 第 5 關的王照原本的血量，第 10 關的王 ×1.75（後面幾關玩家的牌比較多，不加會太好打）。召喚的樹妖、閉目養神的回血也一起放大
     bossHpPerStage: 0.15,
@@ -26,6 +29,8 @@ export const CONFIG = {
     offers: 3,                 // 每次給幾張牌
     rarityWeights: { white: 55, green: 30, purple: 12, gold: 3 },   // 抽牌權重
     rarityWeightPerStage: { white: -5, green: 0, purple: 3, gold: 1 }, // 每過一關權重的變化
+    // 打贏菁英關後的那次選牌：各稀有度的機率再加幾個百分點（使用者定的：綠 +10%、紫 +5%、金 +1%），加的部分從白卡扣（見 cards.js 的 rarityWeights）
+    eliteRarityBonus: { white: 0, green: 10, purple: 5, gold: 1 },
   },
   RARITY: {
     white:  { name: '白', color: '#e5e7eb' },
@@ -126,6 +131,33 @@ export const CONFIG = {
     mods: { knockbackPct: -50 },
   },
 
+  // 蝙蝠（地圖「岩穴」）：飄在空中（不受重力、不會被擊退、不會落水），只用聲波（打法跟狙擊槍一樣：直線、會被地形擋住）。
+  // 關卡的 enemySpawns 寫 type: 'bat' 就是牠；血量跟一般敵人一樣依人數、關數放大
+  BAT: {
+    hp: 45,
+    fixed: true,         // 飄在空中不動（畫面上會上下晃，判定不動）
+    hw: 14,              // 判定的半寬（含翅膀的身體）
+    h: 22,               // 判定的高度
+    stamina: 100,
+    moveSpeed: 0,
+    jumpSpeed: 0,
+    moveCost: 0,
+    jumpCost: 0,
+    color: '#4c1d95',
+    aimError: { angle: 5, power: 10 },  // 拋射武器用的誤差（蝙蝠沒有拋射武器，用不到）
+    sniperSpread: 3,                     // 聲波的角度誤差（±度；跟狙擊手一樣）
+    sniperChance: 1,
+    moveChance: 0,
+    weapons: ['sonic'],
+  },
+
+  // ---- 洞穴地形（地圖「岩穴」，規則在 shared/cave.js）----
+  // 鐘乳石：天花板垂下來的，被打到（直擊或爆炸範圍碰到）就整根掉下來，砸到誰傷害照 WEAPONS.stalactite（算打下它的人的攻擊）。
+  // 火把：一開始只有出生點那支亮著（光很微弱），其他的要點燃才看得到周圍；看不到也打得到敵人。
+  // 玩家方的攻擊打在火把附近（落點離火把 torchReach px 內，爆炸的話再加上爆炸半徑）、從火把旁邊飛過去（離火把 torchPass px 內，
+  // 再加上飛行物的判定半徑）、或玩家自己走過去碰到，就點燃
+  CAVE: { torchReach: 24, torchPass: 10 },
+
   // ---- 小關「小心擊發」：樹枝最左邊掛著的蜂巢，與它放出來的蜜蜂（規則在 shared/hive.js）----
   // 蜂巢打不打都可以（不用打掉也能過關，狙擊手全倒就贏）；不管用什麼打、打多重都只扣 1，每被玩家打到一次就飛出一隻蜜蜂。
   // 直擊或爆炸波及都算一次；等離子三發都打到 = 三次。敵人自己的子彈會穿過蜂巢與蜜蜂，不算
@@ -188,6 +220,19 @@ export const CONFIG = {
     spray: { count: 6, minAngle: 92, maxAngle: 165, minSpeed: 320, maxSpeed: 780 },
   },
 
+  // ---- 菁英關：地心探險的獨眼巨人（規則在 shared/cyclops.js）----
+  // 站在最右邊的岩柱上不動（不會被擊退、不會落水）。血量跟一般敵人一樣依人數、關數放大（菁英關不是 Boss 關，弒神者不算）。
+  // 下一招事先抽好（開場一次、之後每次用掉就再抽），玩家回合畫面上會標出來：
+  //   pound = 猛捶：捶地震落天花板上「所有」還在的鐘乳石（砸到人照 WEAPONS.stalactite，不會砸到巨人自己），
+  //           站在巨人那根岩柱上的玩家再多吃一次衝擊（WEAPONS.cyclopsShock）。鐘乳石都掉光了，猛捶的權重剩 poundBareFactor 倍
+  //   throw = 巨石投擲：朝離巨人最近的玩家丟巨石（WEAPONS.cyclopsBoulder，拋物線），瞄準誤差 aimError（越小越準）
+  CYCLOPS: {
+    hp: 150,
+    weights: { pound: 40, throw: 60 },
+    poundBareFactor: 0.5,
+    aimError: { angle: 3, power: 6 },
+  },
+
   // 樹妖：古樹之口召喚出來，站著不動，投擲長矛
   TREANT: {
     hp: 15,              // 基礎血量（會依人數放大）
@@ -203,7 +248,10 @@ export const CONFIG = {
     weapons: ['treeSpear'],
   },
 
-  // 武器。radius = 爆炸 / 挖地半徑（0 = 只打直接命中的角色、不挖地）；gravity > 0 的武器用 minSpeed + 力量 × speedPerPower 當初速
+  // 武器。radius = 爆炸 / 挖地半徑（0 = 只打直接命中的角色、不挖地）；noCarve = 照樣爆炸（範圍傷害、擊退）但不挖地形。
+  // 有 speedPerPower 的武器用 minSpeed + 力量 × speedPerPower 當初速，沒有的用固定的 speed（例如飛鏢：有一點重力，但跟力量無關）。
+  // range = 飛行路徑最長幾 px（超過就消散，例如高壓水炮）；rangeMin + 力量 × rangePerPower = 看力量的最長路徑（迴力鏢：到了就折返）。
+  // recoil = 開火時射手被往反方向推的力道（跟被擊退同一套）；shotsPerTurn = 一回合可以分開射幾次（例如飛鏢，見 Referee）
   WEAPONS: {
     cannon: {
       id: 'cannon', name: '大砲',
@@ -240,11 +288,15 @@ export const CONFIG = {
       hitRadius: 7,
       knockback: 40,
       shellRadius: 8,
-      boomerang: true,      // 撞到東西後沿原路飛回角色身上
+      boomerang: true,      // 飛到最長路徑（或先撞到地形 / 落水 / 飛出場外）就沿原路飛回角色身上；去程、回程都會打到路上的敵人
+      rangeMin: 100,        // 最長路徑 = rangeMin + 力量 × rangePerPower（力量 100 → 600px）
+      rangePerPower: 5,
+      passAllies: true,     // 穿過隊友（自己也打不到）：只打敵人，同一個敵人去程、回程各打一次
       returnSpeed: 2,       // 回程速度是去程的幾倍
       homingSpeed: 24,      // 原路走完後飛向角色手上的速度（px/幀；空中丟出、角色已經移動時才用得到）
       color: '#f59e0b',
-      desc: '打到東西會沿原路飛回來',
+      desc: '飛到最遠處會沿原路飛回身上，去回都會打到路上的敵人',
+      hud: '飛到最遠再飛回來',   // 武器按鈕上的短說明（desc 太長放不下）
     },
     plasma: {
       id: 'plasma', name: '等離子飛彈',
@@ -261,11 +313,42 @@ export const CONFIG = {
       color: '#22d3ee',
       desc: '同一條彈道連射三發',
     },
-    // 裝備「無差別轟炸」落下的飛彈：不能被裝備；傷害跟持有者的其他攻擊一樣吃他的加成
+    darts: {
+      id: 'darts', name: '飛鏢',
+      damage: 10,
+      radius: 0,            // 不爆炸、不挖地，只打直接命中的角色
+      gravity: 100,         // 有一點重力（飛遠會稍微往下掉），速度固定、跟力量無關
+      speed: 2400,
+      hitRadius: 3,
+      knockback: 80,
+      shotsPerTurn: 3,      // 一回合可以分開射三次（射第一支之後這回合只能用飛鏢；飛行時計時暫停）
+      shellRadius: 2.5,
+      color: '#ffe066',
+      desc: '單次威力較低，但一回合有三次攻擊次數',
+      hud: '一回合可以射三次',
+    },
+    waterCannon: {
+      id: 'waterCannon', name: '高壓水炮',
+      damage: 40,
+      radius: 40,           // 範圍傷害與擊退的半徑（不挖地形，見 noCarve）
+      noCarve: true,
+      gravity: 0,           // 無重力 → 直線
+      speed: 2400,
+      range: 300,           // 攻擊距離短：飛 300px 還沒打到東西就消散（沒有傷害）
+      hitRadius: 3,
+      knockback: 200,
+      recoil: 100,          // 開炮的同時自己被往後推（後座力）
+      shellRadius: 5,
+      color: '#7dd3fc',
+      desc: '往前方開出一個高壓水炮，攻擊距離短，但擊退力強',
+      hud: '射程短、擊退強',
+    },
+    // 裝備「無差別轟炸」落下的飛彈：不能被裝備；傷害跟持有者的其他攻擊一樣吃他的加成。不破壞地形（2026-10-08 使用者改）
     bombard: {
       id: 'bombard', name: '轟炸飛彈', fromEquip: true,
       damage: 50,
       radius: 30,
+      noCarve: true,
       gravity: 0,
       speed: 1100,          // 垂直落下的速度
       hitRadius: 4,
@@ -384,6 +467,59 @@ export const CONFIG = {
       shellRadius: 9,
       color: '#facc15',
     },
+
+    // ---- 岩穴：蝙蝠的聲波（enemyOnly）。打法跟狙擊槍一樣（直線、會被地形擋住、炸一個小坑），擊退比較大 ----
+    sonic: {
+      id: 'sonic', name: '聲波', enemyOnly: true,
+      damage: 15,           // 使用者只指定「類似狙擊槍」，傷害照狙擊槍（再吃敵人傷害倍率與狂熱）
+      radius: 10,
+      gravity: 0,
+      speed: 1600,          // 比狙擊槍慢一點，看得到聲波飛過去
+      hitRadius: 4,
+      knockback: 120,
+      shellRadius: 7,
+      color: '#c4b5fd',
+    },
+    // ---- 洞穴：掉下來的鐘乳石（hazard = 地形掉下來的，不能裝備）。從尖端開始自由落下，砸到第一個角色或落地就碎掉 ----
+    // 算打下它的人的攻擊：傷害吃他的加成與狂熱，砸到自己人一樣 ×FRIENDLY_FIRE
+    stalactite: {
+      id: 'stalactite', name: '鐘乳石', hazard: true,
+      damage: 30,
+      radius: 0,            // 不爆炸、不挖地，只砸到正下方的那個人
+      gravity: 900,
+      speed: 0,
+      hitRadius: 14,        // 鐘乳石的粗細
+      knockback: 60,
+      shellRadius: 14,
+      color: '#78716c',
+    },
+
+    // ---- 地心探險：獨眼巨人的招式（enemyOnly）----
+    cyclopsShock: {       // 猛捶的衝擊：從巨人腳下沿著他那根岩柱的頂面往兩邊跑，只打站在那根岩柱上的玩家
+      id: 'cyclopsShock', name: '猛捶衝擊', enemyOnly: true,
+      damage: 25,           // 使用者只說「多受一次衝擊攻擊」，傷害我先抓 25（再吃敵人傷害倍率：第 1 ~ 5 關 ×0.7 ≈ 18）
+      knockback: 150,       // 往外推（離巨人越遠的方向），站在岩柱邊上的人可能被推下水
+      radius: 0,
+      gravity: 0,
+      speed: 1400,
+      hitRadius: 8,
+      pierce: true, passTerrain: true, passAllies: true,
+      shellRadius: 8,
+      color: '#a8a29e',
+    },
+    cyclopsBoulder: {     // 巨石投擲：拋物線，只打直接砸到的人、不挖地；砸不到巨人自己（passOwner）
+      id: 'cyclopsBoulder', name: '巨石投擲', enemyOnly: true, passOwner: true,
+      damage: 40,           // 使用者定的（再吃敵人傷害倍率：第 1 ~ 5 關 ×0.7 = 28）
+      radius: 0,
+      gravity: 600,
+      minSpeed: 250,
+      speedPerPower: 6.5,
+      hitRadius: 12,        // 巨石比砲彈大
+      knockback: 120,
+      passAllies: true,
+      shellRadius: 13,
+      color: '#78716c',
+    },
   },
 
   // ---- 武器欄與裝備效果 ----
@@ -423,6 +559,7 @@ export const CONFIG = {
     bossCast: 1.1,        // 古樹出招前的預兆動畫（撞擊範圍快閃、張嘴、閉眼…）；撞擊的範圍在玩家回合就已經一直標著
     settleDelay: 0.8,     // 砲彈落地、所有人站穩後再等一下
     afterShotPad: 1.2,    // 一發打完到下一回合的緩衝
+    againPad: 0.6,        // 一回合射好幾次的武器（飛鏢）：一支結算完到可以再射下一支的緩衝（客戶端播完結果的停頓是 0.4 秒）
     skipDelay: 1.0,       // 時間到 → 下一回合
     fxDelay: 0.9,         // 回合結束的效果（燃燒扣血、神佑之石）播完 → 下一回合
     moveSendHz: 10,       // 行動玩家回報位置的頻率

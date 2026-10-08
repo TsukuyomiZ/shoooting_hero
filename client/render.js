@@ -7,6 +7,7 @@ import { roundRect, text, drawBar, drawHpBar, FONT } from './draw.js';
 import { buildDecor } from './decor.js';
 import { BACKGROUNDS } from './backgrounds.js';
 import { HELD_ART } from './weapon-art.js';
+import { STAGE_LOOK, stageLook } from './stage-look.js';
 
 const NO_BAR = Object.freeze({});   // 地圖畫面沒有特別交代的血條（hpBar 回傳 null）
 
@@ -53,12 +54,17 @@ export class Renderer {
     if (decor && decor.front) ctx.drawImage(decor.front, 0, 0);   // 蓋在地形上的裝飾（小心擊發：樹幹頂端的樹冠）
     const mv = view.mapView, c = view.mapCtx;
     mv.drawScene(ctx, c);   // 地圖畫面的場景（例如古樹之庭的樹冠與撞擊警示帶、叢林巨蟒的藤蔓與蛇血）
-    this.drawAim();
+    const shaded = mv.shaded(c);   // 有遮光的地圖（例如洞穴）：瞄準線畫在遮光上面
+    if (!shaded) this.drawAim();
     // 地圖畫面要先畫的角色先畫（例如巨蟒的頭：被甩到嘴前的人要畫在牠前面，不會像是鑽進牠的頭裡）
     const first = [], rest = [];
     for (const e of view.match.entities) (mv.drawEntityFirst(c, e) ? first : rest).push(e);
     for (const e of first) this.drawEntity(e);
     for (const e of rest) this.drawEntity(e);
+    if (shaded) {
+      mv.drawShade(ctx, c);
+      this.drawAim();
+    }
     this.drawProjectiles();
     this.drawEffects();
     ctx.restore();
@@ -171,7 +177,9 @@ export class Renderer {
       ctx.restore();
       return;
     }
-    if (!body) {
+    if (!body && e.kind === 'bat') {
+      this.drawBat(e, hurt);        // 飄在空中：沒有影子、不拿武器（聲波從嘴巴發出來）
+    } else if (!body) {
       if (e.onVine < 0) {           // 腳下的影子（掛在藤蔓上就沒有）
         ctx.fillStyle = 'rgba(0,0,0,0.25)';
         ctx.beginPath(); ctx.ellipse(x, y + 1, e.hw + 3, 3, 0, 0, Math.PI * 2); ctx.fill();
@@ -261,6 +269,47 @@ export class Renderer {
       ctx.fillStyle = e.isPlayer ? (isMe ? '#38bdf8' : '#86efac') : '#f87171';
       ctx.beginPath(); ctx.moveTo(x - 7, ty - 8); ctx.lineTo(x + 7, ty - 8); ctx.lineTo(x, ty); ctx.closePath(); ctx.fill();
     }
+    ctx.restore();
+  }
+
+  // 蝙蝠：深紫色的身體、尖耳朵、紅眼睛，兩邊的翅膀一直拍；畫面上下晃一點（判定不動）
+  drawBat(e, hurt) {
+    const { ctx, view } = this;
+    const s = e.h / 22, f = e.facing;
+    const t = view.time * 14 + e.slot * 1.3;
+    const flap = Math.sin(t);
+    ctx.save();
+    ctx.translate(e.x, e.y - e.h / 2 + Math.sin(view.time * 3 + e.slot) * 2.5);
+    ctx.scale(s, s);
+    const body = hurt ? '#ffffff' : e.color;
+    ctx.fillStyle = hurt ? '#eee' : '#2e1065';               // 翅膀：骨架 + 三片膜
+    for (const side of [-1, 1]) {
+      ctx.save();
+      ctx.scale(side, 1);
+      ctx.rotate(-0.35 * flap);
+      ctx.beginPath();
+      ctx.moveTo(4, -3);
+      ctx.lineTo(22, -10 - 4 * flap);
+      ctx.lineTo(26, 2);
+      ctx.quadraticCurveTo(22, 0, 19, 5);
+      ctx.quadraticCurveTo(15, 2, 12, 7);
+      ctx.quadraticCurveTo(8, 3, 4, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.fillStyle = body;                                     // 身體
+    ctx.beginPath(); ctx.ellipse(0, 1, 7, 9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, -7, 6, 0, Math.PI * 2); ctx.fill();   // 頭
+    ctx.beginPath();                                          // 耳朵
+    ctx.moveTo(-5, -10); ctx.lineTo(-4, -17); ctx.lineTo(-1, -11);
+    ctx.moveTo(5, -10); ctx.lineTo(4, -17); ctx.lineTo(1, -11);
+    ctx.fill();
+    ctx.fillStyle = hurt ? '#fca5a5' : '#ef4444';             // 眼睛（看著面向的那邊）
+    ctx.beginPath(); ctx.arc(-2 + f * 1.2, -8, 1.3, 0, Math.PI * 2); ctx.arc(2 + f * 1.2, -8, 1.3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#f5f5f4';                                // 小尖牙
+    ctx.beginPath(); ctx.moveTo(-1.6 + f, -4); ctx.lineTo(-0.9 + f, -2); ctx.lineTo(-0.2 + f, -4); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(0.2 + f, -4); ctx.lineTo(0.9 + f, -2); ctx.lineTo(1.6 + f, -4); ctx.closePath(); ctx.fill();
     ctx.restore();
   }
 
@@ -443,7 +492,7 @@ export class Renderer {
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle = 'rgba(254,240,138,0.95)';
-        for (const pt of tr.points.slice(1, -1)) {   // 彈射點
+        for (const pt of tr.bounced) {               // 彈射點（飛鏢的折線中間點是重力的彎曲，不是彈射）
           ctx.beginPath(); ctx.moveTo(pt.x, pt.y - 5); ctx.lineTo(pt.x + 5, pt.y); ctx.lineTo(pt.x, pt.y + 5); ctx.lineTo(pt.x - 5, pt.y); ctx.closePath(); ctx.fill();
         }
         ctx.strokeStyle = 'rgba(255,80,80,0.95)';
@@ -451,11 +500,18 @@ export class Renderer {
         for (const pt of tr.pierced) {               // 穿透點
           ctx.beginPath(); ctx.moveTo(pt.x - 5, pt.y - 5); ctx.lineTo(pt.x + 5, pt.y + 5); ctx.moveTo(pt.x + 5, pt.y - 5); ctx.lineTo(pt.x - 5, pt.y + 5); ctx.stroke();
         }
-        ctx.beginPath(); ctx.arc(end.x, end.y, 7, 0, Math.PI * 2); ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(end.x - 11, end.y); ctx.lineTo(end.x + 11, end.y);
-        ctx.moveTo(end.x, end.y - 11); ctx.lineTo(end.x, end.y + 11);
-        ctx.stroke();
+        if (tr.hit.type === 'range') {               // 射程到這裡（高壓水炮）：打不到東西，畫一圈虛線表示水柱在這裡散掉
+          ctx.strokeStyle = 'rgba(125,211,252,0.95)';
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath(); ctx.arc(end.x, end.y, 8, 0, Math.PI * 2); ctx.stroke();
+          ctx.setLineDash([]);
+        } else {
+          ctx.beginPath(); ctx.arc(end.x, end.y, 7, 0, Math.PI * 2); ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(end.x - 11, end.y); ctx.lineTo(end.x + 11, end.y);
+          ctx.moveTo(end.x, end.y - 11); ctx.lineTo(end.x, end.y + 11);
+          ctx.stroke();
+        }
         ctx.restore();
       }
       ctx.save();
@@ -511,6 +567,18 @@ export class Renderer {
         ctx.beginPath(); ctx.arc(p.x, p.y, w.shellRadius, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = '#fff';
         ctx.beginPath(); ctx.arc(p.x, p.y, 2, 0, Math.PI * 2); ctx.fill();
+      } else if (w.id === 'sonic') {   // 蝙蝠的聲波：朝飛行方向的三道弧線，越後面越淡、越大
+        const a = Math.atan2(p.vy, p.vx);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(a);
+        ctx.lineCap = 'round';
+        for (let k = 0; k < 3; k++) {
+          ctx.strokeStyle = `rgba(196,181,253,${0.95 - k * 0.28})`;
+          ctx.lineWidth = 2.5 - k * 0.5;
+          ctx.beginPath(); ctx.arc(-k * 9, 0, w.shellRadius + k * 3, -0.9, 0.9); ctx.stroke();
+        }
+        ctx.restore();
       } else if (w.id === 'bombard') {
         ctx.save();
         ctx.translate(p.x, p.y);
@@ -521,6 +589,34 @@ export class Renderer {
         roundRect(ctx, -10, -3.5, 16, 7, 3); ctx.fill();
         ctx.fillStyle = '#fecdd3';
         ctx.beginPath(); ctx.moveTo(6, -3.5); ctx.lineTo(11, 0); ctx.lineTo(6, 3.5); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      } else if (w.id === 'darts') {   // 飛鏢：細長的鏢身、金色鏢頭、綠色尾羽，朝飛行方向；後面一道淡淡的破風線
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(Math.atan2(p.vy, p.vx));
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(-34, 0); ctx.lineTo(-14, 0); ctx.stroke();
+        ctx.strokeStyle = '#d6d3d1';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(-12, 0); ctx.lineTo(2, 0); ctx.stroke();
+        ctx.fillStyle = w.color;
+        ctx.beginPath(); ctx.moveTo(2, -2.2); ctx.lineTo(8, 0); ctx.lineTo(2, 2.2); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#4ade80';
+        ctx.beginPath(); ctx.moveTo(-9, 0); ctx.lineTo(-16, -4.5); ctx.lineTo(-13, 0); ctx.lineTo(-16, 4.5); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      } else if (w.id === 'waterCannon') {   // 高壓水炮：從砲口拉出去的一道水柱（越前面越粗、越不透明），前端一團水花
+        const pts = [{ x: p.x0, y: p.y0 }, ...p.trail];
+        ctx.save();
+        ctx.lineCap = 'round';
+        for (let i = 1; i < pts.length; i++) {
+          const k = i / pts.length;
+          ctx.strokeStyle = `rgba(125,211,252,${0.25 + k * 0.6})`;
+          ctx.lineWidth = 3 + k * 6;
+          ctx.beginPath(); ctx.moveTo(pts[i - 1].x, pts[i - 1].y); ctx.lineTo(pts[i].x, pts[i].y); ctx.stroke();
+        }
+        ctx.fillStyle = '#e0f2fe';
+        ctx.beginPath(); ctx.arc(p.x, p.y, w.shellRadius + 1, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
       } else {
         const len = 40;
@@ -578,8 +674,9 @@ export class Renderer {
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     roundRect(ctx, 12, 12, 250, 66, 10); ctx.fill();
     const si = view.stageInfo;
-    const stageLabel = si ? (si.isBoss ? `Boss 關 ${si.stage} / ${si.stageCount}` : `第 ${si.stage} / ${si.stageCount} 關`) : '';
-    text(ctx, `${stageLabel}　第 ${match.round} 輪`, 24, 38, { size: 18, bold: true, color: si && si.isBoss ? '#fca5a5' : '#fff' });
+    const look = stageLook(si);   // 關卡種類：Boss 關 / 菁英關 / 小關
+    const stageLabel = si ? (look.name ? `${look.name} ${si.stage} / ${si.stageCount}` : `第 ${si.stage} / ${si.stageCount} 關`) : '';
+    text(ctx, `${stageLabel}　第 ${match.round} 輪`, 24, 38, { size: 18, bold: true, color: si ? look.hud : '#fff' });
     let sub = '', subColor = '#ddd';
     const actor = view.currentId ? match.byId(view.currentId) : null;
     if (view.canAct) {
@@ -588,6 +685,8 @@ export class Renderer {
       subColor = left < 6 ? '#f87171' : '#7dd3fc';
     } else if (view.waiting) {
       sub = '等待伺服器結算…';
+    } else if (actor && actor.id === view.myId && view.lockWeapon && view.shotsLeft > 0) {
+      sub = `${CONFIG.WEAPONS[view.lockWeapon].name}準備下一發…（計時暫停）`;   // 飛鏢兩發之間
     } else if (actor) {
       sub = `${actor.name} 的回合`;
       subColor = actor.team === 'players' ? '#86efac' : '#fca5a5';
@@ -608,15 +707,20 @@ export class Renderer {
       text(ctx, label, 12 + w / 2, 100, { size: 13, bold: true, align: 'center', color: '#fdba74' });
     }
 
-    // 上中：武器選擇（照自己的武器欄，最多 3 把）
+    // 上中：武器選擇（照自己的武器欄，最多 3 把）。說明照 hud（按鈕放得下的短說明），沒有就用 desc。
+    // 自己這回合射過飛鏢：別把變暗（不能換），飛鏢那顆改成顯示還能射幾次
+    const myLock = view.lockWeapon && view.currentId === view.myId ? view.lockWeapon : null;
     for (const b of view.weaponButtons()) {
       const w = CONFIG.WEAPONS[b.id];
       const sel = me && me.weapon === b.id;
+      ctx.globalAlpha = myLock && b.id !== myLock ? 0.35 : 1;
       ctx.fillStyle = sel ? 'rgba(250,204,21,0.92)' : 'rgba(0,0,0,0.5)';
       roundRect(ctx, b.x, b.y, b.w, b.h, 8); ctx.fill();
       if (sel) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); }
       text(ctx, `[${b.slot}] ${w.name}`, b.x + b.w / 2, b.y + 20, { size: 16, bold: true, align: 'center', color: sel ? '#1f1300' : '#fff' });
-      text(ctx, w.desc, b.x + b.w / 2, b.y + 37, { size: 10, align: 'center', color: sel ? '#3b2a00' : '#bbb' });
+      const note = myLock === b.id && view.shotsLeft !== null ? `這回合還能射 ${view.shotsLeft} 次` : (w.hud || w.desc);
+      text(ctx, note, b.x + b.w / 2, b.y + 37, { size: 10, bold: myLock === b.id, align: 'center', color: sel ? '#3b2a00' : '#bbb' });
+      ctx.globalAlpha = 1;
     }
 
     // 右上：隊伍名單（含手牌數）+ 敵人
@@ -758,7 +862,8 @@ export class Renderer {
     ctx.fillRect(0, 0, W, H);
     const win = view.runOver.result === 'win';
     text(ctx, win ? '通關！' : '冒險結束', W / 2, H / 2 - 30, { size: 64, bold: true, align: 'center', color: win ? '#fde047' : '#f87171', outline: 'rgba(0,0,0,0.9)', outlineWidth: 8 });
-    text(ctx, win ? '首領被擊敗了' : `倒在第 ${view.runOver.stage} 關${view.runOver.isBoss ? '（Boss 關）' : ''}`, W / 2, H / 2 + 20, { size: 22, align: 'center', color: '#eee' });
+    const where = STAGE_LOOK[view.runOver.type] && STAGE_LOOK[view.runOver.type].name;
+    text(ctx, win ? '首領被擊敗了' : `倒在第 ${view.runOver.stage} 關${where ? `（${where}）` : ''}`, W / 2, H / 2 + 20, { size: 22, align: 'center', color: '#eee' });
     text(ctx, '按 R 或點擊畫面回到大廳', W / 2, H / 2 + 64, { size: 18, align: 'center', color: '#bbb' });
   }
 }

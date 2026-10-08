@@ -32,13 +32,15 @@ function test(name, fn) {
 const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
 const J = JSON.stringify;
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
-const HOOKS = ['build', 'ready', 'cascade', 'moved', 'turnStart', 'turnEnd', 'absorbHit', 'eventExtras', 'replayEvent', 'aiTurn', 'snapshot', 'restore'];
-const WANT = { treeGarden: 'tree', jungleSerpent: 'snake', beehive: 'hive' };
+const HOOKS = ['build', 'ready', 'cascade', 'moved', 'turnStart', 'turnEnd', 'struck', 'passed', 'absorbHit', 'eventExtras', 'replayEvent', 'aiTurn', 'snapshot', 'restore'];
+const WANT = { treeGarden: 'tree', jungleSerpent: 'snake', beehive: 'hive', cave: 'cave', depths: 'cyclops' };
 // 每個機制的狀態（match.mechState）的欄位：跟搬進來之前的 match.tree / snake / hive 一樣，巨蟒多了場上的蛇血（items，原本的 match.items）
 const STATE_KEYS = {
   tree: ['def', 'hpScale', 'minions', 'seq', 'next'],
   snake: ['def', 'next', 'dropped', 'itemSeq', 'items'],
   hive: ['def', 'hpScale', 'bees', 'seq', 'fresh'],
+  cave: ['def', 'lit', 'fallen'],
+  cyclops: ['def', 'lit', 'fallen', 'next'],
 };
 
 // 一個關卡暫時加進 LEVELS，建 Match 看會不會丟錯
@@ -54,7 +56,7 @@ function buildError(level) {
   }
 }
 
-test('每張地圖拿到對的機制：古樹之庭 / 叢林巨蟒 / 小心擊發各自一個，其他都是 plain；狀態只有那一個機制建（match.mechState，一般小關 = null）', () => {
+test('每張地圖拿到對的機制：古樹之庭 / 叢林巨蟒 / 小心擊發 / 岩穴各自一個，其他都是 plain；狀態只有那一個機制建（match.mechState，一般小關 = null）', () => {
   const got = {};
   for (const [id, level] of Object.entries(LEVELS)) {
     const mech = mechanicFor(level, id);
@@ -123,6 +125,8 @@ test('plain 的掛勾什麼都不做、回傳預設值', () => {
   assert(fx.length === 0, 'turnStart / turnEnd push nothing');
   assert(P.absorbHit(m, m.byId('e1'), hit) === false && hit.damages.length === 0 && hit.later.length === 0, 'absorbHit → false, untouched');
   assert(J(P.eventExtras(m)) === '{}', 'eventExtras → {}');
+  assert(P.struck(m, m.byId('p1'), { type: 'terrain', x: 200, y: 450, blast: 40 }) === null, 'struck → null');
+  assert(P.passed(m, m.byId('p1'), { x0: 0, y0: 0, x1: 500, y1: 500, r: 5 }) === null, 'passed → null');
   const r1 = P.replayEvent(m, { drops: [{ id: 'a1', type: 'snakeBlood', x: 1, y: 2 }], bees: [{ id: 'b1' }] });
   const r2 = P.replayEvent(m, {});
   assert(J(r1) === '{"items":[],"bees":[]}' && r1.items !== r2.items, 'replayEvent → fresh { items: [], bees: [] } (ignores fields it does not own)');
@@ -411,7 +415,7 @@ test('match.js 不認得任何一張地圖：不 import tree-boss / snake-boss /
   for (const f of ['./tree-boss.js', './snake-boss.js', './hive.js']) assert(!imports.includes(f), `match.js imports ${f}`);
   assert(imports.includes('./mechanics/index.js'), 'match.js goes through mechanics/index.js: ' + imports);
   const bad = codeOf(src).split('\n').map((l, i) => [i + 1, l])
-    .filter(([, l]) => /tree|snake|hive|treant|mouth|\beye\b|\bbees?\b|\.part\b/i.test(l));
+    .filter(([, l]) => /tree|snake|hive|treant|mouth|\beye\b|\bbees?\b|\.part\b|cave|torch/i.test(l));
   assert(!bad.length, 'match.js mentions a map:\n' + bad.map(([n, l]) => `        ${n}: ${l.trim()}`).join('\n'));
   return { imports };
 });

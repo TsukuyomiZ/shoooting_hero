@@ -4,7 +4,7 @@
 import { CONFIG } from '../shared/config.js';
 import { audio } from './audio.js';
 
-const GAP = { step: 0.06, explode: 0.05, hurt: 0.06, splash: 0.15, plop: 0.05, buzz: 0.2, yourTurn: 0.5 };
+const GAP = { step: 0.06, explode: 0.05, hurt: 0.06, splash: 0.15, plop: 0.05, buzz: 0.2, yourTurn: 0.5, thunk: 0.05, fizzle: 0.1 };
 const R = (a, b) => a + Math.random() * (b - a);
 
 let noiseBuf = null;
@@ -81,6 +81,26 @@ const SOUNDS = {
     crack(t + 0.17, 0.18, 2200);
     crack(t + 0.36, 0.07, 1400);
   },
+  // 飛鏢：輕快的破風「咻」
+  dart(ctx, out, t) {
+    noise(ctx, out, t, { filter: 'highpass', f0: 3500, f1: 1800, dur: 0.08, vol: 0.28 });
+    tone(ctx, out, t, { type: 'triangle', f0: 1400, f1: 700, dur: 0.07, vol: 0.08 });
+  },
+  // 飛鏢插進地面：短促的「咚」
+  thunk(ctx, out, t) {
+    tone(ctx, out, t, { type: 'triangle', f0: 320, f1: 140, dur: 0.07, vol: 0.3 });
+    noise(ctx, out, t, { filter: 'bandpass', f0: 1800, f1: 900, q: 1.5, dur: 0.05, vol: 0.18 });
+  },
+  // 高壓水炮：低沉的「轟」加上一長串水柱噴出去的嘶聲
+  waterJet(ctx, out, t) {
+    tone(ctx, out, t, { type: 'sine', f0: 120, f1: 50, dur: 0.25, vol: 0.6 });
+    noise(ctx, out, t, { filter: 'bandpass', f0: 1200, f1: 3200, q: 0.8, dur: 0.35, vol: 0.55, attack: 0.01 });
+    noise(ctx, out, t + 0.05, { filter: 'highpass', f0: 4000, dur: 0.25, vol: 0.12 });
+  },
+  // 水柱飛到盡頭散掉：輕輕的「嘶——」
+  fizzle(ctx, out, t) {
+    noise(ctx, out, t, { filter: 'highpass', f0: 3000, f1: 6000, dur: 0.3, vol: 0.16, attack: 0.02 });
+  },
   // 爆炸：big = 大砲那種會挖大坑的；小的（狙擊槍打到地上）只有短短一聲
   explode(ctx, out, t, { big = true }) {
     if (big) {
@@ -129,6 +149,36 @@ const SOUNDS = {
   buzz(ctx, out, t) {
     for (const f of [208, 215]) tone(ctx, out, t, { type: 'sawtooth', f0: f, f1: f * 1.12, dur: 0.38, vol: 0.035, attack: 0.04 });
     noise(ctx, out, t, { filter: 'bandpass', f0: 900, f1: 1400, q: 4, dur: 0.32, vol: 0.05, attack: 0.04 });
+  },
+  // 蝙蝠的聲波：很高的「吱——」往下滑兩次，帶一點顫音
+  sonic(ctx, out, t) {
+    for (const [dt, v] of [[0, 0.16], [0.07, 0.09]]) {
+      tone(ctx, out, t + dt, { type: 'sine', f0: 5200, f1: 2600, dur: 0.12, vol: v, attack: 0.005 });
+      tone(ctx, out, t + dt, { type: 'triangle', f0: 2600, f1: 1300, dur: 0.1, vol: v * 0.5, attack: 0.005 });
+    }
+    noise(ctx, out, t, { filter: 'highpass', f0: 4000, dur: 0.05, vol: 0.06 });
+  },
+  // 鐘乳石斷掉：清脆的「喀」＋碎石往下灑
+  crack(ctx, out, t) {
+    noise(ctx, out, t, { filter: 'bandpass', f0: 3200, f1: 1800, q: 1.2, dur: 0.07, vol: 0.55 });
+    tone(ctx, out, t, { type: 'square', f0: 900, f1: 300, dur: 0.05, vol: 0.08 });
+    noise(ctx, out, t + 0.06, { filter: 'bandpass', f0: 1200, f1: 500, q: 0.8, dur: 0.35, vol: 0.18 });
+  },
+  // 獨眼巨人猛捶：很低的「咚」＋岩石震動的悶響，拖得比較長
+  stomp(ctx, out, t) {
+    tone(ctx, out, t, { type: 'sine', f0: 70, f1: 28, dur: 0.8, vol: 0.95 });
+    noise(ctx, out, t, { filter: 'lowpass', f0: 900, f1: 90, dur: 0.9, vol: 0.7 });
+    noise(ctx, out, t + 0.12, { filter: 'bandpass', f0: 420, f1: 160, q: 0.7, dur: 0.7, vol: 0.25 });   // 碎石落下
+  },
+  // 獨眼巨人丟巨石：用力的「嘿」＋破風聲
+  heave(ctx, out, t) {
+    tone(ctx, out, t, { type: 'sawtooth', f0: 140, f1: 95, dur: 0.18, vol: 0.08, attack: 0.02 });
+    noise(ctx, out, t + 0.05, { filter: 'bandpass', f0: 500, f1: 1600, q: 0.8, dur: 0.3, vol: 0.3, attack: 0.03 });
+  },
+  // 火把點燃：「呼」的一聲火燒起來
+  ignite(ctx, out, t) {
+    noise(ctx, out, t, { filter: 'lowpass', f0: 600, f1: 2400, dur: 0.35, vol: 0.4, attack: 0.04 });
+    tone(ctx, out, t, { type: 'sine', f0: 90, f1: 140, dur: 0.3, vol: 0.12, attack: 0.04 });
   },
   // 輪到你了（單人、多人都響，見 GameView.cueTurn）：木琴似的三個音往上「叮、叮、叮——」，最後一個音拉長；不分左右聲道
   yourTurn(ctx, out, t) {

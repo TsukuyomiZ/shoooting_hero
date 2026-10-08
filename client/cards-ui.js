@@ -1,7 +1,8 @@
 import { CONFIG } from '../shared/config.js';
 import { needsDiscard } from '../shared/cards.js';
 import { teammateEffect, appliesBurn } from '../shared/effects/index.js';
-import { isBossStage } from '../shared/stage-rules.js';
+import { stageType } from '../shared/stage-rules.js';
+import { STAGE_LOOK } from './stage-look.js';
 
 // 過關選牌畫面（DOM）：三張牌選一張，顯示倒數與其他玩家是否已選。
 // 武器牌：武器欄滿了（最多 EQUIP.maxWeapons 把）要先選一把丟掉才能拿，也可以取消改選別張
@@ -24,8 +25,9 @@ export class CardsUi {
   }
 
   // offers: 我的三張牌；players: [{id,name}]；pickTime: 秒；weapons: 我目前的武器欄；
-  // linkTargets: 攜手之伴能選的隊友 id；links: 每個人現在跟誰連結著（id → [id]）
-  show({ stage, stageCount, offers, pickTime, players, myId, picked = null, weapons = [], linkTargets = [], links = {} }) {
+  // linkTargets: 攜手之伴能選的隊友 id；links: 每個人現在跟誰連結著（id → [id]）；
+  // type / nextType = 剛打完的 / 下一關是哪一種關卡（伺服器給；沒給就照本地的設定算）；bonus = 這次抽牌稀有度權重另外加的（打贏菁英關）
+  show({ stage, stageCount, offers, pickTime, players, myId, picked = null, weapons = [], linkTargets = [], links = {}, type = null, nextType = null, bonus = null }) {
     this.players = players;
     this.myId = myId;
     this.weapons = weapons;
@@ -34,9 +36,11 @@ export class CardsUi {
     this.linkCard = null;   // 正在選連結對象的那張牌（名單變了要重畫）
     this.picked = new Set();
     this.root.hidden = false;
-    this.$('#cards-title').textContent = `第 ${stage} 關通過！`;
-    this.$('#cards-sub').textContent = isBossStage(stage + 1)
-      ? `選一張牌，接下來是 Boss 關（第 ${stage + 1} / ${stageCount} 關）`
+    this.bonus = bonus;
+    this.$('#cards-title').textContent = type === 'elite' ? `菁英關通過！（第 ${stage} 關）` : `第 ${stage} 關通過！`;
+    const next = STAGE_LOOK[nextType] || STAGE_LOOK[stageType(stage + 1)];
+    this.$('#cards-sub').textContent = next.name
+      ? `選一張牌，接下來是${next.name}（第 ${stage + 1} / ${stageCount} 關）`
       : `選一張牌，接著進入第 ${stage + 1} / ${stageCount} 關`;
     const list = this.$('#cards-list');
     list.innerHTML = '';
@@ -175,6 +179,10 @@ export class CardsUi {
   renderNotes(offers) {
     const B = CONFIG.EQUIP.burn;
     const notes = [];
+    const bonus = this.bonus && CONFIG.RARITY ? Object.entries(this.bonus).filter(([r, n]) => n > 0 && CONFIG.RARITY[r]) : [];
+    if (bonus.length) {   // 打贏菁英關：這次比較容易出稀有牌
+      notes.push(`＊菁英關獎勵：這次抽牌比較容易出稀有牌（${bonus.map(([r, n]) => `${CONFIG.RARITY[r].name} +${n}%`).join('、')}）`);
+    }
     if (offers.some(appliesBurn)) {
       notes.push(`＊燃燒：自己的回合結束時，每層扣最大血量 ${B.pctPerStack}%；在自己的回合移動可以甩掉層數（每 ${B.pxPerStack}px 一層，每回合最多 ${B.maxReducePerTurn} 層）`);
     }

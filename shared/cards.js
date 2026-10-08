@@ -71,21 +71,32 @@ export function validateCards(raw) {
   return { cards, warnings };
 }
 
-// 依關數算各稀有度的權重
-export function rarityWeights(stage) {
+// 依關數算各稀有度的權重。bonus = 機率另外加幾個百分點（打贏菁英關：RUN.eliteRarityBonus，例如綠 +10 = 綠的機率 +10%），
+// 加多少就從白卡扣多少（總權重不變，其他稀有度的機率才不會被稀釋；白卡不夠扣就照比例少加、白卡扣到 0）。不給就沒有
+export function rarityWeights(stage, bonus = null) {
   const R = CONFIG.RUN;
   const w = {};
   for (const r of RARITIES) {
     w[r] = Math.max(0, (R.rarityWeights[r] || 0) + (R.rarityWeightPerStage[r] || 0) * Math.max(0, stage - 1));
+  }
+  if (bonus) {
+    const total = RARITIES.reduce((s, r) => s + w[r], 0);
+    const want = Object.fromEntries(RARITIES.filter(r => r !== 'white' && bonus[r] > 0).map(r => [r, total * bonus[r] / 100]));
+    const sum = Object.values(want).reduce((s, x) => s + x, 0);
+    // 白卡不夠扣：照比例少加一點（白卡扣到 0、總權重還是不變，加成的稀有度不會反而變少）
+    const k = sum > w.white ? w.white / sum : 1;
+    for (const [r, add] of Object.entries(want)) w[r] += add * k;
+    w.white -= sum * k;
   }
   return w;
 }
 
 // 抽 count 張不重複的牌。owned = 這位玩家已有的牌 id（unique 的牌不再出現）；
 // weapons = 他目前的武器欄：已經有的武器不會再出、只對他沒有的武器有用的牌也不會出（不給就不過濾）；
-// solo = 單人冒險：只有多人才有用的牌（teamOnly）不出；linkTargets = 還能被他指定的隊友數，0 = 要指定隊友的牌（攜手之伴）不出（不給就不過濾）
-export function drawOffers(cards, rng, stage, count, owned = [], weapons = null, { solo = false, linkTargets = null } = {}) {
-  const weights = rarityWeights(stage);
+// solo = 單人冒險：只有多人才有用的牌（teamOnly）不出；linkTargets = 還能被他指定的隊友數，0 = 要指定隊友的牌（攜手之伴）不出（不給就不過濾）；
+// rarityBonus = 稀有度權重另外加多少（打贏菁英關，見 rarityWeights）
+export function drawOffers(cards, rng, stage, count, owned = [], weapons = null, { solo = false, linkTargets = null, rarityBonus = null } = {}) {
+  const weights = rarityWeights(stage, rarityBonus);
   const pool = cards.filter(c => c.minStage <= stage
     && !(c.unique && owned.includes(c.id))
     && !(weapons && c.weapon && weapons.includes(c.weapon))

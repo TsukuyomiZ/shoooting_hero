@@ -3,7 +3,7 @@ import { LEVELS } from './level.js';
 import { Rng } from './rng.js';
 import { Terrain } from './terrain.js';
 import { Entity, poisonTick } from './entities.js';
-import { launchVelocity, makeProjectile, hitAction, bounceProjectile, shotTraits, blastRadius } from './weapons.js';
+import { launchVelocity, makeProjectile, hitAction, bounceProjectile, shotTraits, blastRadius, shotRange, applyRecoil } from './weapons.js';
 import { runVolley } from './volley.js';
 import { planShot } from './ai.js';
 import { clamp } from './utils.js';
@@ -12,9 +12,9 @@ import * as Effects from './effects/index.js';
 import { stageRules } from './stage-rules.js';
 
 // 關卡 enemySpawns 的 type → config 裡的數值區塊（沒寫 type = 一般敵人 CONFIG.ENEMY）
-const ENEMY_TYPES = { sniper: 'SNIPER', artillery: 'ARTILLERY' };
+const ENEMY_TYPES = { sniper: 'SNIPER', artillery: 'ARTILLERY', bat: 'BAT' };
 // 敵人種類的名字（type: 'random' 隨機抽到種類時，名字 = 這個 + 關卡給的 tag，例如「砲兵 B」）
-export const ENEMY_LABELS = { normal: '敵人', sniper: '狙擊手', artillery: '砲兵' };
+export const ENEMY_LABELS = { normal: '敵人', sniper: '狙擊手', artillery: '砲兵', bat: '蝙蝠' };
 
 // 一場戰鬥（一關）的狀態與規則：地形、角色、回合順序、開火結算、勝負。
 // 牌的效果（shared/effects/）只在這裡固定的槽與時間點貢獻數字 / 做事，怎麼組合、照什麼順序在這裡決定；Match 不認得任何一個效果。
@@ -34,6 +34,7 @@ export class Match {
     this.rng = new Rng(this.seed);
     this.terrain = new Terrain(CONFIG.WORLD_W, CONFIG.WORLD_H, this.level.polygons, {
       hard: this.level.hardPolygons, platforms: this.level.platforms, maxX: this.level.maxX, vines: this.level.vines,
+      platformCover: this.level.platformCover, stalactites: this.level.stalactites,
     });
     this.entities = [];
     // 地圖機制的狀態（每場一份，含場上的道具）：機制的 build 建好回傳（見下面），之後由機制讀寫；Match 只存著不碰。
@@ -420,10 +421,7 @@ export class Match {
         ux = dx / dist;
         uy = dy / dist;
       }
-      e.vx += ux * kb;
-      e.vy = Math.min(e.vy, 0) - Math.abs(uy) * kb * 0.6 - kb * 0.35;
-      e.onGround = false;
-      e.letGoVine();   // 抓著藤蔓的人被打下來
+      e.knockBack(ux, uy, kb);   // 抓著藤蔓的人被打下來
     }
     return damages;
   }
@@ -470,8 +468,11 @@ export class Match {
       const traits = shotTraits(actor, weapon.id);   // 效果給的特性：在地形上彈射幾次、穿透角色
       p.bouncesLeft = traits.bounces;
       if (traits.pierce) p.pierce = true;
+      p.range = shotRange(weapon, power);   // 最長路徑（迴力鏢看力量、高壓水炮固定）
       projs.push(p);
     }
+    // 後座力（高壓水炮）：開火的當下射手被往後推，飛行途中照物理飛出去（客戶端重播擺好射手之後也照同一組初速推一次）
+    applyRecoil(actor, weapon, v.vx, v.vy);
     const burn = Effects.effectSum('burnOnHit', actor, { match: this, weaponId: weapon.id });   // 擊中的敵人附加幾層燃燒
     return {
       kind: 'weapon', actorId: actor.id, weapon: weaponId, angle, power, facing: actor.facing,
@@ -514,6 +515,7 @@ export class Match {
     if (target) ev.target = target.id;
     const stealPct = this.lifestealOf(owner);   // 打中之前的場面（看隊友人數的吸血：這一下炸死隊友不算）
     let damages = null;
+    let blast = 0;   // 這一下的爆炸半徑（沒爆炸 = 0），給地圖機制的 struck
     switch (act) {
       case 'end':
         break;
@@ -526,12 +528,17 @@ export class Match {
         damages = this.applyExplosion(hit.x, hit.y, weapon, owner, target, { directOnly: true, burn });
         Object.assign(ev, { vx: p.vx, vy: p.vy });
         break;
-      case 'return':   // 迴力鏢：打到角色就結算傷害，打到地形沒事，接著沿原路飛回去
-        if (target) damages = this.applyExplosion(hit.x, hit.y, weapon, owner, target, { directOnly: true, burn });
+      case 'return':   // 迴力鏢：飛到最長路徑（或撞到地形 / 落水 / 飛出場外）就沿原路飛回去。回程重新算一趟：去程打過的敵人回程還會再被打一次
+        p.ignore.clear();
+        p.ignore.add(owner);
+        if (hit.type !== 'terrain') ev.on = hit.type;   // range / water / out：客戶端照這個演（落水的濺水花）
         break;
       default: {       // explode
         const r = this.explosionRadius(owner, weapon);
-        if (r > 0) {
+        blast = r;
+        // noCarve（無差別轟炸、高壓水炮）：照樣有範圍傷害與擊退，只是不挖地形；爆炸多大照 blast 給客戶端演
+        if (r > 0 && weapon.noCarve) ev.blast = r;
+        else if (r > 0) {
           ev.carve = { x: hit.x, y: hit.y, r };
           this.terrain.carve(hit.x, hit.y, r);
         }
@@ -539,6 +546,13 @@ export class Match {
         // 毒液噴灑：同一次噴灑的毒液共用 ignore，打中過的人其他顆就穿過去（每人最多中一次）
         if (target && weapon.shareHits) p.ignore.add(target);
       }
+    }
+    // 地圖機制對「這一下打在哪裡」的反應（例如洞穴：打到 / 炸到鐘乳石就掉下來、打在火把旁邊就點燃）：附在事件上，客戶端照著播（replayEvent）。
+    // 半路才出現的飛行物（掉下來的鐘乳石，p.added）不算；落水、飛出場外不算（迴力鏢在水面、場外折返也一樣）。
+    // 飛到最長路徑停下的那一點（range：高壓水炮散掉、迴力鏢在半空中折返）算：這一幀有事件就不做飛過去的判定（resolvePass），終點要照樣看
+    if ((hit.type === 'terrain' || hit.type === 'entity' || hit.type === 'range') && !p.added) {
+      const extra = this.mechanic.struck(this, owner, { type: hit.type, x: hit.x, y: hit.y, blast, weapon: weapon.id });
+      if (extra) Object.assign(ev, extra);
     }
     if (damages && damages.length) {
       ev.damages = damages;
@@ -553,9 +567,17 @@ export class Match {
     return ev;
   }
 
+  // 一顆飛行物這一幀從 (x0, y0) 飛到現在的位置、沒撞到東西（shared/volley.js 的 runVolley 呼叫）：地圖機制要它留下記號的話
+  // （例如玩家的子彈從火把旁邊飛過去 → 點燃）寫成一個 pass 事件（飛行物照樣繼續飛），不然 null
+  resolvePass(owner, p, i, frame, x0, y0) {
+    const extra = this.mechanic.passed(this, owner, { x0, y0, x1: p.x, y1: p.y, r: p.hitRadius, weapon: p.weapon.id });
+    return extra ? { f: frame, p: i, type: 'pass', x: p.x, y: p.y, ...extra } : null;
+  }
+
   // AI 回合：先決定要不要走、走多久，再規劃一發。回傳 { walk, plan }；
-  // 由地圖機制出招的角色（Boss、蜜蜂）不走也不開火，而是出招並直接結算好：回傳 { boss: { steps, next } }（見 mechanics/ 的 aiTurn）
-  planAiTurn(actor) {
+  // 由地圖機制出招的角色（Boss、蜜蜂）不走也不開火，而是出招並直接結算好：回傳 { boss: { steps, next } }（見 mechanics/ 的 aiTurn）。
+  // weapons = 這一發只能用哪些武器（射過飛鏢的回合被代打：只能用飛鏢）；不給 = 武器欄全部
+  planAiTurn(actor, weapons = null) {
     const boss = this.mechanic.aiTurn(this, actor);
     if (boss) return { walk: null, plan: null, boss };
     let walk = null;
@@ -567,7 +589,7 @@ export class Match {
         if (frames > 0) walk = { dir: d, frames };
       }
     }
-    const plan = planShot(this.world, actor, this.rng);
+    const plan = planShot(this.world, actor, this.rng, weapons || actor.weapons);
     return { walk, plan };
   }
 
@@ -595,10 +617,12 @@ export class Match {
   }
 }
 
-// 第一顆飛行物最後停在哪（terrain / entity / water / out），給記錄與相容用
+// 第一顆飛行物最後停在哪（terrain / entity / water / out / range = 飛到最長路徑），給記錄與相容用。
+// 迴力鏢看折返的地方（路上穿過的敵人不算停下來）
 function summarizeHit(events) {
-  const ev = events.find(e => e.p === 0 && ['explode', 'return', 'water', 'out'].includes(e.type));
+  const ev = events.find(e => e.p === 0 && ['explode', 'return', 'water', 'out', 'range'].includes(e.type));
   if (!ev) return { type: 'out', x: 0, y: 0, entityId: null };
-  const type = ev.type === 'water' || ev.type === 'out' ? ev.type : (ev.target ? 'entity' : 'terrain');
+  const type = ev.type === 'return' ? ev.on || 'terrain'
+    : ev.type === 'water' || ev.type === 'out' || ev.type === 'range' ? ev.type : (ev.target ? 'entity' : 'terrain');
   return { type, x: ev.x, y: ev.y, entityId: ev.target || null };
 }

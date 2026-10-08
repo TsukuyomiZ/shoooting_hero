@@ -1,8 +1,9 @@
 import { CONFIG } from './config.js';
 
-// 關卡規則：一關之內、不分地圖的數字——敵人血量倍率、敵人傷害倍率、狂熱，加上一場冒險哪幾關是王關。
-// 從「第幾關、幾個人、哪一種地圖（pool：normal / boss）」算出來；數值在 config.js 原本的位置
-// （RUN.enemyHpPerStage / bossStages / bossHpPerStage、ENEMY_HP_PER_EXTRA_PLAYER、ENEMY.damageMult / lateFromStage / damageMultLate、FEVER）。
+// 關卡規則：一關之內、不分地圖的數字——敵人血量倍率、敵人傷害倍率、狂熱，加上一場冒險哪幾關是王關、哪幾關是菁英關。
+// 從「第幾關、幾個人、哪一種地圖（pool：normal / elite / boss）」算出來；數值在 config.js 原本的位置
+// （RUN.enemyHpPerStage / bossStages / eliteStages / bossHpPerStage、ENEMY_HP_PER_EXTRA_PLAYER、ENEMY.damageMult / lateFromStage / damageMultLate、FEVER）。
+// 菁英關（pool: 'elite'）的數字跟小關一樣：血量照 enemyHp、有狂熱；只有地圖池與打贏後的抽牌獎勵不同（抽牌在 cards.js）。
 // config 可以換一份（測試用自己的數字，不改全域 CONFIG）；Match 建場時算一次（match.rules），狂熱層數 = rules.feverAt(match.round)。
 // 不在這裡：王自己的參數（嘴巴閉幾回合、每人召喚幾隻樹妖）屬於地圖機制；過關回血、復活血量屬於冒險流程；抽牌權重屬於抽牌。
 //
@@ -32,6 +33,16 @@ export function stageRules({ stage = 1, players = 1, pool = 'normal' } = {}, con
 // 第 stage 關是不是 Boss 關（一場冒險從 Boss 池抽地圖的那幾關）
 export function isBossStage(stage, config = CONFIG) {
   return config.RUN.bossStages.includes(stage);
+}
+
+// 第 stage 關是不是菁英關（從菁英池抽地圖的那幾關；跟 Boss 關重疊的算 Boss 關）
+export function isEliteStage(stage, config = CONFIG) {
+  return !isBossStage(stage, config) && (config.RUN.eliteStages || []).includes(stage);
+}
+
+// 第 stage 關是哪一種關卡：'boss' | 'elite' | 'normal'（= 從哪個地圖池抽，level 的 pool）
+export function stageType(stage, config = CONFIG) {
+  return isBossStage(stage, config) ? 'boss' : isEliteStage(stage, config) ? 'elite' : 'normal';
 }
 
 // Boss 關的血量倍率（不含人數）：從第一個 Boss 關開始算，之後每多一關 +RUN.bossHpPerStage

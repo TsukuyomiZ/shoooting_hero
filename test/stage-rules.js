@@ -137,8 +137,8 @@ const show = (hits) => hits.map(([f, n, l]) => `        ${f}:${n}: ${l.trim()}`)
 const ALL = [...jsFiles('shared'), ...jsFiles('client'), ...jsFiles('server')];
 
 test('架構檢查：關卡規則的設定（FEVER、RUN.bossStages / enemyHpPerStage / bossHpPerStage、ENEMY_HP_PER_EXTRA_PLAYER、ENEMY.damageMult / damageMultLate / lateFromStage）只有 shared/stage-rules.js 讀', () => {
-  const RULE_CONFIG = /\bFEVER\b|\bbossStages\b|\benemyHpPerStage\b|\bbossHpPerStage\b|\bENEMY_HP_PER_EXTRA_PLAYER\b|\bdamageMultLate\b|\blateFromStage\b|\bENEMY\.damageMult\b/;
-  const caught = ['CONFIG.FEVER.damagePct', 'CONFIG.RUN.bossStages.includes(s)', 'const { enemyHpPerStage } = CONFIG.RUN;', 'CONFIG.ENEMY.damageMult', 'R.bossHpPerStage', 'x * CONFIG.ENEMY_HP_PER_EXTRA_PLAYER', 'E.lateFromStage'];
+  const RULE_CONFIG = /\bFEVER\b|\bbossStages\b|\beliteStages\b|\benemyHpPerStage\b|\bbossHpPerStage\b|\bENEMY_HP_PER_EXTRA_PLAYER\b|\bdamageMultLate\b|\blateFromStage\b|\bENEMY\.damageMult\b/;
+  const caught = ['CONFIG.FEVER.damagePct', 'CONFIG.RUN.bossStages.includes(s)', 'CONFIG.RUN.eliteStages', 'const { enemyHpPerStage } = CONFIG.RUN;', 'CONFIG.ENEMY.damageMult', 'R.bossHpPerStage', 'x * CONFIG.ENEMY_HP_PER_EXTRA_PLAYER', 'E.lateFromStage'];
   assert(caught.every(s => RULE_CONFIG.test(s)), 'the scan misses: ' + caught.filter(s => !RULE_CONFIG.test(s)));
   assert(!['this.match.fever', "'fever'", 'm.damageMult(p, w)', 'this.rules.enemyDamage', 'CONFIG.ENEMY.hp', 'isBossStage(stage + 1)'].some(s => RULE_CONFIG.test(s)), 'the scan flags ordinary code');
   const files = ALL.filter(f => f !== 'shared/config.js' && f !== 'shared/stage-rules.js');

@@ -1,11 +1,13 @@
-import { HARD, PLATFORM } from '../shared/terrain.js';
+import { HARD, PLATFORM, STALACTITE } from '../shared/terrain.js';
 
-// 把地形遮罩畫成圖：草皮、土壤、坑洞焦黑邊、樹皮（古樹）、平台。只在地形改變時重繪（爆炸時只重繪局部）。
+// 把地形遮罩畫成圖：草皮、土壤、坑洞焦黑邊、樹皮（古樹）、平台、鐘乳石。只在地形改變時重繪（爆炸時只重繪局部）。
 export class TerrainPainter {
-  // opts.platformStyle：平台的畫法（預設 = 長青苔的石頭；'wood' = 樹枝）
+  // opts.platformStyle：平台的畫法（預設 = 長青苔的石頭；'wood' = 樹枝、'vine' = 藤蔓橋、'rock' = 岩台）
+  // opts.style：土與實心地形的畫法（預設 = 草皮 + 土、樹皮；'cave' = 洞穴的岩土、岩石天花板）
   constructor(terrain, opts = {}) {
     this.terrain = terrain;
     this.platformStyle = opts.platformStyle || 'stone';
+    this.style = opts.style || null;
     this.withered = false;   // 古樹倒下：樹皮變成枯灰色
     this.canvas = document.createElement('canvas');
     this.canvas.width = terrain.w;
@@ -49,8 +51,14 @@ export class TerrainPainter {
         const o = i * 4;
         if (!mask[i]) { d[o + 3] = 0; continue; }
         const n = hash(px, py);
-        if (mask[i] === HARD) { this.paintBark(d, o, px, py, i, near); continue; }
+        if (mask[i] === HARD) {
+          if (this.style === 'cave') this.paintRock(d, o, px, py, i, n);
+          else this.paintBark(d, o, px, py, i, near);
+          continue;
+        }
         if (mask[i] === PLATFORM) { this.paintPlatform(d, o, px, py, i, n); continue; }
+        if (mask[i] === STALACTITE) { this.paintStalactite(d, o, px, py, i, n); continue; }
+        if (this.style === 'cave') { this.paintCaveFloor(d, o, px, py, i, n, near); continue; }
 
         let scorched = false;
         for (const hh of near) {
@@ -87,6 +95,7 @@ export class TerrainPainter {
   paintPlatform(d, o, px, py, i, n) {
     if (this.platformStyle === 'wood') { this.paintBranch(d, o, px, py, i, n); return; }
     if (this.platformStyle === 'vine') { this.paintVineBridge(d, o, px, py, i, n); return; }
+    if (this.platformStyle === 'rock') { this.paintLedge(d, o, px, py, i, n); return; }
     const { w, h, mask } = this.terrain;
     let top = 0;
     while (top < 6 && py - top - 1 >= 0 && mask[i - (top + 1) * w] === PLATFORM) top++;
@@ -132,6 +141,72 @@ export class TerrainPainter {
     else if (bottom) k *= 0.55;
     if (!bottom && top >= 2 && hash(px >> 3, py >> 2) > 0.93) { r = 132; g = 190; b = 72; }   // 葉子
     d[o] = r * k; d[o + 1] = g * k; d[o + 2] = b * k; d[o + 3] = 255;
+  }
+
+  // 洞穴的地面（style 'cave'，可破壞的土）：灰褐色的岩土、一塊塊的碎石，表面一層淡淡的塵土（沒有草），邊緣加深；被炸過留下焦痕
+  paintCaveFloor(d, o, px, py, i, n, near) {
+    const { w, h, mask } = this.terrain;
+    let scorched = false;
+    for (const hh of near) {
+      const dx = px + 0.5 - hh.x, dy = py + 0.5 - hh.y;
+      if (dx * dx + dy * dy <= (hh.r + 8) * (hh.r + 8)) { scorched = true; break; }
+    }
+    let top = false;
+    for (let k = 1; k <= 4 && !top; k++) if (py - k < 0 || !mask[(py - k) * w + px]) top = true;
+    let edge = false;
+    for (let k = 1; k <= 2 && !edge; k++) {
+      if (px - k < 0 || !mask[i - k] || px + k >= w || !mask[i + k] || py + k >= h || !mask[(py + k) * w + px]) edge = true;
+    }
+    const pebble = hash(px >> 3, py >> 2) > 0.8;
+    let r, g, b;
+    if (scorched) { r = 34 + n * 14; g = 28 + n * 10; b = 24 + n * 8; }
+    else if (top) { r = 128 + n * 20; g = 116 + n * 18; b = 100 + n * 16; }
+    else {
+      const k = pebble ? 1.18 : 1;
+      r = (86 + (n - 0.5) * 24) * k; g = (76 + (n - 0.5) * 20) * k; b = (68 + (n - 0.5) * 18) * k;
+      if (edge) { r *= 0.62; g *= 0.62; b *= 0.62; }
+    }
+    d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = 255;
+  }
+
+  // 洞穴的岩石（style 'cave' 的實心地形，例如天花板）：深灰的岩層，橫向的層理，靠近空氣的那一面加深
+  paintRock(d, o, px, py, i, n) {
+    const { w, h, mask } = this.terrain;
+    const strata = hash(px >> 5, py >> 2);
+    let k = (0.82 + 0.25 * strata) * (0.92 + 0.16 * n);
+    if ((py + (px >> 4)) % 7 === 0) k *= 0.78;
+    let edge = false;
+    for (let s = 1; s <= 3 && !edge; s++) {
+      if ((py + s < h && !mask[i + s * w]) || (px - s >= 0 && !mask[i - s]) || (px + s < w && !mask[i + s])) edge = true;
+    }
+    if (edge) k *= 0.6;
+    d[o] = 66 * k; d[o + 1] = 60 * k; d[o + 2] = 58 * k; d[o + 3] = 255;
+  }
+
+  // 鐘乳石：淡色的石灰岩，直的紋路，兩側邊緣加深，越靠近尖端越亮（濕濕的）
+  paintStalactite(d, o, px, py, i, n) {
+    const { w, mask } = this.terrain;
+    let edge = false;
+    for (let s = 1; s <= 2 && !edge; s++) if (mask[i - s] !== STALACTITE || mask[i + s] !== STALACTITE) edge = true;
+    const streak = hash(px, py >> 4) > 0.75 ? 0.82 : 1;
+    let below = 0;
+    while (below < 30 && mask[i + (below + 1) * w] === STALACTITE) below++;
+    const wet = below < 12 ? 1.12 : 1;
+    let k = (0.9 + 0.14 * n) * streak * wet;
+    if (edge) k *= 0.62;
+    d[o] = 168 * k; d[o + 1] = 158 * k; d[o + 2] = 144 * k; d[o + 3] = 255;
+  }
+
+  // 岩台（platformStyle: 'rock'）：頂面一條被踩亮的岩面，下面是粗糙的岩石，下緣加深
+  paintLedge(d, o, px, py, i, n) {
+    const { w, h, mask } = this.terrain;
+    let top = 0;
+    while (top < 3 && py - top - 1 >= 0 && mask[i - (top + 1) * w] === PLATFORM) top++;
+    const bottom = py + 2 >= h || mask[i + 2 * w] !== PLATFORM;
+    let k = (0.85 + 0.25 * hash(px >> 2, py >> 2)) * (0.92 + 0.16 * n);
+    if (top < 2) k = 1.35 + 0.1 * n;
+    else if (bottom) k *= 0.55;
+    d[o] = 92 * k; d[o + 1] = 84 * k; d[o + 2] = 78 * k; d[o + 3] = 255;
   }
 
   // 樹皮：順著樹幹往右上斜的溝紋 + 細長的木紋，表面邊緣加深；被炸過的地方留下焦痕
