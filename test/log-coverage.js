@@ -10,10 +10,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CONFIG } from '../shared/config.js';
-import { Run } from '../shared/run.js';
-import { validateCards } from '../shared/cards.js';
-import { STICKERS } from '../shared/stickers.js';
+import { CONFIG } from '../shared/core/config.js';
+import { Run } from '../shared/game/run.js';
+import { validateCards } from '../shared/cards/cards.js';
+import { STICKERS } from '../shared/social/stickers.js';
 import { RoomManager } from '../server/rooms.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -30,7 +30,7 @@ async function test(name, fn) {
 }
 const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
 const J = JSON.stringify;
-const CARDS = validateCards(JSON.parse(fs.readFileSync(path.join(ROOT, 'shared/cards.json'), 'utf8'))).cards;
+const CARDS = validateCards(JSON.parse(fs.readFileSync(path.join(ROOT, 'shared/cards/cards.json'), 'utf8'))).cards;
 
 // ---- 客戶端會送的訊息種類：client/ 裡 send({ t: '…' }) / ws.send(JSON.stringify({ t: '…' })) ----
 const jsFiles = (dir) => fs.readdirSync(path.join(ROOT, dir), { recursive: true })
@@ -49,6 +49,7 @@ const TEMPLATE = {
   start: () => ({}),
   leave: () => ({}),
   sticker: () => ({ id: STICKERS[0].id }),
+  chat: () => ({ text: '加油' }),
   pick: (c) => ({ cardId: c.offer ? c.offer.id : 'nope', discard: 'cannon', link: 'p2' }),
   move: (c) => ({ x: c.me ? c.me.x + 3 : 1, y: c.me ? c.me.y : 1, vy: 0, facing: 1, stamina: c.me ? c.me.stamina - 1 : 0, vine: -1, safe: { x: 1, y: 1 } }),
   slow: () => ({ on: true, why: 'land' }),
@@ -162,8 +163,8 @@ function sendToRun(phase, make) {
   return s.io.records.slice();
 }
 
-await test('客戶端會送的訊息種類從原始碼抓得到（含已知的 14 種），每一種都有範本或只帶 t', () => {
-  const KNOWN = ['hello', 'browse', 'create', 'join', 'ready', 'privacy', 'start', 'leave', 'sticker', 'pick', 'move', 'slow', 'weapon', 'fire'];
+await test('客戶端會送的訊息種類從原始碼抓得到（含已知的 15 種），每一種都有範本或只帶 t', () => {
+  const KNOWN = ['hello', 'browse', 'create', 'join', 'ready', 'privacy', 'start', 'leave', 'sticker', 'chat', 'pick', 'move', 'slow', 'weapon', 'fire'];
   assert(KNOWN.every(t => TYPES.includes(t)), 'missing from the scan: ' + KNOWN.filter(t => !TYPES.includes(t)));
   return { types: TYPES };
 });
@@ -231,6 +232,10 @@ await test('單人（LocalTransport.send）：貼圖、還沒有 run、run 沒�
   const evs = () => lt.log.buf.map(e => e.ev);
   lt.send({ t: 'sticker', id: 'Z'.repeat(500) });
   assert(lt.log.buf.at(-1).ev === 'sticker' && lt.log.buf.at(-1).sticker.length <= 20, 'sticker id cut short: ' + J(lt.log.buf.at(-1)));
+  lt.send({ t: 'chat', text: '好\n'.repeat(200) });
+  assert(lt.log.buf.at(-1).ev === 'chat' && lt.log.buf.at(-1).text === '好 '.repeat(15).trim(), 'chat cleaned: ' + J(lt.log.buf.at(-1)));
+  lt.send({ t: 'chat', text: { toString: 0 } });
+  assert(lt.log.buf.at(-1).ev === 'chat.drop' && lt.log.buf.at(-1).reason === 'empty', 'chat junk: ' + J(lt.log.buf.at(-1)));
   lt.send({ t: 'move', x: 1 });
   assert(lt.log.buf.at(-1).ev === 'action.ignored' && lt.log.buf.at(-1).reason === 'noRun', 'no run yet: ' + evs());
   lt.run = { handle() {} };   // 假裝某條路徑漏記

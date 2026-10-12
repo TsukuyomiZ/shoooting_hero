@@ -1,5 +1,5 @@
 // node test/effects.js
-// 效果（shared/effects/，見 GLOSSARY.md）：一個效果一個檔案 + 登記表（index.js）。這裡檢查：
+// 效果（shared/cards/effects/，見 GLOSSARY.md）：一個效果一個檔案 + 登記表（index.js）。這裡檢查：
 // 新增效果（effects/ 一個檔案 + LIST 最後一行 + README 表一列 + 牌）不用改這個檔案：以前的清單只檢查「還在、排在最前面」，
 // 新的效果排在後面；要逐項檢查的清單（架構檢查的字、同步欄位）都從登記表現算。
 // - 登記表涵蓋 cards.json 用到的每個 key；以前 EFFECT_KEYS 的每個 key 都在（說明一字不差）而且排在最前面；
@@ -17,14 +17,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { CONFIG } from '../shared/config.js';
-import { Match } from '../shared/match.js';
+import { CONFIG } from '../shared/core/config.js';
+import { Match } from '../shared/game/match.js';
 import {
   EFFECTS, EFFECT_KEYS, INSTANT_KEYS, WEAPON_ONLY_KEYS, TEAM_ONLY_KEYS, DEFAULT_MODS, HOOK_NAMES, STATUS_CHIP_ORDER, effectOf,
   effectSum, appliesBurn,
-} from '../shared/effects/index.js';
-import { validateCards, baseStats, derivePlayerStats, applyCard } from '../shared/cards.js';
-import { DEFAULT_MODS as ENTITY_DEFAULT_MODS } from '../shared/entities.js';
+} from '../shared/cards/effects/index.js';
+import { validateCards, baseStats, derivePlayerStats, applyCard } from '../shared/cards/cards.js';
+import { DEFAULT_MODS as ENTITY_DEFAULT_MODS } from '../shared/physics/entities.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
@@ -73,7 +73,7 @@ const OLD_EFFECT_KEYS = {
   sizePct:          '體型 +N%（越大越好被打中）',
   // turnTime（每回合秒數 +N）：沒有牌用它，10-07 刪掉了（裁判的 turnSecs 槽還在）
   extraTurn:        `自己的回合結束後再獲得一個額外回合（填 1；之後冷卻 ${CONFIG.EQUIP.extraTurnCooldown} 個回合）`,
-  bombard:          '自己的回合開始時，自己以外的區域落下轟炸飛彈（填 1）',
+  bombard:          `自己的回合開始時，自己以外的區域落下轟炸飛彈（填 1；之後冷卻 ${CONFIG.EQUIP.bombard.cooldown} 個回合）`,   // 10-08 加冷卻
   teamShield:       `每過 ${CONFIG.EQUIP.shieldEveryTurns} 個自己的回合，全隊獲得 N 次無敵（擋下一次傷害）`,
   allyHeal:         '隊友（不含自己）立刻各回血 N',
   nextDamagePct:    '下一關武器傷害 +N%（打完那一關就失效）',
@@ -130,8 +130,8 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'sh-effects-'));
 function makeCopy(name, effectSrc) {
   const dir = path.join(TMP, name, 'shared');
   fs.cpSync(path.join(ROOT, 'shared'), dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'effects', 'fake.js'), effectSrc);
-  const idx = path.join(dir, 'effects', 'index.js');
+  fs.writeFileSync(path.join(dir, 'cards', 'effects', 'fake.js'), effectSrc);
+  const idx = path.join(dir, 'cards', 'effects', 'index.js');
   // 跟真的加效果一樣：import 一行、LIST 的最後面加一個（不管最後一個效果是誰、後面有沒有逗號）
   let src = "import { fake } from './fake.js';\n" + fs.readFileSync(idx, 'utf8');
   src = src.replace(/(const LIST = \[[\s\S]*?),?\s*\n\];/, '$1, fake,\n];');
@@ -143,7 +143,7 @@ function makeCopy(name, effectSrc) {
 const sorted = (o) => J(Object.entries(o).sort(([a], [b]) => (a < b ? -1 : 1)));
 
 await test('登記表涵蓋 cards.json 用到的每個 key；以前的 44 個 key 都在而且排在最前面（說明一字不差）；key / 效果 id / 狀態欄位 / 同步欄位不重複；validateCards 照樣警告不認得的 key', () => {
-  const raw = JSON.parse(read('shared/cards.json'));
+  const raw = JSON.parse(read('shared/cards/cards.json'));
   const used = new Set((raw.cards || raw).flatMap(c => Object.keys(c.effects || {})));
   for (const k of used) assert(k in EFFECT_KEYS && effectOf(k), `cards.json uses ${k}, which no effect defines`);
   for (const [k, desc] of Object.entries(OLD_EFFECT_KEYS)) {
@@ -239,16 +239,16 @@ await test('README 的效果表跟登記表一致：每個 key 一列、說明�
 });
 
 await test('寫錯名字的掛勾、重複的 key 載入時就丟錯；index.js 的說明寫到了每一個掛勾', async () => {
-  const head = read('shared/effects/index.js').split('\nconst LIST')[0];
+  const head = read('shared/cards/effects/index.js').split('\nconst LIST')[0];
   const missing = HOOK_NAMES.filter(h => !new RegExp(`\\b${h}\\b`).test(head));
-  assert(!missing.length, 'hooks not documented in shared/effects/index.js: ' + missing.join(', '));
+  assert(!missing.length, 'hooks not documented in shared/cards/effects/index.js: ' + missing.join(', '));
   const bad = makeCopy('bad-hook', `export const fake = { id: 'fake', keys: { fakePct: '測試' }, damagePCT: () => 1 };\n`);
   let err = null;
-  try { await import(bad.url('effects/index.js')); } catch (x) { err = x; }
+  try { await import(bad.url('cards/effects/index.js')); } catch (x) { err = x; }
   assert(err && /unknown hook "damagePCT"/.test(err.message), 'unknown hook should throw: ' + (err && err.message));
   const dup = makeCopy('dup-key', `export const fake = { id: 'fake', keys: { damagePct: '重複' } };\n`);
   err = null;
-  try { await import(dup.url('effects/index.js')); } catch (x) { err = x; }
+  try { await import(dup.url('cards/effects/index.js')); } catch (x) { err = x; }
   assert(err && /"damagePct" is defined by both/.test(err.message), 'duplicate key should throw: ' + (err && err.message));
   return { hooks: HOOK_NAMES.length };
 });
@@ -296,10 +296,10 @@ function advanceUntil(io, pred, maxMs = 300_000) {
 
 await test('加一個假效果（一個新檔案 + 登記表一行）：牌庫認得、選牌 → 下一關的 mods、傷害 +N%、自己的狀態與同步欄位、狀態列，全部接得起來', async () => {
   const copy = makeCopy('fake', FAKE);
-  const E = await import(copy.url('effects/index.js'));
-  const C = await import(copy.url('cards.js'));
-  const { Run } = await import(copy.url('run.js'));
-  const { CONFIG: CC } = await import(copy.url('config.js'));
+  const E = await import(copy.url('cards/effects/index.js'));
+  const C = await import(copy.url('cards/cards.js'));
+  const { Run } = await import(copy.url('game/run.js'));
+  const { CONFIG: CC } = await import(copy.url('core/config.js'));
   // 加在 LIST 最後面：mods 排在所有牌的 key 之後、extraMods 之前，以前的 mods 順序不變
   const cardMods = Object.keys(DEFAULT_MODS).filter(k => k in EFFECT_KEYS);
   assert(E.EFFECT_KEYS.testPct && J(Object.keys(E.DEFAULT_MODS)) === J([...cardMods, 'testPct', ...EXTRA_MODS]),
@@ -337,7 +337,7 @@ await test('加一個假效果（一個新檔案 + 登記表一行）：牌庫�
   // after: 'vn' 的同步欄位照 LIST 的順序排在 vn 後面：假效果在最後，所以排在登記表裡其他 after vn 的（rd / hu …）之後
   const afterVn = STATES.filter(x => x.after === 'vn').length;
   assert(s.th === p1.testHits && keys.indexOf('th') === keys.indexOf('vn') + afterVn + 1, 'th synced after vn (and rd / hu): ' + keys.join());
-  const cm = new (await import(copy.url('match.js'))).Match({ levelId: m.levelId, players: [{ id: 'p1', name: 'P1' }], seed: m.seed, carry: m.carry, stage: m.stage });
+  const cm = new (await import(copy.url('game/match.js'))).Match({ levelId: m.levelId, players: [{ id: 'p1', name: 'P1' }], seed: m.seed, carry: m.carry, stage: m.stage });
   cm.applyEntities(shot.results);
   assert(cm.byId('p1').testHits === p1.testHits, 'client copy gets the state');
   // 狀態列：效果給的資料（客戶端照著畫），排在狀態之後
@@ -349,7 +349,7 @@ await test('加一個假效果（一個新檔案 + 登記表一行）：牌庫�
 
 // 選牌畫面的燃燒說明：看牌實際帶的效果（有寫 burnOnHit 的效果的 key），不看說明文字
 await test('appliesBurn：每張牌會不會讓敵人燃燒，跟戰鬥裡 burnOnHit 槽（任一把武器）算出來的一致；值 0 的 key、武器牌、沒有效果的牌都不算', () => {
-  const { cards } = validateCards(JSON.parse(read('shared/cards.json')));
+  const { cards } = validateCards(JSON.parse(read('shared/cards/cards.json')));
   const burning = [];
   for (const c of cards) {
     const stats = baseStats();
@@ -381,16 +381,16 @@ await test('寫錯的效果狀態（跟角色的欄位 / toState 的同步欄位
   ];
   for (const [name, state, re] of cases) {
     const copy = makeCopy(name, `export const fake = { id: 'fake', keys: { fakePct: '測試' }, ${state} };\n`);
-    await import(copy.url('effects/index.js'));   // 登記表本身載得起來：要跟 Entity 比才知道
+    await import(copy.url('cards/effects/index.js'));   // 登記表本身載得起來：要跟 Entity 比才知道
     let err = null;
-    try { await import(copy.url('entities.js')); } catch (x) { err = x; }
+    try { await import(copy.url('physics/entities.js')); } catch (x) { err = x; }
     assert(err && re.test(err.message), `${name} should throw at load: ` + (err && err.message));
   }
   const ok = makeCopy('state-ok', `export const fake = { id: 'fake', keys: { fakePct: '測試' }, state: { fakeN: { wire: 'fk', after: 'closed' } } };\n`);
-  await import(ok.url('entities.js'));
+  await import(ok.url('physics/entities.js'));
   const target = makeCopy('target', `export const fake = { id: 'fake', keys: { fakeTo: { desc: '測試', instant: true } }, target: 'teammate' };\n`);
   let err = null;
-  try { await import(target.url('effects/index.js')); } catch (x) { err = x; }
+  try { await import(target.url('cards/effects/index.js')); } catch (x) { err = x; }
   assert(err && /target "teammate" needs pickText/.test(err.message), 'target without pickText should throw: ' + (err && err.message));
   return { cases: cases.length + 2 };
 });
@@ -426,11 +426,11 @@ const SAME_NAME = {
   bombard: [/\b(?:weapon|w)\.id === 'bombard'/g],
 };
 // 只有這個檔案的這種寫法可以（Entity 的物理每一幀直接讀二段跳的次數，不經過效果的掛勾）
-const EXCEPT = { 'shared/entities.js': [/\bthis\.mods\.extraJumps\b/g] };
-// 掃 shared/、client/、server/ 底下所有的 .js：效果自己（shared/effects/）與設定（config.js）之外
+const EXCEPT = { 'shared/physics/entities.js': [/\bthis\.mods\.extraJumps\b/g] };
+// 掃 shared/、client/、server/ 底下所有的 .js：效果自己（shared/cards/effects/）與設定（config.js）之外
 const walk = (dir) => fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })
   .flatMap(d => (d.isDirectory() ? walk(`${dir}/${d.name}`) : d.name.endsWith('.js') ? [`${dir}/${d.name}`] : []));
-const SCANNED = ['shared', 'client', 'server'].flatMap(walk).filter(f => !f.startsWith('shared/effects/') && f !== 'shared/config.js');
+const SCANNED = ['shared', 'client', 'server'].flatMap(walk).filter(f => !f.startsWith('shared/cards/effects/') && f !== 'shared/core/config.js');
 
 await test('shared / client / server 所有的程式碼（effects/、config.js 之外）不提任何效果 key（同名的通用欄位只准固定寫法）、不讀 mods.<key>、run.js 不讀 now.<key>、不碰效果自己的狀態欄位與同步欄位（從登記表算）', () => {
   const problems = [];
@@ -452,7 +452,7 @@ await test('shared / client / server 所有的程式碼（effects/、config.js �
       // mods 只准整包傳（建角色、算 carry），不准讀某一個 key（含解構）
       if (/\bmods\s*(\.\s*\w|\[)|\}\s*=\s*[\w.]*\bmods\b/.test(rest)) problems.push(`${at} reads a mod: ${line.trim()}`);
       // 選牌的 now（applyCard 回傳的立即效果）只准整包交給效果（picked / pickHeal）
-      if (f === 'shared/run.js' && /\bnow\s*[.[]|\}\s*=\s*now\b/.test(rest)) problems.push(`${at} reads the instant effects (now): ${line.trim()}`);
+      if (f === 'shared/game/run.js' && /\bnow\s*[.[]|\}\s*=\s*now\b/.test(rest)) problems.push(`${at} reads the instant effects (now): ${line.trim()}`);
     });
   }
   const stale = [...Object.entries(SAME_NAME), ...Object.entries(EXCEPT)]
@@ -463,28 +463,28 @@ await test('shared / client / server 所有的程式碼（effects/、config.js �
 });
 
 await test('entities.js 不宣告效果自己的狀態（登記表裡的每個狀態欄位與同步欄位：readyStacks / huntStacks / extraTurnCd / soulPct…），經 effects/index.js 建立與同步', () => {
-  const code = codeOf(read('shared/entities.js'));
+  const code = codeOf(read('shared/physics/entities.js'));
   for (const f of new Set([...Object.keys(COUNTERS), ...STATES.map(s => s.field)])) {
     assert(!new RegExp(`\\b${f}\\b`).test(code), 'entities.js mentions ' + f);
   }
   for (const w of WIRES) {
     assert(!new RegExp(`\\b${w}\\s*:|\\bs\\.${w}\\b`).test(code), 'entities.js writes / reads the wire field ' + w + ' by hand');
   }
-  assert(/from '\.\/effects\/index\.js'/.test(code) && /initState\(this, o\)/.test(code) && /writeState\(this/.test(code) && /readState\(this, s\)/.test(code),
+  assert(/from '\.\.\/cards\/effects\/index\.js'/.test(code) && /initState\(this, o\)/.test(code) && /writeState\(this/.test(code) && /readState\(this, s\)/.test(code),
     'entities.js goes through the effects registry');
   return { states: STATES.map(s => s.field) };
 });
 
 await test('效果只往下 import（config、projectile.js、同資料夾），不 import match / referee / run / volley / weapons / entities / cards（沒有循環）', () => {
-  const dir = path.join(ROOT, 'shared', 'effects');
+  const dir = path.join(ROOT, 'shared', 'cards', 'effects');
   const files = fs.readdirSync(dir).filter(f => f.endsWith('.js'));
   for (const f of files) {
     const imp = [...fs.readFileSync(path.join(dir, f), 'utf8').matchAll(/^\s*import\b[^;]*?from\s*'([^']+)'/gm)].map(x => x[1]);
-    const bad = imp.filter(s => !/^\.\/[\w-]+\.js$/.test(s) && !['../config.js', '../projectile.js'].includes(s));
+    const bad = imp.filter(s => !/^\.\/[\w-]+\.js$/.test(s) && !['../../core/config.js', '../../physics/projectile.js'].includes(s));
     assert(!bad.length, `effects/${f} imports ${bad}`);
   }
   // 登記表裡每個效果都有自己的檔案（index.js 之外的檔案都登記了）
-  const registered = (read('shared/effects/index.js').match(/from '\.\/([\w-]+)\.js'/g) || []).length;
+  const registered = (read('shared/cards/effects/index.js').match(/from '\.\/([\w-]+)\.js'/g) || []).length;
   assert(registered === files.length - 1 && registered === EFFECTS.length, `${registered} imports, ${files.length - 1} files, ${EFFECTS.length} effects`);
   return { files: files.length - 1 };
 });

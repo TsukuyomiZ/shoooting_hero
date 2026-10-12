@@ -1,4 +1,4 @@
-import { CONFIG } from '../shared/config.js';
+import { CONFIG } from '../shared/core/config.js';
 import { STAGE_LOOK } from './stage-look.js';
 
 // 結算畫面（DOM）：整場冒險結束（通關或全滅）時顯示每位玩家的

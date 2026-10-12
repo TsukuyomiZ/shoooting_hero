@@ -3,15 +3,15 @@
 // 中毒（上毒、無敵擋、連結不分、自己的回合開始結算 + 生命鎖、被毒倒）、蛇血（每 N% 掉一瓶、走過去喝 / 回合開始站在上面、解毒 + 解鎖 + 回血）、
 // 四種招式（權重、預定下一招、衝撞範圍、噴灑每人最多一次、震擊只打站在橋上的人並往巨蟒甩、撕咬最近的人）、
 // 客戶端重播一致、裁判流程、客戶端警示帶、確定性
-import { CONFIG } from '../shared/config.js';
-import { LEVELS, levelsInPool } from '../shared/level.js';
-import { Match } from '../shared/match.js';
-import { Referee } from '../shared/referee.js';
-import { Rng } from '../shared/rng.js';
-import { planShot } from '../shared/ai.js';
+import { CONFIG } from '../shared/core/config.js';
+import { LEVELS, levelsInPool } from '../shared/maps/level.js';
+import { Match } from '../shared/game/match.js';
+import { Referee } from '../shared/game/referee.js';
+import { Rng } from '../shared/core/rng.js';
+import { planShot } from '../shared/ai/ai.js';
 import { replayChecked } from './replay-check.js';
-import { VINE_HAND, poisonTick } from '../shared/entities.js';
-import { chargeLane, resolveSnakeTurn, rollSnakeAction, planSnakeNext, nearestPlayer, snakeDrops, pickupAlong } from '../shared/snake-boss.js';
+import { VINE_HAND, poisonTick } from '../shared/physics/entities.js';
+import { chargeLane, resolveSnakeTurn, rollSnakeAction, planSnakeNext, nearestPlayer, snakeDrops, pickupAlong } from '../shared/maps/snake-boss.js';
 import { mapViewFor } from '../client/map-views/index.js';
 
 const results = [];

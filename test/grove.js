@@ -1,13 +1,13 @@
 // node test/grove.js
 // 地圖「樹影重重」與狙擊手：地圖池、狙擊手的數值與站位、樹枝平台、射界（同伴不會擋到彼此）、
-// 狙擊手的 AI（只用狙擊槍、不走動、誤差照 sniperSpread、先挑打得到的人）、裁判流程跑得完
-import { CONFIG } from '../shared/config.js';
-import { LEVELS, levelsInPool } from '../shared/level.js';
-import { Match } from '../shared/match.js';
-import { Referee } from '../shared/referee.js';
-import { planShot, hasLineOfSight } from '../shared/ai.js';
-import { Rng } from '../shared/rng.js';
-import { PLATFORM, SOIL } from '../shared/terrain.js';
+// 狙擊手的 AI（只用狙擊槍、每回合在自己的樹枝上走一段、誤差照 sniperSpread、先挑打得到的人）、裁判流程跑得完
+import { CONFIG } from '../shared/core/config.js';
+import { LEVELS, levelsInPool } from '../shared/maps/level.js';
+import { Match } from '../shared/game/match.js';
+import { Referee } from '../shared/game/referee.js';
+import { planShot, hasLineOfSight } from '../shared/ai/ai.js';
+import { Rng } from '../shared/core/rng.js';
+import { PLATFORM, SOIL } from '../shared/physics/terrain.js';
 
 const results = [];
 function test(name, fn) {
@@ -23,8 +23,9 @@ function test(name, fn) {
 const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
 
 class FakeIo {
-  constructor() { this.t = 0; this.timers = []; this.log = []; this.seq = 0; }
+  constructor() { this.t = 0; this.timers = []; this.log = []; this.records = []; this.seq = 0; }
   broadcast(msg) { this.log.push(msg); }
+  record(ev, data) { this.records.push({ ev, ...data }); }
   schedule(fn, ms) { const h = { at: this.t + ms, fn, id: this.seq++ }; this.timers.push(h); return h; }
   cancel(h) { this.timers = this.timers.filter(x => x !== h); }
   now() { return this.t; }
@@ -57,7 +58,7 @@ function withConfig(patch, fn) {
 const exactAngle = (s, t) => { const m = s.muzzle(); return Math.atan2(-(t.cy - m.y), t.cx - m.x) * 180 / Math.PI; };
 
 test('樹影重重在一般地圖池；狙擊手（數量照關卡）：kind sniper、只有狙擊槍、血量照 SNIPER.hp 依人數 / 關數放大', () => withConfig(
-  { SNIPER: { hp: 30 }, ENEMY: { hp: 45 } }, () => {
+  { SNIPER: { hp: 30, moveChance: 1 }, ENEMY: { hp: 45 } }, () => {
     assert(levelsInPool('normal').includes('grove') && LEVELS.grove.name === '樹影重重', 'grove is in the normal pool');
     const solo = grove(1);
     assert(SNIPERS >= 1 && solo.enemies.length === LEVELS.grove.enemySpawns.length && solo.enemies.length === SNIPERS, `${SNIPERS} snipers: ${solo.enemies.length}`);
@@ -65,7 +66,7 @@ test('樹影重重在一般地圖池；狙擊手（數量照關卡）：kind sni
       assert(s.kind === 'sniper', `${s.id} kind ${s.kind}`);
       assert(s.weapons.length === 1 && s.weapons[0] === 'sniper' && s.weapon === 'sniper', `${s.id} weapons ${s.weapons}`);
       assert(s.hp === 30 && s.maxHp === 30, `${s.id} solo hp ${s.hp}`);
-      assert(s.ai && s.ai.moveChance === 0, `${s.id} does not walk`);
+      assert(s.ai && s.ai.moveChance === 1, `${s.id} walks every turn (moveChance ${s.ai && s.ai.moveChance})`);
     }
     // 2 人、第 3 關：30 × (1 + 0.5) × (1 + 0.15 × 2) = 58.5 → 59
     const duo = grove(2, { stage: 3 });
@@ -127,23 +128,26 @@ test('射界：每個狙擊手對每個出生點都有直線視野，正中間�
   return { shots };
 });
 
-test('狙擊手的 AI：只用狙擊槍、不走動，角度誤差在 ±sniperSpread 內（不是一般敵人的 1.2°）', () => withConfig(
-  { SNIPER: { sniperSpread: 3 } }, () => {
-    let maxErr = 0, n = 0;
+test('狙擊手的 AI：先在樹枝上走一段（不會走下樹枝），再從走到的地方用狙擊槍，角度誤差在 ±sniperSpread 內（不是一般敵人的 1.2°）', () => withConfig(
+  { SNIPER: { sniperSpread: 3, moveChance: 1 } }, () => {
+    let maxErr = 0, n = 0, walked = 0;
     for (let seed = 1; seed <= 120; seed++) {
       const m = grove(2, { seed });
       const s = m.enemies[seed % SNIPERS];
-      const x0 = s.x;
+      const x0 = s.x, branch = branchOf(s.x);
+      m.beginTurn(s);
       const { walk, plan } = m.planAiTurn(s);
-      assert(walk === null && s.x === x0, `seed ${seed}: sniper walked`);
+      assert(walk && walk.frames > 0 && Math.abs(s.x - x0) >= 1, `seed ${seed}: sniper did not walk ${JSON.stringify(walk)}`);
+      assert(m.terrain.at(s.x, s.y + 1) === PLATFORM && branchOf(s.x) === branch && s.onGround && s.waterFalls === 0, `seed ${seed}: walked off the branch to (${s.x}, ${s.y})`);
+      walked++;
       assert(plan && plan.weapon === 'sniper' && plan.power === 100, `seed ${seed}: plan ${JSON.stringify(plan)}`);
-      const err = Math.abs(plan.angle - exactAngle(s, m.byId(plan.targetId)));
+      const err = Math.abs(plan.angle - exactAngle(s, m.byId(plan.targetId)));   // 從走到的地方瞄
       assert(err <= 3 + 1e-9, `seed ${seed}: error ${err}`);
       maxErr = Math.max(maxErr, err);
       n++;
     }
     assert(maxErr > 2, `spread looks like the default 1.2°: max ${maxErr}`);
-    return { plans: n, maxErr: +maxErr.toFixed(2) };
+    return { plans: n, walked, maxErr: +maxErr.toFixed(2) };
   }));
 
 test('只有狙擊槍的射手先挑打得到的人：躲進坑裡（血最少）的玩家不會被瞄；只剩他時才打他', () => {
@@ -170,8 +174,8 @@ test('只有狙擊槍的射手先挑打得到的人：躲進坑裡（血最少�
   assert(plan && plan.weapon === 'sniper' && plan.targetId === p1.id, 'nobody visible → still shoots the hidden one');
 });
 
-test('裁判流程：玩家都不動（超時），狙擊手每回合用狙擊槍、不走動，最後全滅結束', () => withConfig(
-  { PLAYER: { hp: 150 }, SNIPER: { hp: 30, sniperSpread: 3 } }, () => {
+test('裁判流程：玩家都不動（超時），狙擊手每回合在樹枝上走一段再用狙擊槍，最後全滅結束；從頭到尾沒有狙擊手走下樹枝', () => withConfig(
+  { PLAYER: { hp: 150 }, SNIPER: { hp: 30, sniperSpread: 3, moveChance: 1 } }, () => {
     const m = grove(2, { seed: 4 });
     const io = new FakeIo();
     let over = null;
@@ -182,9 +186,14 @@ test('裁判流程：玩家都不動（超時），狙擊手每回合用狙擊�
     assert(over === 'lose', 'game ended with ' + over);
     const ai = io.take('aiTurn');
     assert(ai.length >= 4, 'snipers took turns: ' + ai.length);
-    assert(ai.every(a => a.walk === null && a.shot && a.shot.weapon === 'sniper'), 'every sniper turn is a sniper shot without walking');
-    assert(m.enemies.every(s => s.alive && s.onGround), 'snipers are still on their branches');
-    return { sniperTurns: ai.length, rounds: ref.round };
+    assert(ai.every(a => a.shot && a.shot.weapon === 'sniper'), 'every sniper turn is a sniper shot');
+    // 每回合都走（同一根樹枝上兩隻擠在一端時，被夾住的那隻可能一回合走不動）；走路紀錄跟廣播一樣
+    const walks = ai.filter(a => a.walk && a.walk.frames > 0).length;
+    assert(walks >= ai.length * 0.9, `snipers walk (almost) every turn: ${walks}/${ai.length}`);
+    const recs = io.records.filter(r => r.ev === 'ai.turn');
+    assert(recs.length === ai.length && recs.every((r, i) => JSON.stringify(r.walk) === JSON.stringify(ai[i].walk)), 'ai.turn logs the walk');
+    assert(m.enemies.every(s => s.alive && s.onGround && m.terrain.at(s.x, s.y + 1) === PLATFORM && s.waterFalls === 0), 'snipers are still on their branches');
+    return { sniperTurns: ai.length, walks, rounds: ref.round };
   }));
 
 const failed = results.filter(r => !r.ok).length;

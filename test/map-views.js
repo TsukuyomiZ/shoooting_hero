@@ -9,10 +9,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CONFIG } from '../shared/config.js';
-import { LEVELS } from '../shared/level.js';
-import { Match } from '../shared/match.js';
-import { Referee } from '../shared/referee.js';
+import { CONFIG } from '../shared/core/config.js';
+import { LEVELS } from '../shared/maps/level.js';
+import { Match } from '../shared/game/match.js';
+import { Referee } from '../shared/game/referee.js';
 // 先載入（還沒有假的 window / document）：地圖畫面不碰瀏覽器，在 Node 裡直接載得進來
 import { mapViewFor, defineMapView } from '../client/map-views/index.js';
 
@@ -134,7 +134,7 @@ await test('render.js / game-view.js 不認得任何一張地圖：程式碼（�
     const imports = importsOf(src);
     const views = imports.filter(s => /map-views\//.test(s));
     assert(views.every(s => s === './map-views/index.js'), `${f} imports a map view directly: ${views}`);
-    assert(!imports.some(s => /shared\/(tree-boss|snake-boss|hive|cave|cyclops)\.js$|-view\.js$/.test(s)), `${f} imports map code: ${imports}`);
+    assert(!imports.some(s => /shared\/maps\/(tree-boss|snake-boss|hive|cave|cyclops)\.js$|-view\.js$/.test(s)), `${f} imports map code: ${imports}`);
     out[f] = views;
   }
   assert(out['client/game-view.js'].length === 1, 'game-view.js picks the map view through index.js');
@@ -145,7 +145,7 @@ await test('地圖畫面不碰 GameView 本身：不 import 音效 / 畫面模�
   const dir = 'client/map-views/';
   const files = fs.readdirSync(path.join(ROOT, dir)).filter(f => f.endsWith('.js'));
   assert(['index.js', 'plain.js', 'tree.js', 'snake.js', 'hive.js', 'cave.js', 'cyclops.js'].every(f => files.includes(f)), 'map-views/: ' + files);
-  const ALLOWED = /^(\.\.\/\.\.\/shared\/[\w-]+\.js|\.\.\/(draw|weapon-art)\.js|\.\/(plain|tree|snake|hive|cave|cyclops)\.js)$/;
+  const ALLOWED = /^(\.\.\/\.\.\/shared\/(?:[\w-]+\/)+[\w-]+\.js|\.\.\/(draw|weapon-art)\.js|\.\/(plain|tree|snake|hive|cave|cyclops)\.js)$/;
   const GAMEVIEW = /\bview\s*\.|\bsfx\b|\baudio\b|\bdocument\b|\bwindow\b|\.(particles|flashes|linkFlashes|floatTexts|treeFx|snakeFx|painter|banner|shake)\s*(=(?!=)|\.push\b|\[)/;
   for (const f of files) {
     const src = read(dir + f);
@@ -435,7 +435,7 @@ await test('古樹之口：把張開的嘴打閉上才飄「閉上了！」（�
   const mouth = m.byId('mouth');
   const floats = () => calls.filter(x => x[0] === 'float' && x[1][1] === '閉上了！').length;
   const step = () => { c.time += STEP; tv.update(c, STEP); };
-  // 打到嘴巴：事件的狀態（closed）先套上，再交給 showDamage（跟 shared/volley.js → GameView.showShotEvent 的順序一樣）
+  // 打到嘴巴：事件的狀態（closed）先套上，再交給 showDamage（跟 shared/physics/volley.js → GameView.showShotEvent 的順序一樣）
   const hit = () => {
     mouth.applyEventState({ ...mouth.toEventState(), closed: 2 });
     assert(tv.showDamage(c, mouth, { id: mouth.id, dmg: 0, closed: true }) === true, 'the tree view handles the closed hit');
@@ -561,7 +561,8 @@ await test('真的 GameView：同一串伺服器訊息，每一步 update 之間
   const real = Math.random;
   const out = {};
   try {
-    for (const [levelId, seed] of [['treeGarden', 1], ['jungleSerpent', 3]]) {
+    // seed：這一段（30 秒）裡古樹三招都出得到的（2026-10-08 敵人每回合都走動、代打的走法改了之後，seed 1 的嘴巴一直被打閉，沒召喚）
+    for (const [levelId, seed] of [['treeGarden', 2], ['jungleSerpent', 3]]) {
       // 裁判先把整段跑出來（全員 AI 代打），記下每一批廣播
       const { io, ref } = refereeRun(levelId, { seed });
       const batches = [io.log.splice(0)];

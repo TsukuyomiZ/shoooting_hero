@@ -1,7 +1,7 @@
-import { CONFIG } from '../shared/config.js';
-import { needsDiscard } from '../shared/cards.js';
-import { teammateEffect, appliesBurn } from '../shared/effects/index.js';
-import { stageType } from '../shared/stage-rules.js';
+import { CONFIG } from '../shared/core/config.js';
+import { needsDiscard } from '../shared/cards/cards.js';
+import { teammateEffect, appliesBurn } from '../shared/cards/effects/index.js';
+import { stageType } from '../shared/game/stage-rules.js';
 import { STAGE_LOOK } from './stage-look.js';
 
 // 過關選牌畫面（DOM）：三張牌選一張，顯示倒數與其他玩家是否已選。

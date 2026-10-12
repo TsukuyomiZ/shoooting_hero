@@ -1,5 +1,5 @@
-import { CONFIG } from '../shared/config.js';
-import { logWanted } from '../shared/utils.js';
+import { CONFIG } from '../shared/core/config.js';
+import { logWanted } from '../shared/core/utils.js';
 
 // 單人練習的紀錄（LOG）：裁判在瀏覽器裡跑，紀錄攢一批（每 2 秒）送回伺服器寫檔（POST /log），玩家看不到。
 // - 一次只送一批，回來了才送下一批；網路錯誤 / 429 / 5xx（例如伺服器正在重開）就放回最前面，晚點重送；

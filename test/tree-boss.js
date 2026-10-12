@@ -1,15 +1,15 @@
 // node test/tree-boss.js
 // Boss 關「古樹之庭」的規則測試：地形（不可破壞的樹皮、碰不到樹幹）、血量放大、回合順序、四種招式、
 // 召喚的優先權與上限、預定下一招（撞擊預告平面、召喚時保留、結算完才重新預定、快照同步、客戶端警示帶）、枯萎（通關）、燃燒、客戶端重播一致、重連重建樹妖、裁判流程、確定性
-import { CONFIG } from '../shared/config.js';
-import { Match } from '../shared/match.js';
-import { Referee } from '../shared/referee.js';
-import { Rng } from '../shared/rng.js';
-import { planShot, hasLineOfSight } from '../shared/ai.js';
-import { isEquippable } from '../shared/weapons.js';
+import { CONFIG } from '../shared/core/config.js';
+import { Match } from '../shared/game/match.js';
+import { Referee } from '../shared/game/referee.js';
+import { Rng } from '../shared/core/rng.js';
+import { planShot, hasLineOfSight } from '../shared/ai/ai.js';
+import { isEquippable } from '../shared/physics/weapons.js';
 import { replayChecked } from './replay-check.js';
-import { validateCards } from '../shared/cards.js';
-import { planeOf, planeCounts, chooseTreeAction, rollTreeAction, planTreeNext, resolveTreeTurn, spawnTreant, trunkLane } from '../shared/tree-boss.js';
+import { validateCards } from '../shared/cards/cards.js';
+import { planeOf, planeCounts, chooseTreeAction, rollTreeAction, planTreeNext, resolveTreeTurn, spawnTreant, trunkLane } from '../shared/maps/tree-boss.js';
 import { mapViewFor } from '../client/map-views/index.js';
 
 // 這裡的測試照武器原本傷害算敵人的攻擊；敵人傷害倍率（ENEMY.damageMult / damageMultLate）在 headless.js 另有專門測試
@@ -580,8 +580,14 @@ test('樹妖：用長矛（拋物線、不挖地、只打直接命中），瞄�
   const hit = shot.events[0];
   assert(hit.target === 'p1' && hit.damages.length === 1 && hit.damages[0].dmg === CONFIG.WEAPONS.treeSpear.damage, 'spear hits for 25: ' + JSON.stringify(hit).slice(0, 160));
   assert(m.terrain.holes.length === 0, 'spears do not dig');
+  // 樹妖每回合也走一段（2026-10-08 起所有敵人都走動）：走得慢（moveSpeed 30），一回合最多 AI_MOVE.maxFrames 幀；還站在地上、碰不到樹幹
+  const x0 = tr.x;
+  m.beginTurn(tr);
   const { walk } = m.planAiTurn(tr);
-  assert(walk === null, 'treants never walk (moveChance 0)');
+  m.settle(300);
+  assert(tr.ai.moveChance === 1 && walk && walk.frames <= CONFIG.AI_MOVE.maxFrames && Math.abs(tr.x - x0) >= 1, 'treants walk: ' + JSON.stringify(walk) + ' ' + x0 + ' → ' + tr.x);
+  assert(Math.abs(tr.x - x0) <= CONFIG.TREANT.moveSpeed * walk.frames / 60 + 1, `slow: ${Math.abs(tr.x - x0).toFixed(1)} px in ${walk.frames} frames`);
+  assert(tr.alive && tr.onGround && tr.waterFalls === 0 && tr.x <= m.terrain.maxX - tr.hw, 'still on the ground in front of the tree');
 
   // 四隻樹妖站成一排：最右邊那隻往左平射，長矛從同伴身上穿過去（不會誤傷自己人）
   const row = garden(1, { seed: 4 });

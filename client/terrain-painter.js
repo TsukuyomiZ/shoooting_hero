@@ -1,4 +1,4 @@
-import { HARD, PLATFORM, STALACTITE } from '../shared/terrain.js';
+import { HARD, PLATFORM, STALACTITE } from '../shared/physics/terrain.js';
 
 // 把地形遮罩畫成圖：草皮、土壤、坑洞焦黑邊、樹皮（古樹）、平台、鐘乳石。只在地形改變時重繪（爆炸時只重繪局部）。
 export class TerrainPainter {

@@ -1,4 +1,4 @@
-import { CONFIG } from '../shared/config.js';
+import { CONFIG } from '../shared/core/config.js';
 import { audio } from './audio.js';
 import { sfx } from './sfx.js';
 

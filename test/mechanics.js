@@ -1,5 +1,5 @@
 // node test/mechanics.js
-// 地圖機制（shared/mechanics/）：每張地圖拿到對的機制、一般小關是 plain；不認得的 type / 舊格式（tree / snake / hive 直接掛在關卡上）會丟錯；
+// 地圖機制（shared/maps/mechanics/）：每張地圖拿到對的機制、一般小關是 plain；不認得的 type / 舊格式（tree / snake / hive 直接掛在關卡上）會丟錯；
 // plain 的掛勾什麼都不做；Match 呼叫掛勾的時間點與順序（掛勾的約定）；
 // 機制的狀態只有一份（match.mechState，機制的 build 建的；場上的道具 = 巨蟒的狀態）；
 // 架構檢查：match.js 不認得任何一張地圖（不 import tree-boss / snake-boss / hive、程式碼裡不提它們）、volley.js 不 import hive / snake-boss、
@@ -8,14 +8,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CONFIG } from '../shared/config.js';
-import { LEVELS } from '../shared/level.js';
-import { Match } from '../shared/match.js';
-import { planShot } from '../shared/ai.js';
-import { mechanicFor, snapshotOf } from '../shared/mechanics/index.js';
-import * as TreeBoss from '../shared/tree-boss.js';
-import * as SnakeBoss from '../shared/snake-boss.js';
-import * as Hive from '../shared/hive.js';
+import { CONFIG } from '../shared/core/config.js';
+import { LEVELS } from '../shared/maps/level.js';
+import { Match } from '../shared/game/match.js';
+import { planShot } from '../shared/ai/ai.js';
+import { mechanicFor, snapshotOf } from '../shared/maps/mechanics/index.js';
+import * as TreeBoss from '../shared/maps/tree-boss.js';
+import * as SnakeBoss from '../shared/maps/snake-boss.js';
+import * as Hive from '../shared/maps/hive.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const results = [];
@@ -32,7 +32,7 @@ function test(name, fn) {
 const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
 const J = JSON.stringify;
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
-const HOOKS = ['build', 'ready', 'cascade', 'moved', 'turnStart', 'turnEnd', 'struck', 'passed', 'absorbHit', 'eventExtras', 'replayEvent', 'aiTurn', 'snapshot', 'restore'];
+const HOOKS = ['build', 'ready', 'cascade', 'moved', 'turnStart', 'turnEnd', 'roundStart', 'attackMult', 'struck', 'passed', 'absorbHit', 'eventExtras', 'replayEvent', 'aiTurn', 'snapshot', 'restore'];
 const WANT = { treeGarden: 'tree', jungleSerpent: 'snake', beehive: 'hive', cave: 'cave', depths: 'cyclops' };
 // 每個機制的狀態（match.mechState）的欄位：跟搬進來之前的 match.tree / snake / hive 一樣，巨蟒多了場上的蛇血（items，原本的 match.items）
 const STATE_KEYS = {
@@ -391,7 +391,7 @@ test('客戶端用到的匯出都還在（client/ 沒改）', () => {
   const importers = new Set();
   for (const f of fs.readdirSync(path.join(ROOT, 'client'), { recursive: true }).filter(f => f.endsWith('.js'))) {
     const src = fs.readFileSync(path.join(ROOT, 'client', f), 'utf8');
-    for (const [, names, file] of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*'(?:\.\.\/)+shared\/(tree-boss|snake-boss|hive)\.js'/g)) {
+    for (const [, names, file] of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*'(?:\.\.\/)+shared\/maps\/(tree-boss|snake-boss|hive)\.js'/g)) {
       const mod = { 'tree-boss': TreeBoss, 'snake-boss': SnakeBoss, hive: Hive }[file];
       importers.add(`${f.replace(/\\/g, '/')}→${file}`);
       for (const n of names.split(',').map(s => s.trim()).filter(Boolean)) assert(mod[n] !== undefined, `client/${f} imports ${n} from ${file}.js, which is gone`);
@@ -410,10 +410,10 @@ const importsOf = (src) => [...src.matchAll(/^\s*import\b[^;]*?from\s*'([^']+)'/
 const codeOf = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
 test('match.js 不認得任何一張地圖：不 import tree-boss / snake-boss / hive，程式碼裡也不提它們（沒有例外：狀態在 match.mechState）', () => {
-  const src = read('shared/match.js');
+  const src = read('shared/game/match.js');
   const imports = importsOf(src);
-  for (const f of ['./tree-boss.js', './snake-boss.js', './hive.js']) assert(!imports.includes(f), `match.js imports ${f}`);
-  assert(imports.includes('./mechanics/index.js'), 'match.js goes through mechanics/index.js: ' + imports);
+  for (const f of ['../maps/tree-boss.js', '../maps/snake-boss.js', '../maps/hive.js']) assert(!imports.includes(f), `match.js imports ${f}`);
+  assert(imports.includes('../maps/mechanics/index.js'), 'match.js goes through mechanics/index.js: ' + imports);
   const bad = codeOf(src).split('\n').map((l, i) => [i + 1, l])
     .filter(([, l]) => /tree|snake|hive|treant|mouth|\beye\b|\bbees?\b|\.part\b|cave|torch/i.test(l));
   assert(!bad.length, 'match.js mentions a map:\n' + bad.map(([n, l]) => `        ${n}: ${l.trim()}`).join('\n'));
@@ -433,11 +433,11 @@ test('通用的檔案不直接碰機制的狀態與場上的道具：match / ref
   assert(sneaky.every(s => MECH.test(s)) && sneaky.every(s => !MATCH_OK.some(re => re.test(s))), 'the mechState scan misses: ' + sneaky.filter(s => !MECH.test(s) || MATCH_OK.some(re => re.test(s))));
   assert(!['this.mechanic.restore(this.match, { items });', 'mechanicFor(level)', 'this.mechanic'].some(s => MECH.test(s)), 'the mechState scan flags ordinary code');
   const out = {};
-  for (const f of ['shared/match.js', 'shared/referee.js', 'shared/volley.js', 'shared/run.js', 'shared/ai.js', 'client/game-view.js', 'client/render.js']) {
+  for (const f of ['shared/game/match.js', 'shared/game/referee.js', 'shared/physics/volley.js', 'shared/game/run.js', 'shared/ai/ai.js', 'client/game-view.js', 'client/render.js']) {
     const lines = codeOf(read(f)).split('\n').map((l, i) => [i + 1, l]);
     const bad = lines.filter(([, l]) => ACCESS.test(l));
     assert(!bad.length, `${f} touches mechanic state / items directly:\n` + bad.map(([n, l]) => `        ${n}: ${l.trim()}`).join('\n'));
-    const allowed = f === 'shared/match.js' ? MATCH_OK : [];
+    const allowed = f === 'shared/game/match.js' ? MATCH_OK : [];
     const mech = lines.filter(([, l]) => MECH.test(l));
     const stray = mech.filter(([, l]) => !allowed.some(re => re.test(l)));
     assert(!stray.length, `${f} reads / writes match.mechState:\n` + stray.map(([n, l]) => `        ${n}: ${l.trim()}`).join('\n'));
@@ -449,9 +449,9 @@ test('通用的檔案不直接碰機制的狀態與場上的道具：match / ref
 });
 
 test('volley.js 不 import hive / snake-boss（重播透過 match.mechanic）；mechanics/ 不 import match.js / volley.js（沒有循環）', () => {
-  const imports = importsOf(read('shared/volley.js'));
-  for (const f of ['./hive.js', './snake-boss.js', './tree-boss.js']) assert(!imports.includes(f), `volley.js imports ${f}`);
-  const dir = path.join(ROOT, 'shared', 'mechanics');
+  const imports = importsOf(read('shared/physics/volley.js'));
+  for (const f of ['../maps/hive.js', '../maps/snake-boss.js', '../maps/tree-boss.js']) assert(!imports.includes(f), `volley.js imports ${f}`);
+  const dir = path.join(ROOT, 'shared', 'maps', 'mechanics');
   const files = fs.readdirSync(dir).filter(f => f.endsWith('.js'));
   for (const f of files) {
     const imp = importsOf(fs.readFileSync(path.join(dir, f), 'utf8'));
@@ -459,7 +459,7 @@ test('volley.js 不 import hive / snake-boss（重播透過 match.mechanic）；
   }
   // 規則模組只往下 import 共用的小工具
   for (const f of ['tree-boss.js', 'snake-boss.js', 'hive.js']) {
-    const imp = importsOf(read('shared/' + f));
+    const imp = importsOf(read('shared/maps/' + f));
     assert(!imp.some(s => /match\.js$|volley\.js$|mechanics\/(index|tree|snake|hive|plain)\.js$/.test(s)), `${f} imports ${imp}`);
   }
   return { volley: imports, mechanics: files };

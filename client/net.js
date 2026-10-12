@@ -1,8 +1,9 @@
-import { Run } from '../shared/run.js';
-import { validateCards } from '../shared/cards.js';
+import { Run } from '../shared/game/run.js';
+import { validateCards } from '../shared/cards/cards.js';
 import { SoloLog } from './solo-log.js';
-import { VERSION, versionLabel } from '../shared/version.js';
-import { logValue } from '../shared/utils.js';
+import { VERSION, versionLabel } from '../shared/core/version.js';
+import { logValue } from '../shared/core/utils.js';
+import { CHAT_MAX, cleanChat } from '../shared/social/chat.js';
 
 // 兩種傳輸層，介面一樣：send(msg)、onMessage(cb)
 // - WsTransport：連到 Node 伺服器（多人）
@@ -102,12 +103,12 @@ export class LocalTransport {
   async start(name) {
     let cards = [];
     try {
-      const res = await fetch('shared/cards.json', { cache: 'no-cache' });
+      const res = await fetch('shared/cards/cards.json', { cache: 'no-cache' });
       const { cards: ok, warnings } = validateCards(await res.json());
       for (const w of warnings) console.warn('[cards]', w);
       cards = ok;
     } catch (err) {
-      console.error('讀不到牌庫 shared/cards.json', err);
+      console.error('讀不到牌庫 shared/cards/cards.json', err);
     }
     const players = [{ id: 'me', name }];
     const seed = (Math.random() * 0xffffffff) >>> 0;
@@ -142,6 +143,12 @@ export class LocalTransport {
   dispatch(msg) {
     if (msg.t === 'sticker') {   // 貼圖在畫面上已經先播了，單人沒有別人要轉
       this.record('sticker', { pid: 'me', sticker: logValue(msg.id) });
+      return;
+    }
+    if (msg.t === 'chat') {      // 聊天也一樣：自己畫面上已經先播了，只記下來
+      const text = cleanChat(msg.text);
+      if (text) this.record('chat', { pid: 'me', text });
+      else this.record('chat.drop', { pid: 'me', text: logValue(msg.text, CHAT_MAX), reason: 'empty' });
       return;
     }
     if (this.run) this.run.handle('me', JSON.parse(JSON.stringify(msg)));

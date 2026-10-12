@@ -1,6 +1,6 @@
-import { VERSION, CHANGELOG, CHANGE_TYPES, versionLabel } from '../shared/version.js';
+import { VERSION, CHANGELOG, CHANGE_TYPES, versionLabel } from '../shared/core/version.js';
 
-// 大廳下方的版本號與版本履歷（DOM）：直接條列每一版改了什麼，按「收合」把整塊收起來。內容在 shared/version.js。
+// 大廳下方的版本號與版本履歷（DOM）：直接條列每一版改了什麼，按「收合」把整塊收起來。內容在 shared/core/version.js。
 // 每個版本也能各自點開 / 收起（最新的預設展開）。記在 localStorage（per 瀏覽器）：
 // - sh_changelog_collapsed = 收合時的版本：出了新版本會自動再展開
 // - sh_seen_version = 看過的版本：沒看過的新版本標 NEW（看到這一次後就不再標）

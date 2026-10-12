@@ -2,15 +2,15 @@
 // 2026-10-01 新增的牌：醫療包、腎上腺素、蹦蹦炸彈、口徑強化、孤狼傳說、團結力量大、攜手之伴，以及等離子飛彈改成每發 30。
 // 血量一律自己設（不受 config 影響），數值照 cards.json / config 現在的設定算
 import fs from 'node:fs';
-import { CONFIG } from '../shared/config.js';
-import { Match } from '../shared/match.js';
-import { Run } from '../shared/run.js';
-import { Rng } from '../shared/rng.js';
-import { planShot } from '../shared/ai.js';
+import { CONFIG } from '../shared/core/config.js';
+import { Match } from '../shared/game/match.js';
+import { Run } from '../shared/game/run.js';
+import { Rng } from '../shared/core/rng.js';
+import { planShot } from '../shared/ai/ai.js';
 import { replayChecked } from './replay-check.js';
-import { validateCards, drawOffers, baseStats, derivePlayerStats } from '../shared/cards.js';
-import { makeProjectile, simulateShot, shotTraits, aimPreview } from '../shared/weapons.js';
-import { effectChips } from '../shared/effects/index.js';
+import { validateCards, drawOffers, baseStats, derivePlayerStats } from '../shared/cards/cards.js';
+import { makeProjectile, simulateShot, shotTraits, aimPreview } from '../shared/physics/weapons.js';
+import { effectChips } from '../shared/cards/effects/index.js';
 
 // 這裡的測試照武器原本傷害算敵人的攻擊；敵人傷害倍率（ENEMY.damageMult / damageMultLate）在 headless.js 另有專門測試
 CONFIG.ENEMY.damageMult = 1;
@@ -58,7 +58,7 @@ function advanceUntil(io, pred, maxMs = 300_000) {
   return false;
 }
 
-const CARDS = validateCards(JSON.parse(fs.readFileSync(new URL('../shared/cards.json', import.meta.url), 'utf8')));
+const CARDS = validateCards(JSON.parse(fs.readFileSync(new URL('../shared/cards/cards.json', import.meta.url), 'utf8')));
 const cardById = (id) => CARDS.cards.find(c => c.id === id);
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
 const P = CONFIG.PLAYER.hp;

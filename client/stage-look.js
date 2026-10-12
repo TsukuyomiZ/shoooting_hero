@@ -1,4 +1,4 @@
-// 關卡種類（shared/stage-rules.js 的 stageType：'normal' | 'elite' | 'boss'）在畫面上的名字與顏色：
+// 關卡種類（shared/game/stage-rules.js 的 stageType：'normal' | 'elite' | 'boss'）在畫面上的名字與顏色：
 // 開場橫幅、左上的關卡標籤、選牌畫面、結算畫面都照這個。伺服器的訊息帶 type（舊的只帶 isBoss 也認得）
 export const STAGE_LOOK = {
   normal: { name: null, banner: '#fde047', hud: '#fff' },

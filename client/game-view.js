@@ -1,8 +1,9 @@
-import { CONFIG } from '../shared/config.js';
-import { Match } from '../shared/match.js';
-import { replayVolley } from '../shared/volley.js';
-import { stateOf, shotFloats, killFloats, turnFxOps, volleyLook } from '../shared/effects/index.js';
-import { clamp, lerpAngle } from '../shared/utils.js';
+import { CONFIG } from '../shared/core/config.js';
+import { Match } from '../shared/game/match.js';
+import { replayVolley } from '../shared/physics/volley.js';
+import { glideAt } from '../shared/ai/ai-move.js';
+import { stateOf, shotFloats, killFloats, turnFxOps, volleyLook } from '../shared/cards/effects/index.js';
+import { clamp, lerpAngle } from '../shared/core/utils.js';
 import { Renderer } from './render.js';
 import { TerrainPainter } from './terrain-painter.js';
 import { mapViewFor } from './map-views/index.js';
@@ -457,6 +458,7 @@ export class GameView {
     if (msg.entities) this.match.applyEntities(msg.entities);
     for (const s of splashes) this.onSplash(this.match.byId(s.id), s);
     if (msg.boss) {   // 由地圖機制出招（例如古樹、巨蟒、小心擊發的蜜蜂）：動畫由地圖畫面播
+      if (msg.glide && actor.alive) yield* this.glideScript(actor, msg.glide);   // 獨眼巨人：先沿著岩柱走一段再出招
       yield* this.mapView.turnScript(this.mapCtx, msg);
       return;
     }
@@ -465,11 +467,8 @@ export class GameView {
     v.slowMo = false;   // 開著慢動作時斷線、AI 代打：光環清掉
     this.setShotLock(null, null);   // 射過飛鏢的回合被代打：AI 射一支就結束，不會再回到他手上
     yield { frames: CONFIG.TIMING.aiThink * FPS };
-    if (msg.walk && actor.alive) {
-      actor.moveDir = msg.walk.dir;
-      yield { frames: msg.walk.frames };
-      actor.moveDir = 0;
-    }
+    if (msg.walk && actor.alive) yield* this.walkScript(actor, msg.walk, msg.pickups || []);
+    if (msg.glide && actor.alive) yield* this.glideScript(actor, msg.glide);   // 蝙蝠：在空中直線飄一段
     if (msg.shot) {
       actor.aiming = true;
       actor.facing = msg.shot.facing;
@@ -482,7 +481,35 @@ export class GameView {
     }
   }
 
-  // 重播一發（或一波轟炸）：shared/volley.js 照伺服器的事件逐幀重播（跟伺服器同一個幀迴圈）。
+  // AI 走路（伺服器在 Match.simulateWalk 算好）：按著方向走 w.frames 幀，再放開方向鍵落 w.fall 幀（走完還在半空中時落到站穩），
+  // 每一幀的物理跟伺服器一樣，走到的地方一模一樣、瞄準前已經站在地上。
+  // pickups = 斷線代打的玩家路上撿到的道具（點燃火把、喝到蛇血；跟 pickup 訊息同樣的欄位）：播到伺服器撿到的那一幀（f）才套上
+  *walkScript(e, w, pickups) {
+    const total = w.frames + (w.fall || 0);
+    let k = 0;
+    e.moveDir = w.dir;
+    for (let f = 1; f <= total; f++) {
+      if (f > w.frames) e.moveDir = 0;
+      yield { frames: 1 };
+      while (k < pickups.length && pickups[k].f <= f) this.onPickup(pickups[k++]);
+    }
+    e.moveDir = 0;
+    while (k < pickups.length) this.onPickup(pickups[k++]);
+  }
+
+  // 飄移（沒有物理的角色：蝙蝠、獨眼巨人；伺服器在 shared/ai/ai-move.js 算好）：照 glideAt 逐幀內插，最後一幀剛好停在伺服器放的地方
+  *glideScript(e, g) {
+    const x0 = e.x, y0 = e.y;
+    if (g.dx) e.facing = Math.sign(g.dx);
+    for (let i = 1; i <= g.frames; i++) {
+      yield { frames: 1 };
+      const p = glideAt(x0, y0, g, i);
+      e.x = p.x;
+      e.y = p.y;
+    }
+  }
+
+  // 重播一發（或一波轟炸）：shared/physics/volley.js 照伺服器的事件逐幀重播（跟伺服器同一個幀迴圈）。
   // 每一幀的角色物理在 update 原本的位置由 tick.step() 跑（見 update），飛行物與事件在下面的 tickScript 裡；
   // 這裡只管畫面（出發、事件的特效 / 飄字）與最後的校正。extra.frame = 每個飛行幀結束時呼叫（蜜蜂的衝刺用）
   *shotScript(shot, extra = {}) {
@@ -551,7 +578,7 @@ export class GameView {
     this.shake = Math.max(this.shake, weapon.id === 'darts' ? 1 : weapon.recoil ? 6 : weapon.gravity > 0 ? 5 : 2);
   }
 
-  // 一個飛行事件的畫面（狀態已經由 shared/volley.js 套好：飛行物、挖坑、角色的事件狀態、地圖機制建的道具 / 角色）：
+  // 一個飛行事件的畫面（狀態已經由 shared/physics/volley.js 套好：飛行物、挖坑、角色的事件狀態、地圖機制建的道具 / 角色）：
   // 特效、重畫挖掉的地形（made.rect）、地圖畫面的演出（例如蛇血 / 蜜蜂飛出來：made.items / made.bees）、傷害飄字
   showShotEvent(shot, weapon, ev, made) {
     switch (ev.type) {
@@ -674,7 +701,7 @@ export class GameView {
     yield { frames: Math.round(CONFIG.TIMING.fxDelay * FPS * 0.6) };
   }
 
-  // 效果給的畫面動作（見 shared/effects/index.js 的 turnFx）：照順序做；橫幅收進 banners（跟同一次的其他橫幅合成一行），
+  // 效果給的畫面動作（見 shared/cards/effects/index.js 的 turnFx）：照順序做；橫幅收進 banners（跟同一次的其他橫幅合成一行），
   // 飄字與粒子在那個角色身上（角色不在了就跳過）
   playEffectOps(ops, banners) {
     for (const op of ops) {
@@ -913,7 +940,7 @@ export class GameView {
 
     const w = this.wait;
     if (w && w.step) {
-      // 重播一波的幀（shared/volley.js 的 tick）：這一幀的角色物理就是 tick.step() = match.step 剛好一次（不能再自己跑一次）；
+      // 重播一波的幀（shared/physics/volley.js 的 tick）：這一幀的角色物理就是 tick.step() = match.step 剛好一次（不能再自己跑一次）；
       // 飛行物與事件在下面的 tickScript 裡
       const pre = this.match.entities.map(e => [e, e.x, e.y, e.wantJump]);
       w.step();

@@ -4,12 +4,12 @@
 //   被擋下的開火不會移動他）、兩支之間照樣能移動（體力不回滿）、第三支結束回合、分出勝負 / 他倒下就不再繼續、超時、
 //   飛行途中 / 接著的回合裡斷線 → AI 代打只能用飛鏢、重連的完整狀態帶鎖定、下一個回合（含時間扭曲的額外回合）鎖定清掉
 // - 真的 client/game-view.js（在 Node 裡載入）：shot 後面緊接著 resume → 重播完才能動、截止時間從收到 resume 算、只能用飛鏢、下一個 turn 清掉鎖定
-import { CONFIG } from '../shared/config.js';
-import { Match } from '../shared/match.js';
-import { Referee } from '../shared/referee.js';
-import { baseStats, derivePlayerStats } from '../shared/cards.js';
-import { planShot } from '../shared/ai.js';
-import { Rng } from '../shared/rng.js';
+import { CONFIG } from '../shared/core/config.js';
+import { Match } from '../shared/game/match.js';
+import { Referee } from '../shared/game/referee.js';
+import { baseStats, derivePlayerStats } from '../shared/cards/cards.js';
+import { planShot } from '../shared/ai/ai.js';
+import { Rng } from '../shared/core/rng.js';
 
 // 客戶端模組一載入就碰 window / document / localStorage（音效）；GameView 建構時要 canvas：給最小的假物件（同 volley.js）
 const fakeCtx = () => new Proxy({
@@ -445,6 +445,7 @@ test('真的 GameView：射完三支飛鏢後，時間扭曲額外回合開始�
   assert(advanceUntil(io, () => ref.phase === 'turn' && ref.currentId === 'p1', 20_000), 'p1 turn (after his bombard)');
   feedAll();
   const p1 = m.byId('p1');
+  p1.bombardCd = 0;   // 無差別轟炸有冷卻（10-08）：直接當作冷卻好了，額外回合開始時才會再轟炸一次（這個測試要的情境）
   for (let k = 0; k < 3; k++) {
     ref.handle('p1', { t: 'fire', weapon: 'darts', angle: 0, power: 50, x: p1.x, y: p1.y, facing: 1, stamina: p1.stamina });
     assert(advanceUntil(io, () => ref.phase === 'turn', 20_000), `back to a turn after dart ${k + 1}`);

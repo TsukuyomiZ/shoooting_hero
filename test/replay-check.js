@@ -1,4 +1,4 @@
-// 測試共用：照客戶端的方式重播一波（shared/volley.js 的 replayVolley，跟 GameView 播的是同一份程式），停在套伺服器 results 之前。
+// 測試共用：照客戶端的方式重播一波（shared/physics/volley.js 的 replayVolley，跟 GameView 播的是同一份程式），停在套伺服器 results 之前。
 // 每個事件順便檢查「客戶端自己推進到的位置」（made.before）跟伺服器的撞擊點對得上：
 //   飛行中的事件：離撞擊點不超過一幀的飛行距離 + 2px（出發點錯了就會差很多）
 //   迴力鏢接住（catch）：位置完全一樣（回程沿原路 + 追到手上，兩邊算的路徑一致）
@@ -8,8 +8,8 @@
 //       比「離現在的位置一步以內」更嚴：回程速度、原路的點、追手的方向哪一個兩邊算得不一樣，點就不會剛好在線段上
 //     其他（地圖機制的 pass、超時的 out）：伺服器寫的是這一幀結束的位置，重播會校正到那裡：位置要完全一樣（不然校正會把迴力鏢拉離原路）
 // drift（結構上對不起來：跳過的事件、不認得的角色…）不是空的、或沉降不是剛好 S 幀（settle）就丟錯
-import { CONFIG } from '../shared/config.js';
-import { replayVolley } from '../shared/volley.js';
+import { CONFIG } from '../shared/core/config.js';
+import { replayVolley } from '../shared/physics/volley.js';
 
 const SEG_EPS = 1e-6;   // 線段上的點：伺服器用 x0 + dx × k / n 算，只差浮點數的捨入
 

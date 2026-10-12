@@ -2,12 +2,12 @@
 // 2026-10-02 新增的牌：嗨到最高點、全知之眼、磨刀霍霍、越戰越強。
 // 血量一律自己設（不受 config 影響），數值照 cards.json / config 現在的設定算
 import fs from 'node:fs';
-import { CONFIG } from '../shared/config.js';
-import { Match } from '../shared/match.js';
-import { Entity } from '../shared/entities.js';
-import { levelsInPool } from '../shared/level.js';
-import { validateCards, baseStats, derivePlayerStats } from '../shared/cards.js';
-import { simulateShot, aimPreview } from '../shared/weapons.js';
+import { CONFIG } from '../shared/core/config.js';
+import { Match } from '../shared/game/match.js';
+import { Entity } from '../shared/physics/entities.js';
+import { levelsInPool } from '../shared/maps/level.js';
+import { validateCards, baseStats, derivePlayerStats } from '../shared/cards/cards.js';
+import { simulateShot, aimPreview } from '../shared/physics/weapons.js';
 
 const results = [];
 function test(name, fn) {
@@ -22,12 +22,12 @@ function test(name, fn) {
 }
 const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
 
-const CARDS = validateCards(JSON.parse(fs.readFileSync(new URL('../shared/cards.json', import.meta.url), 'utf8')));
+const CARDS = validateCards(JSON.parse(fs.readFileSync(new URL('../shared/cards/cards.json', import.meta.url), 'utf8')));
 const cardById = (id) => CARDS.cards.find(c => c.id === id);
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
 const W = CONFIG.WEAPONS;
 const NEW = ['fever_high', 'all_seeing_eye', 'whetstone', 'battle_hardened'];
-// 狂熱的測試設定（關卡規則讀的，見 shared/stage-rules.js）：每輪疊一層、每層 +50%，不受使用者調 config 影響。
+// 狂熱的測試設定（關卡規則讀的，見 shared/game/stage-rules.js）：每輪疊一層、每層 +50%，不受使用者調 config 影響。
 // match.fever 由輪數推出：第 n 層 = 第 n + 1 輪
 const FEVER_CFG = { ...CONFIG, FEVER: { everyRounds: 1, damagePct: 50, inBoss: false } };
 const setFever = (m, n) => { m.round = n + 1; };

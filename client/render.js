@@ -1,8 +1,8 @@
-import { CONFIG } from '../shared/config.js';
-import { displayAngle, clamp } from '../shared/utils.js';
-import { aimPreview } from '../shared/weapons.js';
-import { effectChips, STATUS_CHIP_ORDER } from '../shared/effects/index.js';
-import { VINE_HAND } from '../shared/entities.js';
+import { CONFIG } from '../shared/core/config.js';
+import { displayAngle, clamp } from '../shared/core/utils.js';
+import { aimPreview } from '../shared/physics/weapons.js';
+import { effectChips, STATUS_CHIP_ORDER } from '../shared/cards/effects/index.js';
+import { VINE_HAND } from '../shared/physics/entities.js';
 import { roundRect, text, drawBar, drawHpBar, FONT } from './draw.js';
 import { buildDecor } from './decor.js';
 import { BACKGROUNDS } from './backgrounds.js';
@@ -458,7 +458,7 @@ export class Renderer {
     const world = view.match.world;
 
     if (me.aiming) {
-      // 預覽照牌的特性算（哈哈子彈 / 蹦蹦炸彈的彈射、高倍率望遠鏡的穿透），見 shared/weapons.js aimPreview
+      // 預覽照牌的特性算（哈哈子彈 / 蹦蹦炸彈的彈射、高倍率望遠鏡的穿透），見 shared/physics/weapons.js aimPreview
       const pre = aimPreview(world, me, weapon, me.aimAngle, me.aimPower);
       if (pre.kind === 'arc' && pre.full) {
         // 全知之眼：整條拋物線（小點）＋落點準星
@@ -692,7 +692,7 @@ export class Renderer {
       subColor = actor.team === 'players' ? '#86efac' : '#fca5a5';
     }
     text(ctx, sub, 24, 64, { size: 15, color: subColor });
-    const fever = match.fever;   // 狂熱：每過 N 輪，全體傷害再 +N%（Boss 關沒有；見 shared/stage-rules.js）
+    const fever = match.fever;   // 狂熱：每過 N 輪，全體傷害再 +N%（Boss 關沒有；見 shared/game/stage-rules.js）
     if (fever > 0) {
       const label = `狂熱　全體傷害 +${fever * match.rules.feverPct}%`;
       ctx.save();
@@ -792,7 +792,7 @@ export class Renderer {
     hints.forEach((h, i) => text(ctx, h, W - 20, py + (hints.length > 3 ? 22 : 28) + i * gap, { size: 11, align: 'right', color: '#ccc' }));
   }
 
-  // 底部狀態列上方：自己身上正在生效的效果與狀態。效果的那幾格（文字、顏色、位置）由各效果給（shared/effects/ 的 chip），
+  // 底部狀態列上方：自己身上正在生效的效果與狀態。效果的那幾格（文字、顏色、位置）由各效果給（shared/cards/effects/ 的 chip），
   // 這裡只畫；狀態（無敵、燃燒、中毒、生命鎖）排在 STATUS_CHIP_ORDER 的位置
   drawBuffs(me, x, y) {
     const ctx = this.ctx;

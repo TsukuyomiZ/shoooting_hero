@@ -1,10 +1,10 @@
 // node test/version.js
-// 版本號設定與版本履歷（shared/version.js）：版本號格式、版本履歷最上面一筆 = 目前版本、新的在上面且不重複、
+// 版本號設定與版本履歷（shared/core/version.js）：版本號格式、版本履歷最上面一筆 = 目前版本、新的在上面且不重複、
 // 日期合法且不倒退、每筆都有內容；package.json 的 version 對得上；大廳需要的 DOM（index.html）都在
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { VERSION, CHANGELOG, CHANGE_TYPES, versionLabel, semverOf } from '../shared/version.js';
+import { VERSION, CHANGELOG, CHANGE_TYPES, versionLabel, semverOf } from '../shared/core/version.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const results = [];

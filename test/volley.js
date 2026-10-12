@@ -1,13 +1,13 @@
 // node test/volley.js
-// shared/volley.js（一波的重播 / 結算）的合約：出發那一幀就撞到的事件（貼臉開火）、負向測試（reach 檢查真的會抓到錯）、
+// shared/physics/volley.js（一波的重播 / 結算）的合約：出發那一幀就撞到的事件（貼臉開火）、負向測試（reach 檢查真的會抓到錯）、
 // 沉降剛好 S 幀（不符記在 settle）、drift（不認得的角色 / 跳過的事件 / 輪不到的事件）、F+S = 0、格式壞掉當場丟 TypeError、不改 shot、tick 只步進一次，
 // 以及真的 client/game-view.js（在 Node 裡載入）播一發 / AI 一發：每個 update 剛好一次 match.step、總共 F+S+24 個 update；
 // 高壓水炮的後座力在 GameView 裡也照伺服器推射手（每一幀一樣）
-import { CONFIG } from '../shared/config.js';
-import { Match } from '../shared/match.js';
-import { Referee } from '../shared/referee.js';
-import { baseStats, derivePlayerStats } from '../shared/cards.js';
-import { replayVolley } from '../shared/volley.js';
+import { CONFIG } from '../shared/core/config.js';
+import { Match } from '../shared/game/match.js';
+import { Referee } from '../shared/game/referee.js';
+import { baseStats, derivePlayerStats } from '../shared/cards/cards.js';
+import { replayVolley } from '../shared/physics/volley.js';
 import { replayChecked, reachAndCatch } from './replay-check.js';
 
 // 客戶端模組一載入就碰 window / document / localStorage（音效）；GameView 建構時要 canvas：給最小的假物件（同 new-maps.js）
@@ -331,7 +331,7 @@ test('真的 GameView（client/game-view.js 在 Node 載入）：玩家開一槍
   view.onMessage(ai);
   const log2 = drive(view);
   const F2 = ai.shot.flightFrames, S2 = ai.shot.settleFrames;
-  const pre = Math.round(CONFIG.TIMING.aiThink * 60) + (ai.walk ? ai.walk.frames : 0) + Math.round(CONFIG.TIMING.aiAim * 60);
+  const pre = Math.round(CONFIG.TIMING.aiThink * 60) + (ai.walk ? ai.walk.frames + (ai.walk.fall || 0) : 0) + Math.round(CONFIG.TIMING.aiAim * 60);
   const t2 = log2.filter(u => u.tick);
   assert(t2.length === F2 + S2 && t2.every(u => u.steps === 1) && log2.filter(u => !u.tick).every(u => u.steps === 0), `aiTurn: ${t2.length} tick updates vs F+S ${F2 + S2}`);
   assert(log2.length === pre + F2 + S2 + 24, `aiTurn: ${log2.length} updates, expected ${pre} + ${F2 + S2} + 24`);

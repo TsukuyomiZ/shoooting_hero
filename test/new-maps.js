@@ -1,19 +1,19 @@
 // node test/new-maps.js
 // 2026-10-05 的三張小地圖：腹背受敵（中間石柱 + 左右砲兵）、大亂鬥（平地 + 右邊三個隨機種類的敵人）、
 // 小心擊發（大樹的樹枝上兩個狙擊手 + 樹枝最左邊的蜂巢 / 蜜蜂）。
-// 地圖池與站位、砲兵（只用大砲、不走動、打得到石柱）、隨機種類（同 seed 一樣、名字照種類）、狙擊手不隔著自己人開槍、
+// 地圖池與站位、砲兵（只用大砲、每回合在台地上走一段、打得到石柱）、隨機種類（同 seed 一樣、名字照種類）、狙擊手不隔著自己人開槍、
 // 蜂巢（不管怎麼打都 -1、每次一隻蜜蜂、敵人打不到、最多 HIVE.hp 隻、不算擊殺）、狙擊手全倒就過關、
 // 蜜蜂（待機一回合 → 螫最近的玩家：傷害 + 中毒、螫完就死；diesOnSting 關掉時每回合螫、停在旁邊）、快照重建、客戶端重播一致、裁判流程與紀錄
-import { CONFIG } from '../shared/config.js';
-import { LEVELS, levelsInPool } from '../shared/level.js';
-import { Match } from '../shared/match.js';
-import { Referee } from '../shared/referee.js';
-import { planShot, hasLineOfSight, lineBlocker } from '../shared/ai.js';
+import { CONFIG } from '../shared/core/config.js';
+import { LEVELS, levelsInPool } from '../shared/maps/level.js';
+import { Match } from '../shared/game/match.js';
+import { Referee } from '../shared/game/referee.js';
+import { planShot, hasLineOfSight, lineBlocker } from '../shared/ai/ai.js';
 import { replayChecked } from './replay-check.js';
-import { replayVolley } from '../shared/volley.js';
-import { spawnBee, hatchBees } from '../shared/hive.js';
-import { Rng } from '../shared/rng.js';
-import { PLATFORM, SOIL } from '../shared/terrain.js';
+import { replayVolley } from '../shared/physics/volley.js';
+import { spawnBee, hatchBees } from '../shared/maps/hive.js';
+import { Rng } from '../shared/core/rng.js';
+import { PLATFORM, SOIL } from '../shared/physics/terrain.js';
 // 客戶端的地圖畫面不碰瀏覽器（音效走特效出口），不用假的 window / document 就能載入
 import { mapViewFor } from '../client/map-views/index.js';
 
@@ -60,9 +60,9 @@ function withConfig(patch, fn) {
   try { return fn(); } finally { for (const [k, v] of Object.entries(saved)) Object.assign(CONFIG[k], v); }
 }
 const BASE = {
-  ENEMY: { hp: 45, damageMult: 0.7, lateFromStage: 6, damageMultLate: 1, aimError: { angle: 5, power: 10 }, moveChance: 0.6 },
-  SNIPER: { hp: 30, sniperSpread: 3, moveChance: 0, weapons: ['sniper'] },
-  ARTILLERY: { hp: 45, aimError: { angle: 5, power: 10 }, moveChance: 0, sniperChance: 0, weapons: ['cannon'], mods: { knockbackPct: -50 } },
+  ENEMY: { hp: 45, damageMult: 0.7, lateFromStage: 6, damageMultLate: 1, aimError: { angle: 5, power: 10 }, moveChance: 1 },
+  SNIPER: { hp: 30, sniperSpread: 3, moveChance: 1, weapons: ['sniper'] },
+  ARTILLERY: { hp: 45, aimError: { angle: 5, power: 10 }, moveChance: 1, sniperChance: 0, weapons: ['cannon'], mods: { knockbackPct: -50 } },
   HIVE: { hp: 5 }, BEE: { hp: 30, waitTurns: 1, diesOnSting: true }, PLAYER: { hp: 150 },
   POISON: { pctPerStack: 1, persist: true }, WATER: { damagePct: 30, enemiesDrown: true },
   FEVER: { everyRounds: 10, damagePct: 50 },
@@ -120,7 +120,7 @@ test('三張新地圖都在一般地圖池（腹背受敵 / 大亂鬥 / 小心�
 
 // ---------------- 腹背受敵 ----------------
 
-test('腹背受敵：4 位玩家都站在中間石柱頂上；左右台地各一個砲兵（只有大砲、不走動、面向石柱），沒人掉水', () => base(() => {
+test('腹背受敵：4 位玩家都站在中間石柱頂上；左右台地各一個砲兵（只有大砲、每回合走動、面向石柱），沒人掉水', () => base(() => {
   const m = make('flanked', 4);
   const t = m.terrain;
   for (const p of m.players) {
@@ -132,7 +132,7 @@ test('腹背受敵：4 位玩家都站在中間石柱頂上；左右台地各一
   for (const e of m.enemies) {
     assert(e.kind === 'artillery' && e.name.startsWith('砲兵'), `${e.id} kind ${e.kind} ${e.name}`);
     assert(e.weapons.join() === 'cannon' && e.weapon === 'cannon', `${e.id} weapons ${e.weapons}`);
-    assert(e.ai && e.ai.moveChance === 0 && e.ai.sniperChance === 0, `${e.id} ai ${JSON.stringify(e.ai)}`);
+    assert(e.ai && e.ai.moveChance === 1 && e.ai.sniperChance === 0, `${e.id} ai ${JSON.stringify(e.ai)}`);
     assert(e.alive && e.onGround && standsOn(t, e, SOIL) && e.y > 440, `${e.id} on a plateau (${e.x}, ${e.y})`);
   }
   assert(a.facing === 1 && b.facing === -1, 'both face the pillar');
@@ -145,14 +145,17 @@ test('腹背受敵：4 位玩家都站在中間石柱頂上；左右台地各一
   return { players: m.players.map(p => [p.x, p.y]), artillery: m.enemies.map(e => [e.x, e.y]), duoStage3Hp: want };
 }));
 
-test('砲兵的 AI：每回合都用大砲、不走動；不加誤差時兩邊都打得到石柱頂上的人', () => base(() => {
+test('砲兵的 AI：每回合先在自己的台地上走一段（不會走進水裡），再用大砲；不加誤差時兩邊都打得到石柱頂上的人', () => base(() => {
   let hits = 0, n = 0;
   for (let seed = 1; seed <= 40; seed++) {
     const m = make('flanked', 2, { seed });
     const e = m.enemies[seed % 2];
-    const x0 = e.x;
+    const x0 = e.x, left = x0 < 512;
+    m.beginTurn(e);
     const { walk, plan } = m.planAiTurn(e);
-    assert(walk === null && e.x === x0, `seed ${seed}: artillery walked`);
+    assert(walk && walk.frames > 0 && Math.abs(e.x - x0) >= CONFIG.AI_MOVE.minDist, `seed ${seed}: artillery did not walk ${JSON.stringify(walk)} ${x0} → ${e.x}`);
+    m.settle(300);
+    assert(e.alive && e.waterFalls === 0 && e.onGround && standsOn(m.terrain, e, SOIL) && (e.x < 512) === left && e.y > 440, `seed ${seed}: left its plateau (${e.x}, ${e.y})`);
     assert(plan && plan.weapon === 'cannon', `seed ${seed}: plan ${JSON.stringify(plan)}`);
     n++;
   }
@@ -233,7 +236,7 @@ test('只有狙擊槍的射手不隔著自己人開槍：排在同伴後面的�
   } finally {
     delete LEVELS.__brawlFixed;
   }
-}, { ENEMY: { moveChance: 0 } }));
+}, { ENEMY: { moveChance: 0 }, SNIPER: { moveChance: 0 } }));   // 站位是前提（前面的同伴擋住狙擊手）：這個測試不走動
 
 // ---------------- 小心擊發 ----------------
 
@@ -608,7 +611,11 @@ test('裁判流程跑得完：三張地圖玩家都不動（超時），敵人�
       while (!over && io.t - start < 20_000_000) io.advance(500);
       assert(over === 'lose', `${levelId}/${seed}: ended with ${over}`);
       const ai = io.take('aiTurn');
-      assert(ai.length >= 2 && ai.every(a => a.walk === null || m.byId(a.actorId).kind === null), `${levelId}/${seed}: only ordinary enemies walk`);
+      // 每種敵人每回合都走動（蜜蜂是地圖機制出招，不走）；被同伴夾住的那一回合可能走不動
+      const walkers = ai.filter(a => !a.boss);
+      const walked = walkers.filter(a => a.walk && a.walk.frames > 0).length;
+      assert(ai.length >= 2 && ai.every(a => !a.boss || a.walk === null) && walked >= walkers.length * 0.9, `${levelId}/${seed}: enemies walk every turn: ${walked}/${walkers.length}`);
+      assert(m.enemies.every(e => e.deathCause !== 'water'), `${levelId}/${seed}: an enemy walked into the water`);
       if (levelId === 'flanked') assert(ai.every(a => a.shot && a.shot.weapon === 'cannon'), 'artillery always fires the cannon');
       if (levelId === 'beehive') assert(bees(m).length === 0 && m.byId('hive').hp === 5, 'nobody touched the hive');
       out[`${levelId}/${seed}`] = ref.round;
@@ -750,7 +757,7 @@ test('客戶端：蜜蜂的回合腳本（待機套用結果；衝刺時角色�
       particles() {}, particle() {}, sound() {}, shake() {}, splash() {}, wither() {},
       banner(t) { c.banner = t; }, float(e, t) { floats.push([e.id, t]); },
     },
-    // shotScript：真的照事件重播（shared/volley.js，跟 game-view.js 同一份；畫面掛勾都不給）→ 套伺服器結果 → 等 24 幀（跟 game-view.js 的順序一樣）。
+    // shotScript：真的照事件重播（shared/physics/volley.js，跟 game-view.js 同一份；畫面掛勾都不給）→ 套伺服器結果 → 等 24 幀（跟 game-view.js 的順序一樣）。
     // 這裡沒有人代步進：模組在每次 next() 自己跑 match.step
     *shotScript(shot, extra = {}) {
       const run = replayVolley(cm, shot);

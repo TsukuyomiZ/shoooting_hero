@@ -1,17 +1,19 @@
 // node test/cave.js
 // 2026-10-08：新地圖「岩穴」（洞穴地形：鐘乳石、火把照明）、新敵人蝙蝠（聲波）、小心擊發的樹枝改成擋玩家的子彈。
-// 地圖池與站位（蝙蝠飄在岩台上方、只有出生點的火把亮著）、蝙蝠（飄著不動、不會被擊退、只用聲波、照狙擊槍的打法、擊退 120）、
+// 地圖池與站位（蝙蝠飄在岩台上方、只有出生點的火把亮著）、蝙蝠（飄在空中、每回合在出生點附近飄一段（見 enemy-move.js）、不會被擊退、只用聲波、照狙擊槍的打法、擊退 120）、
 // 鐘乳石（直擊 / 爆炸碰到就整根掉下來、砸到人 30、砸到隊友 ×誤傷、落地就碎、炸不壞）、火把（打在旁邊 / 飛過去 / 走過去點燃，只有玩家方）、
-// 快照重建、客戶端照事件重播一致（含半路才出現的鐘乳石）、裁判流程與紀錄、真的 GameView 播一段（含遮光）；
+// 火把燒完（每過一輪暗一格、3 輪後熄滅、隨時都能補滿、round.start 的紀錄）、陰影（不在光圈裡的敵人傷害 ×1.3，含獨眼巨人）、
+// 快照重建、客戶端照事件重播一致（含半路才出現的鐘乳石）、裁判流程與紀錄、真的 GameView 播一段（含遮光、照輪數變暗）、
+// 火把的畫面（沒點過 / 燒完的飄「點燃」、變暗的飄「補滿」、補滿時火焰不會先變小）；
 // 小心擊發：玩家的子彈打不穿樹枝（直線打不到狙擊手、拋物線落在樹枝上炸得到），狙擊手的子彈照樣穿過樹枝
-import { CONFIG } from '../shared/config.js';
-import { LEVELS, levelsInPool } from '../shared/level.js';
-import { Match } from '../shared/match.js';
-import { Referee } from '../shared/referee.js';
-import { planShot, lineBlocker } from '../shared/ai.js';
-import { simulateShot } from '../shared/weapons.js';
-import { STALACTITE, PLATFORM, HARD } from '../shared/terrain.js';
-import { TORCH_H } from '../shared/cave.js';
+import { CONFIG } from '../shared/core/config.js';
+import { LEVELS, levelsInPool } from '../shared/maps/level.js';
+import { Match } from '../shared/game/match.js';
+import { Referee } from '../shared/game/referee.js';
+import { planShot, lineBlocker } from '../shared/ai/ai.js';
+import { simulateShot } from '../shared/physics/weapons.js';
+import { STALACTITE, PLATFORM, HARD } from '../shared/physics/terrain.js';
+import { TORCH_H, torchLevel, torchLight, lightTorch, inShadow } from '../shared/maps/cave.js';
 import { replayChecked } from './replay-check.js';
 
 const results = [];
@@ -66,9 +68,9 @@ function withConfig(patch, fn) {
 }
 const BASE = {
   ENEMY: { hp: 45, damageMult: 0.7, lateFromStage: 6, damageMultLate: 1 },
-  SNIPER: { hp: 30, sniperSpread: 3, moveChance: 0, weapons: ['sniper'] },
-  BAT: { hp: 45, fixed: true, hw: 14, h: 22, sniperSpread: 3, sniperChance: 1, moveChance: 0, weapons: ['sonic'] },
-  CAVE: { torchReach: 24, torchPass: 10 },
+  SNIPER: { hp: 30, sniperSpread: 3, moveChance: 1, weapons: ['sniper'] },
+  BAT: { hp: 45, fixed: true, hw: 14, h: 22, sniperSpread: 3, sniperChance: 1, moveChance: 1, roam: { x: 120, y: 40, speed: 60 }, weapons: ['sonic'] },
+  CAVE: { torchReach: 24, torchPass: 10, torchRounds: 3, torchLight: 270, faintLight: 150, dimLight: 0.45, shadowDamagePct: 30 },
   PLAYER: { hp: 150 }, WATER: { damagePct: 30, enemiesDrown: true }, FEVER: { everyRounds: 10, damagePct: 50 },
   WEAPONS: {
     cannon: { ...CONFIG.WEAPONS.cannon, damage: 30, radius: 42, knockback: 180 },
@@ -105,7 +107,7 @@ await test('岩穴在一般地圖池；地面、天花板（炸不壞）、右�
   const t = m.terrain;
   assert(t.stalactites.length === 5 && t.stalactites.every((s, k) => stalPixels(t, k) > 200), 'five stalactites in the mask');
   assert(t.at(500, 10) === HARD && t.at(800, 345) === PLATFORM, 'hard ceiling + rock ledge (platform)');
-  assert(J(m.mechState.lit) === J([true, false, false]), 'only the spawn torch is lit: ' + J(m.mechState.lit));
+  assert(J(m.mechState.lit) === J([1, null, null]) && torchLevel(m, 0) === 3, 'only the spawn torch is lit (round 1, full): ' + J(m.mechState.lit));
   for (const p of m.players) assert(p.onGround && p.y > 560 && p.y < 590, `${p.id} stands on the floor: ${p.y}`);
   // 鐘乳石之間不重疊（stalactiteAt 照 x 範圍找）
   const xs = t.stalactites.map(s => [s.x0, s.x1]).sort((a, b) => a[0] - b[0]);
@@ -132,15 +134,17 @@ await test('蝙蝠：岩台上方飄著兩隻（fixed：不會掉下來、不會
   assert(b.x === x0 && b.y === y0 && b.hp < b.maxHp, 'a direct cannon hit hurts but does not move it');
 }));
 
-await test('蝙蝠的 AI：每回合都用聲波、不走動；不加誤差時打得到每個出生點的玩家；聲波的擊退 120（比狙擊槍大）', () => base(() => {
-  const m = make('cave', 4, { seed: 3 });
-  for (const b of bats(m)) {
+await test('蝙蝠的 AI：每回合先在空中飄一段（不走路）再用聲波；不加誤差時打得到每個出生點的玩家；聲波的擊退 120（比狙擊槍大）', () => base(() => {
+  const roam = make('cave', 4, { seed: 3 });
+  for (const b of bats(roam)) {
     for (let k = 0; k < 6; k++) {
-      const plan = m.planAiTurn(b);
-      assert(!plan.walk && plan.plan && plan.plan.weapon === 'sonic', 'sonic, no walking: ' + J(plan));
+      const x0 = b.x, y0 = b.y;
+      const plan = roam.planAiTurn(b);
+      assert(!plan.walk && plan.glide && b.x === x0 + plan.glide.dx && b.y === y0 + plan.glide.dy && plan.plan && plan.plan.weapon === 'sonic', 'glide, then sonic: ' + J(plan));
     }
-    for (const p of m.players) assert(lineBlocker(m.world, b, p) === null, `${b.name} sees ${p.id} through the ledge`);
   }
+  const m = make('cave', 4, { seed: 3 });
+  for (const b of bats(m)) for (const p of m.players) assert(lineBlocker(m.world, b, p) === null, `${b.name} sees ${p.id} through the ledge`);
   const shooter = bats(m)[0];
   const target = m.byId('p3');
   const shot = m.resolveShot(shooter, 'sonic', angleTo(shooter, target.cx, target.cy), 100);
@@ -225,14 +229,14 @@ await test('鐘乳石：爆炸範圍碰到也會掉；炸不壞（坑挖不掉�
 
 // ---------------- 火把 ----------------
 
-await test('火把：玩家的砲彈打在旁邊、子彈從旁邊飛過去、走過去碰到都會點燃；敵人的攻擊不會；點燃之後一直亮著', () => base(() => {
+await test('火把：玩家的砲彈打在旁邊、子彈從旁邊飛過去、走過去碰到都會點燃（最亮）；敵人的攻擊不會', () => base(() => {
   // 子彈從火把旁邊飛過去（岩台上的火把：子彈穿過岩台，所以只能靠飛過去點）
   const m = make('cave', 1);
   const p = m.byId('p1');
   const t2 = LEVELS.cave.mechanic.torches[2];
   const shot = m.resolveShot(p, 'sniper', angleTo(p, t2.x, t2.y - TORCH_H + 4), 100);
   const pass = shot.events.find(ev => ev.type === 'pass');
-  assert(pass && J(pass.lights) === '[2]' && m.mechState.lit[2], 'a sniper shot past the ledge torch lights it: ' + J(shot.events));
+  assert(pass && J(pass.lights) === '[2]' && torchLevel(m, 2) === 3, 'a sniper shot past the ledge torch lights it: ' + J(shot.events));
   const c = make('cave', 1);
   replayInto(c, shot, 'pass');
   assertSame(m, c, 'pass');
@@ -241,21 +245,113 @@ await test('火把：玩家的砲彈打在旁邊、子彈從旁邊飛過去、�
   const t1 = LEVELS.cave.mechanic.torches[1];
   const ev = m2.resolveHit(m2.byId('p1'), CONFIG.WEAPONS.cannon, { ignore: new Set(), owner: m2.byId('p1') }, 0,
     { type: 'terrain', x: t1.x + 50, y: t1.y + 2 }, 1, 0);
-  assert(J(ev.lights) === '[1]' && m2.mechState.lit[1], 'a blast next to it lights it: ' + J(ev));
+  assert(J(ev.lights) === '[1]' && torchLevel(m2, 1) === 3, 'a blast next to it lights it: ' + J(ev));
   // 敵人：蝙蝠的聲波從火把旁邊飛過去、打在旁邊都不會點燃
   const m3 = make('cave', 1);
   const b = bats(m3)[0];
   const shot3 = m3.resolveShot(b, 'sonic', angleTo(b, t1.x, t1.y - TORCH_H + 4), 100);
   const ev3 = m3.resolveHit(b, CONFIG.WEAPONS.sonic, { ignore: new Set(), owner: b }, 0, { type: 'terrain', x: t1.x, y: t1.y + 1 }, 1, 0);
-  assert(!shot3.events.some(e => e.lights) && !ev3.lights && J(m3.mechState.lit) === J([true, false, false]), 'enemies do not light torches');
+  assert(!shot3.events.some(e => e.lights) && !ev3.lights && J(m3.mechState.lit) === J([1, null, null]), 'enemies do not light torches');
   // 走過去：位置回報的路上碰到（伺服器的 pickup）；已經亮了就不會再撿一次
   const m4 = make('cave', 1);
   const q = m4.byId('p1');
   let got = null;
   for (let x = q.x + 20; x < 760 && !got; x += 20) got = m4.applyPositionReport(q, { x, y: q.y, facing: 1, stamina: 200 }).pickup;
-  assert(got && got.type === 'torch' && got.torch === 1 && m4.mechState.lit[1], 'walking past lights it: ' + J(got));
+  assert(got && got.type === 'torch' && got.torch === 1 && torchLevel(m4, 1) === 3, 'walking past lights it: ' + J(got));
   const back = m4.applyPositionReport(q, { x: q.x - 20, y: q.y, facing: -1, stamina: 200 });
   assert(back.ok && !back.pickup, 'no second pickup');
+}));
+
+// ---------------- 火把燒完、陰影 ----------------
+const near = (a, b) => Math.abs(a - b) < 1e-12;
+// 打在第 i 支火把旁邊的一下大砲（玩家方）
+const blastNextTo = (m, i) => {
+  const t = LEVELS[m.levelId].mechanic.torches[i];
+  const p = m.byId('p1');
+  return m.resolveHit(p, CONFIG.WEAPONS.cannon, { ignore: new Set(), owner: p }, 0, { type: 'terrain', x: t.x + 30, y: t.y + 2 }, 1, 0);
+};
+
+await test('火把會燒完：點燃的那一輪最亮（3），每過一輪暗一格、3 輪後熄滅（新的一輪記下 torchDim / torchOut）；光圈照亮度縮小；熄了可以再點，變暗了的打在旁邊 / 走過去補回最亮', () => base(() => {
+  const m = make('cave', 1);
+  const t0 = LEVELS.cave.mechanic.torches[0];
+  const levels = [], fxs = [];
+  for (let r = 1; r <= 5; r++) { fxs.push(m.beginRound()); levels.push(torchLevel(m, 0)); }
+  assert(m.round === 5 && J(levels) === '[3,2,1,0,0]', 'the spawn torch (lit in round 1): ' + J(levels));
+  assert(J(fxs) === J([[], [{ type: 'torchDim', torch: 0, light: 2 }], [{ type: 'torchDim', torch: 0, light: 1 }], [{ type: 'torchOut', torch: 0, light: 0 }], []]),
+    'round fx: ' + J(fxs));
+  const radius = [3, 2, 1, 0].map(lv => torchLight(t0, lv).r);
+  assert(radius[0] === 150 && near(radius[1], 150 * 0.725) && near(radius[2], 150 * 0.45) && radius[3] === 0, 'faint torch radius by brightness: ' + J(radius));
+  assert(torchLight(LEVELS.cave.mechanic.torches[1], 3).r === 270, 'a normal torch at full brightness');
+  // 熄了：打在旁邊再點燃（記成第 5 輪點燃的，最亮），下一輪又暗一格
+  const ev = blastNextTo(m, 0);
+  assert(J(ev.lights) === '[0]' && m.mechState.lit[0] === 5 && torchLevel(m, 0) === 3, 're-lit: ' + J(ev.lights));
+  assert(J(m.beginRound()) === J([{ type: 'torchDim', torch: 0, light: 2 }]) && torchLevel(m, 0) === 2, 'dims again');
+  // 還亮著（暗了一格）：打在旁邊補回最亮（記成這一輪點燃的）；同一輪再打一次已經是最亮，不再記事件
+  const ev2 = blastNextTo(m, 0);
+  assert(J(ev2.lights) === '[0]' && m.mechState.lit[0] === 6 && torchLevel(m, 0) === 3, 'topped up by a blast: ' + J(ev2.lights));
+  assert(!blastNextTo(m, 0).lights, 'already full this round: no second light event');
+  // 下一輪又暗一格：走過去碰到也補回最亮（pickup），同一輪再碰一次不算
+  assert(J(m.beginRound()) === J([{ type: 'torchDim', torch: 0, light: 2 }]) && torchLevel(m, 0) === 2, 'dims after the top-up');
+  const p = m.byId('p1');
+  const walk = m.applyPositionReport(p, { x: t0.x, y: p.y, facing: 1, stamina: 200 });
+  assert(walk.pickup && walk.pickup.type === 'torch' && walk.pickup.torch === 0 && m.mechState.lit[0] === 7 && torchLevel(m, 0) === 3, 'topped up by walking: ' + J(walk.pickup));
+  const again = m.applyPositionReport(p, { x: t0.x + 1, y: p.y, facing: 1, stamina: 199 });
+  assert(!again.pickup, 'already full: walking past again does nothing');
+  // 從沒點過的火把一直是 0，不會有 fx
+  assert(torchLevel(m, 1) === 0 && torchLevel(m, 2) === 0, 'never lit');
+  return { levels, radius: radius.map(r => Math.round(r)) };
+}));
+
+await test('陰影：不在任何亮著的火把光圈裡的敵人，傷害 ×1.3（跟敵人傷害倍率相乘、看結算那一下站的位置）；火把變暗光圈縮小就又暗了；玩家、掉下來的鐘乳石不算', () => base(() => {
+  const m = make('cave', 1);
+  const [a, b] = bats(m);
+  const p = m.byId('p1');
+  const W = CONFIG.WEAPONS;
+  const L = torchLight(LEVELS.cave.mechanic.torches[2], 3);
+  // 兩隻擺在岩台火把的右邊、跟火光一樣高：A 離火光 120（最暗那一格 121.5 也照得到），B 離 240（只有最亮那一輪照得到）
+  a.x = L.x + 120; a.y = L.y + a.h / 2;
+  b.x = L.x + 240; b.y = L.y + b.h / 2;
+  const mult = (e) => m.damageMult(e, W.sonic);
+  assert(inShadow(m, a.cx, a.cy) && inShadow(m, b.cx, b.cy) && near(mult(a), 0.7 * 1.3) && near(mult(b), 0.7 * 1.3), 'dark: 0.7 × 1.3 = ' + mult(a));
+  assert(near(m.damageMult(a, W.stalactite), 0.7), 'a rock knocked down by a bat gets no shadow bonus');
+  assert(m.damageMult(p, W.cannon) === 1 && m.damageMult(null, W.cannon) === 1, 'players (and no attacker) unaffected');
+  const dmgFrom = (bat) => {   // 蝙蝠的聲波直擊 P1 扣多少
+    const hp = p.hp;
+    m.applyExplosion(p.cx, p.cy, W.sonic, bat, p);
+    const d = hp - p.hp;
+    p.hp = hp;
+    return d;
+  };
+  const dark = dmgFrom(a);
+  m.round = 1;
+  lightTorch(m, 2);   // 第 1 輪點燃岩台的火把
+  const seen = [];
+  for (const r of [1, 2, 3, 4]) {
+    m.round = r;
+    seen.push([torchLevel(m, 2), inShadow(m, a.cx, a.cy), inShadow(m, b.cx, b.cy)]);
+  }
+  assert(J(seen) === J([[3, false, false], [2, false, true], [1, false, true], [0, true, true]]), 'level / A dark / B dark per round: ' + J(seen));
+  m.round = 1;
+  const lit = dmgFrom(a);
+  assert(near(mult(a), 0.7) && dark === Math.round(15 * (0.7 * 1.3)) && lit === Math.round(15 * 0.7) && dark > lit, `sonic: dark ${dark} vs lit ${lit}`);
+  // 結算那一下的位置：同一隻移到光圈外面就變暗
+  a.x = L.x + 300;
+  assert(near(mult(a), 0.7 * 1.3), 'moved out of the light');
+  return { dark, lit, seen };
+}));
+
+await test('陰影（地心探險）：獨眼巨人站在陰影裡，招式傷害 ×1.3；點燃他旁邊那支火把就沒有；一般地圖沒有陰影', () => base(() => {
+  const m = make('depths', 1);
+  const cy = m.byId('cyclops');
+  const W = CONFIG.WEAPONS;
+  assert(inShadow(m, cy.cx, cy.cy) && near(m.damageMult(cy, W.cyclopsBoulder), 0.7 * 1.3) && near(m.damageMult(cy, W.cyclopsShock), 0.7 * 1.3), 'dark: ×1.3');
+  assert(near(m.damageMult(cy, W.stalactite), 0.7), 'the rocks he shakes down: no bonus');
+  lightTorch(m, 2);
+  assert(!inShadow(m, cy.cx, cy.cy) && near(m.damageMult(cy, W.cyclopsBoulder), 0.7), 'lit torch next to him');
+  const plain = make('level1', 1);
+  const e = plain.enemies[0];
+  assert(!inShadow(plain, e.cx, e.cy) && plain.damageMult(e, W.cannon) === plain.rules.enemyDamage, 'no shadow outside caves');
+  assert(J(plain.beginRound()) === '[]' && plain.round === 1, 'no round fx outside caves');
 }));
 
 await test('快照：亮著的火把、掉下來的鐘乳石，重連時照快照重建（地形遮罩一樣）；掉下來的不會因為重建地形又長回去', () => base(() => {
@@ -264,14 +360,22 @@ await test('快照：亮著的火把、掉下來的鐘乳石，重連時照快�
   const s = m.terrain.stalactites[3];
   m.resolveShot(p, 'sniper', angleTo(p, s.tip.x + 1, s.tip.y - 14), 100);
   m.resolveShot(p, 'cannon', 50, 60);
-  m.mechState.lit[1] = true;
+  m.round = 3;
+  lightTorch(m, 1);   // 第 3 輪點燃的
   const snap = JSON.parse(J(m.snapshot()));
-  assert(J(snap.torches) === J([true, true, false]) && J(snap.fallen) === '[3]', 'snapshot: ' + J({ torches: snap.torches, fallen: snap.fallen }));
+  assert(J(snap.torches) === J([1, 3, null]) && J(snap.fallen) === '[3]', 'snapshot: ' + J({ torches: snap.torches, fallen: snap.fallen }));
   const c = make('cave', 2);
   c.applySnapshot(snap);
+  c.round = 3;   // 輪數跟快照一起來（重連的 state 帶 round）
   assertSame(m, c, 'snapshot');
+  assert([0, 1, 2].every(i => torchLevel(c, i) === torchLevel(m, i)) && torchLevel(c, 0) === 1 && torchLevel(c, 1) === 3, 'same brightness');
   c.applySnapshot(snap);   // 再套一次（地形照洞重建）：掉下來的還是不在
   assertSame(m, c, 'snapshot twice');
+  // 舊格式的快照（true / false = 亮了沒）：true 當作這一輪點燃的
+  const old = make('cave', 2);
+  old.round = 2;
+  old.mechanic.restore(old, { torches: [true, false, true] });
+  assert(J(old.mechState.lit) === J([2, null, 2]), 'old snapshot format: ' + J(old.mechState.lit));
 }));
 
 // ---------------- 裁判流程 ----------------
@@ -288,6 +392,8 @@ await test('裁判流程：玩家都不動（超時）時蝙蝠每回合用聲�
     assert(over === 'lose', `${seed}: ended with ${over}`);
     const ai = io.take('aiTurn');
     assert(ai.length >= 2 && ai.every(a => !a.walk && a.shot && a.shot.weapon === 'sonic'), 'bats always fire the sonic, never walk');
+    const glides = ai.filter(a => a.glide && a.glide.frames > 0).length;
+    assert(glides >= ai.length * 0.9, `bats glide (almost) every turn: ${glides}/${ai.length}`);
     out[seed] = ref.round;
   }
   // 走過去點燃（之後開火打下鐘乳石：紀錄）
@@ -439,6 +545,121 @@ await test('真的 GameView：岩穴從開場播一段（P1 先打下一根鐘�
   assert(J(view.match.mechState.lit) === J(m.mechState.lit) && m.mechState.lit[2], 'client torches = server: ' + J(view.match.mechState.lit));
   { const a = m.terrain.mask, b = view.match.terrain.mask; const d = []; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) d.push([i % 1024, Math.floor(i / 1024), a[i], b[i]]); assert(!d.length, 'client terrain = server: ' + d.length + ' ' + J(d.slice(0, 5)) + J(m.terrain.holes.length) + '/' + J(view.match.terrain.holes.length)); }
   return { rocksDrawnFrames: rocks, time: Math.round(view.time) };
+}));
+
+await test('裁判流程：每一輪記 round.start（出生點的火把第 2、3 輪 torchDim、第 4 輪 torchOut）；真的 GameView 照輪數算的亮度跟伺服器一樣，光圈縮掉、燒完那一刻飄「火把熄滅」', () => base(() => {
+  const players = mkPlayers(1);
+  const m = new Match({ levelId: 'cave', players, seed: 4 });
+  for (const p of m.players) { p.hp = p.maxHp = 5000; }
+  const io = new FakeIo();
+  const ref = new Referee({ match: m, humans: players, io });
+  ref.start();
+  const view = new GameView(fakeCanvas());
+  view.music = { play() {}, setRate() {} };
+  view.myId = 'p1';
+  view.transport = { send() {} };
+  const texts = [];
+  const floatText = view.floatText.bind(view);
+  view.floatText = (e, str, ...rest) => { texts.push([view.match.round, str]); return floatText(e, str, ...rest); };
+  const feed = () => { for (const msg of io.log.splice(0)) view.onMessage(msg); };
+  const err = console.error;
+  const errors = [];
+  console.error = (...a) => errors.push(a.join(' '));
+  const seen = new Map();   // 客戶端的輪數 → 那時候客戶端算的出生點火把亮度
+  try {
+    while (ref.round < 5 && ref.phase !== 'over' && io.t < 5_000_000) {   // 玩家一直不動（超時），蝙蝠每回合開火
+      io.advance(250);
+      feed();
+      for (let f = 0; f < 15; f++) {
+        view.update(CONFIG.FIXED_DT);
+        view.render();
+        if (!seen.has(view.match.round)) seen.set(view.match.round, torchLevel(view.match, 0));
+      }
+    }
+    feed();
+    for (let f = 0; f < 1800; f++) view.update(CONFIG.FIXED_DT);
+  } finally { console.error = err; }
+  assert(!errors.length, 'script errors ' + errors[0]);
+  const rs = io.records.filter(r => r.ev === 'round.start');
+  assert(rs.map(r => r.round).join() === '1,2,3,4,5', 'one round.start per round: ' + J(rs));
+  assert(J(rs.map(r => r.fx || [])) === J([[], [{ type: 'torchDim', torch: 0, light: 2 }], [{ type: 'torchDim', torch: 0, light: 1 }], [{ type: 'torchOut', torch: 0, light: 0 }], []]),
+    'round fx: ' + J(rs.map(r => r.fx)));
+  assert(view.match.round === m.round && [0, 1, 2].every(i => torchLevel(view.match, i) === torchLevel(m, i)), 'client brightness = server');
+  assert(J([1, 2, 3, 4, 5].map(r => seen.get(r))) === '[3,2,1,0,0]', 'client brightness per round: ' + J([...seen]));
+  assert(view.mapCtx.state.glow.get(0) < 1, 'the light shrank away: ' + view.mapCtx.state.glow.get(0));
+  assert(J(texts.filter(([, s]) => s === '火把熄滅')) === J([[4, '火把熄滅']]), 'snuffed once, in round 4: ' + J(texts));
+  return { rounds: m.round, frames: Math.round(view.time * 60) };
+}));
+
+// 岩穴的地圖畫面本身（真的 client/map-views/cave.js + 真的 Match，c 是假的：特效只記下來）
+const { cave: caveView } = await import('../client/map-views/cave.js');
+
+await test('火把的畫面：沒點過的、燒完的（剛熄光圈還沒縮完、或已經縮到 0）點了飄「火把點燃！」、光圈從 0 長大；變暗的補回最亮飄「火把補滿！」、光圈不歸零，火焰從現在的大小長回最大、不會先變小', () => base(() => {
+  const m = make('cave', 1);
+  m.round = 1;
+  const calls = [];
+  const fx = new Proxy({}, { get: (o, k) => (...args) => { calls.push([k, args]); } });
+  const c = { match: m, time: 1, currentId: null, projectiles: [], state: caveView.create(m), fx, *shotScript() {} };
+  const STEP = 1 / 60;
+  const step = (n) => { for (let f = 0; f < n; f++) { c.time += STEP; caveView.update(c, STEP); } };
+  const floats = () => calls.splice(0).filter(([k]) => k === 'float').map(([, a]) => `${a[0].id} ${a[1]}`);
+  const glow = (i) => c.state.glow.get(i);
+  const close = (a, b) => Math.abs(a - b) < 1e-6;
+  // 第 i 支火把畫出來的火焰大小 k：火焰裡那顆亮黃色的橢圓（寬 3k、高 6k；布頭是 4.5 × 6）。沒畫火焰 = 0
+  const flameK = (i) => {
+    const t = LEVELS.cave.mechanic.torches[i];
+    const got = [];
+    const ctx = new Proxy({}, {
+      get: (o, k) => (k === 'ellipse' ? (x, y, rx, ry) => { if (Math.abs(x - t.x) < 3 && close(ry, 2 * rx)) got.push(rx / 3); } : () => {}),
+      set: () => true,
+    });
+    caveView.drawScene(ctx, c);
+    return got.length ? got[0] : 0;
+  };
+  const faint = (i) => (LEVELS.cave.mechanic.torches[i].faint ? 0.75 : 1);
+  const light = (i) => { const ev = { type: 'pass', lights: [i] }; m.mechanic.replayEvent(m, ev); caveView.showEvent(c, ev, {}); };   // 打 / 飛過去點燃
+  const walk = (i) => caveView.onPickup(c, m.players[0], { type: 'torch', id: 'p1', torch: i });                                          // 走過去點燃
+  // 補滿之後每一幀的火焰大小：一開始跟補滿前一樣大（不會先變小），之後只會變大，長到最亮的大小
+  const growsFrom = (i, before, label) => {
+    const ks = [flameK(i)];
+    for (let f = 0; f < 50; f++) { step(1); ks.push(flameK(i)); }
+    assert(close(ks[0], before) && ks.every((k, j) => !j || k >= ks[j - 1] - 1e-9) && close(ks[ks.length - 1], faint(i)),
+      `${label}: the flame never shrinks: ${before.toFixed(4)} → ${J(ks.map(k => +k.toFixed(4)))}`);
+  };
+  step(30);
+  floats();
+
+  light(1);   // 第 1 輪：沒點過的
+  assert(J(floats()) === J(['torch1 火把點燃！']) && glow(1) === 0 && close(flameK(1), 0.55), 'a never-lit torch lights: glow from 0, small flame');
+  step(60);
+  assert(close(flameK(1), 1) && glow(1) > 200, 'grown: ' + flameK(1) + ' / ' + glow(1));
+
+  m.round = 2;   // 第 2 輪：兩支都變暗（亮度 2）
+  step(90);
+  const dim = 0.5 + 0.5 * (CONFIG.CAVE.dimLight + (1 - CONFIG.CAVE.dimLight) / 2);
+  const k1 = flameK(1), g1 = glow(1);
+  assert(close(k1, dim) && g1 > 1, 'dimmed: ' + k1);
+  light(1);
+  assert(J(floats()) === J(['torch1 火把補滿！']) && glow(1) === g1, 'a dimmed torch is topped up: the glow keeps its size');
+  growsFrom(1, k1, 'topped up by a shot');
+  assert(glow(1) > g1, 'the glow grows back');
+  const k0 = flameK(0);
+  walk(0);
+  assert(J(floats()) === J(['torch0 火把補滿！']) && glow(0) > 1, 'the dimmed spawn torch is topped up by walking');
+  growsFrom(0, k0, 'topped up by walking');
+
+  m.round = 5;   // 第 5 輪：兩支都是第 2 輪點的，燒完了
+  step(5);
+  assert(J(floats().sort()) === J(['torch0 火把熄滅', 'torch1 火把熄滅']) && flameK(0) === 0 && glow(0) > 1, 'burned out, the glow still shrinking');
+  walk(0);   // 剛熄、光圈還沒縮完就點
+  assert(J(floats()) === J(['torch0 火把點燃！']) && glow(0) === 0 && close(flameK(0), 0.55 * faint(0)), 'a just-burned-out torch lights again (not a top-up)');
+  step(600);   // 10 秒：光圈縮到 0（不是一直剩一點點）
+  assert(glow(1) === 0, 'the burned-out glow snaps to 0: ' + glow(1));
+  light(1);
+  assert(J(floats()) === J(['torch1 火把點燃！']) && glow(1) === 0 && close(flameK(1), 0.55), 'a long-burned-out torch lights again');
+  walk(2);
+  assert(J(floats()) === J(['torch2 火把點燃！']) && glow(2) === 0, 'a never-lit torch lit by walking');
+  return { dim: +dim.toFixed(4) };
 }));
 
 const failed = results.filter(r => !r.ok).length;

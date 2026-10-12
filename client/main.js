@@ -1,9 +1,10 @@
-import { CONFIG } from '../shared/config.js';
+import { CONFIG } from '../shared/core/config.js';
 import { GameView } from './game-view.js';
 import { Lobby } from './lobby.js';
 import { WsTransport, LocalTransport } from './net.js';
 import { CardsUi } from './cards-ui.js';
 import { StickerUi } from './stickers.js';
+import { ChatUi } from './chat.js';
 import { SettingsUi } from './settings-ui.js';
 import { SummaryUi } from './summary-ui.js';
 import { ChangelogUi } from './changelog-ui.js';
@@ -23,6 +24,12 @@ const stickers = new StickerUi(canvas, {
     const e = view.match && view.match.byId(id);
     return { name: p ? p.name : '?', color: (e && e.color) || '#fff' };
   },
+});
+
+// 聊天：Enter 打字，字跟貼圖走同一條彈幕軌道；打字時放掉按住的移動鍵，角色才不會一直走
+const chat = new ChatUi(stickers, {
+  send: (msg) => transport && transport.send(msg),
+  onOpen: () => { view.keys = {}; },
 });
 
 const settings = new SettingsUi(canvas);   // 右上角的音量設定
@@ -146,6 +153,9 @@ function attach(t) {
         break;
       case 'sticker':
         stickers.spawn(msg.from, msg.id);
+        break;
+      case 'chat':
+        chat.receive(msg.from, msg.text);
         break;
       case 'picks':
         cardsUi.hide();

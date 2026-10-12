@@ -1,6 +1,6 @@
-import { CONFIG } from '../../shared/config.js';
-import { spawnTreant, leafOrigin, trunkLane, TREE_ACTION_NAMES } from '../../shared/tree-boss.js';
-import { clamp } from '../../shared/utils.js';
+import { CONFIG } from '../../shared/core/config.js';
+import { spawnTreant, leafOrigin, trunkLane, TREE_ACTION_NAMES } from '../../shared/maps/tree-boss.js';
+import { clamp } from '../../shared/core/utils.js';
 import { roundRect } from '../draw.js';
 import { drawSpearHeld } from '../weapon-art.js';
 

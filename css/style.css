@@ -332,6 +332,55 @@ button.big { width: 100%; padding: 13px; font-size: 17px; margin-top: 8px; }
 .sticker-btn img { width: 100%; height: 100%; pointer-events: none; }
 .sticker-btn.pressed { animation: sticker-press 0.2s ease-out; }
 .sticker-btn.blocked { animation: sticker-blocked 0.3s; }
+.chat-btn { font-size: 2.4cqw; line-height: 1; }
+
+/* ---- 聊天（client/chat.js）：彈幕跟貼圖同一條軌道；輸入框只在打字時出現在左下角 ---- */
+.dm.text { padding: 0.5cqw 1.1cqw; background: rgba(10, 10, 20, 0.35); }
+.dm.text.mine { background: rgba(255, 255, 255, 0.14); }
+.dm-text {
+  font-size: 2.1cqw;
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 0 0 3px #000, 0 0 3px #000, 0 1px 2px #000;
+}
+.dm.text .dm-name::after { content: '：'; }
+.chat-box {
+  position: absolute;
+  left: 1.2cqw;
+  bottom: 13.8cqh;   /* 底部狀態列上方，跟貼圖列同一高度 */
+  width: 40cqw;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5cqw;
+  pointer-events: auto;
+}
+.chat-box[hidden], .chat-history[hidden] { display: none; }
+.chat-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2cqw;
+  padding: 0.6cqw 0.9cqw;
+  background: rgba(10, 10, 20, 0.55);
+  border-radius: 1cqw;
+  font-size: 1.5cqw;
+  color: #e5e7eb;
+}
+.chat-line { overflow-wrap: anywhere; text-shadow: 0 1px 2px #000; }
+.chat-line.mine { color: #fff; }
+.chat-name { font-weight: bold; margin-right: 0.5cqw; }
+.chat-name::after { content: '：'; }
+.chat-input {
+  font: inherit;
+  font-size: 1.8cqw;
+  padding: 0.7cqw 1cqw;
+  border-radius: 1cqw;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  background: rgba(10, 10, 20, 0.8);
+  color: #fff;
+  outline: none;
+}
+.chat-input:focus { border-color: #fbbf24; }
+.chat-input.blocked { animation: sticker-blocked 0.3s; border-color: #f87171; }
 @keyframes sticker-press { 50% { transform: scale(0.82); } }
 @keyframes sticker-blocked { 25% { transform: translateX(-3px); background: rgba(248, 113, 113, 0.4); } 75% { transform: translateX(3px); background: rgba(248, 113, 113, 0.4); } }
 

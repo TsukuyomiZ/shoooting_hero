@@ -1,14 +1,14 @@
 // node test/headless.js
 // 不用瀏覽器的規則 / 流程測試：地形遮罩、回合順序、誤傷、確定性、裁判流程、斷線代打、壓力測試
 import { performance } from 'node:perf_hooks';
-import { CONFIG } from '../shared/config.js';
-import { LEVELS, levelsInPool } from '../shared/level.js';
-import { Terrain } from '../shared/terrain.js';
-import { Match } from '../shared/match.js';
-import { stageRules } from '../shared/stage-rules.js';
-import { Referee } from '../shared/referee.js';
-import { planShot } from '../shared/ai.js';
-import { Rng } from '../shared/rng.js';
+import { CONFIG } from '../shared/core/config.js';
+import { LEVELS, levelsInPool } from '../shared/maps/level.js';
+import { Terrain } from '../shared/physics/terrain.js';
+import { Match } from '../shared/game/match.js';
+import { stageRules, stageType } from '../shared/game/stage-rules.js';
+import { Referee } from '../shared/game/referee.js';
+import { planShot } from '../shared/ai/ai.js';
+import { Rng } from '../shared/core/rng.js';
 
 // 其他測試照武器原本傷害算敵人的攻擊；敵人傷害倍率（ENEMY.damageMult）有下面的專門測試
 const ENEMY_DAMAGE_MULT = CONFIG.ENEMY.damageMult;
@@ -69,7 +69,7 @@ function pointInPoly(poly, x, y) {
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
 // 位置回報（Match.applyPositionReport）：回傳 { ok, water, pickup }
 const report = (m, e, x, y, facing, stamina, extra = {}) => m.applyPositionReport(e, { x, y, facing, stamina, ...extra });
-// 關卡規則的測試設定（見 shared/stage-rules.js）：照 config.js，只換 patch 列的區塊裡的值；傳給 stageRules / Match / Run，不改全域 CONFIG
+// 關卡規則的測試設定（見 shared/game/stage-rules.js）：照 config.js，只換 patch 列的區塊裡的值；傳給 stageRules / Match / Run，不改全域 CONFIG
 const rulesCfg = (patch) => {
   const c = { ...CONFIG };
   for (const [k, v] of Object.entries(patch)) c[k] = { ...CONFIG[k], ...v };
@@ -295,7 +295,7 @@ test('位置回報一次收：回傳 { ok, water, pickup }；vy 收下而且沒�
 }));
 
 test('架構檢查：裁判收位置回報只呼叫 Match.applyPositionReport——不自己改行動玩家的位置 / 速度，也不比落水次數（伺服器自己讓大家落地的 settleWithSplashes 除外）', () => {
-  const src = fs.readFileSync(new URL('../shared/referee.js', import.meta.url), 'utf8')
+  const src = fs.readFileSync(new URL('../shared/game/referee.js', import.meta.url), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   const SET = /\b(actor|a|e)\.(x|y|vx|vy|safeX|safeY|onVine)\s*=(?!=)/;
   assert(['actor.vy = 0;', 'actor.x=1', 'e.onVine = -1'].every(s => SET.test(s)) && !['actor.vy === 0', 'const x = actor.x;'].some(s => SET.test(s)), 'the scan');
@@ -409,7 +409,7 @@ test('斷線代打：跳到半空中斷線，伺服器先讓他落地（途中�
   const c1 = cm.byId('p1');
   for (let i = 0; i < Math.round(CONFIG.TIMING.aiThink * 60); i++) cm.step();
   assert(c1.waterFalls === 1 && c1.hp === 700, 'no extra fall during aiThink on the client: falls ' + c1.waterFalls + ', hp ' + c1.hp);
-  if (ai.walk) { c1.moveDir = ai.walk.dir; for (let i = 0; i < ai.walk.frames; i++) cm.step(); c1.moveDir = 0; }
+  if (ai.walk) { c1.moveDir = ai.walk.dir; for (let i = 0; i < ai.walk.frames; i++) cm.step(); c1.moveDir = 0; for (let i = 0; i < ai.walk.fall; i++) cm.step(); }
   if (ai.shot) {
     const shot = JSON.parse(JSON.stringify(ai.shot));
     replayChecked(cm, shot, 'aiTurn shot');
@@ -470,9 +470,9 @@ test('壓力：4 人（2 人斷線）打到結束，不能有例外，AI 規劃�
 
 // ---------- 肉鴿流程 ----------
 import fs from 'node:fs';
-import { Run } from '../shared/run.js';
-import { validateCards, drawOffers, RARITIES } from '../shared/cards.js';
-const CARDS = validateCards(JSON.parse(fs.readFileSync(new URL('../shared/cards.json', import.meta.url), 'utf8')));
+import { Run } from '../shared/game/run.js';
+import { validateCards, drawOffers, RARITIES } from '../shared/cards/cards.js';
+const CARDS = validateCards(JSON.parse(fs.readFileSync(new URL('../shared/cards/cards.json', import.meta.url), 'utf8')));
 
 test('牌庫 JSON 可載入且無警告；抽牌不重複、稀有度合法、unique 牌不會再出現', () => {
   assert(CARDS.warnings.length === 0, 'warnings: ' + CARDS.warnings.join('; '));
@@ -581,6 +581,53 @@ test('肉鴿流程：Boss 關比 Boss 池多的時候，王都打過一輪才重
     const second = run.pickLevel();
     assert(pool.includes(first) && pool.includes(second) && first !== second, `seed ${seed}: bosses ${first} → ${second}`);
   }
+});
+
+test('肉鴿流程：小關地圖一開始機率一樣，這場每出現過一次權重就 × normalRepeatWeight，不會連續同一張', () => {
+  const pool = levelsInPool('normal');
+  // 照 nextStage 的順序抽一場：pickLevel → noteLevel；回傳每一關抽到的地圖
+  const runPicks = (config, seed) => {
+    const run = new Run({ players: mkPlayers(1), seed, io: new FakeIo(), cards: CARDS.cards, config });
+    const picked = [];
+    for (let s = 1; s <= config.RUN.stageCount; s++) {
+      run.stage = s;
+      const id = run.pickLevel();
+      run.noteLevel(id);
+      picked.push(id);
+    }
+    return { run, picked };
+  };
+  const allNormal = (k, stageCount) => rulesCfg({ RUN: { stageCount, bossStages: [], eliteStages: [], normalRepeatWeight: k } });
+  // 第一關：每張機率一樣
+  const first = Object.fromEntries(pool.map(id => [id, 0]));
+  const N = 1600;
+  for (let seed = 1; seed <= N; seed++) first[runPicks(allNormal(0.25, 1), seed).picked[0]]++;
+  for (const id of pool) assert(first[id] > N / pool.length * 0.75 && first[id] < N / pool.length * 1.25, `first pick not even: ${JSON.stringify(first)}`);
+  // 權重 0：小地圖全部輪過一遍才重複；之後也不會連續同一張
+  for (let seed = 1; seed <= 30; seed++) {
+    const { run, picked } = runPicks(allNormal(0, pool.length + 4), seed);
+    assert(new Set(picked.slice(0, pool.length)).size === pool.length, `seed ${seed}: k=0 repeats before the pool runs out: ${picked}`);
+    for (let i = 1; i < picked.length; i++) assert(picked[i] !== picked[i - 1], `seed ${seed}: same map twice in a row: ${picked}`);
+    assert(Object.values(run.normalSeen).reduce((a, b) => a + b, 0) === picked.length, 'normalSeen counts every normal stage');
+  }
+  // 正式的排法（10 關、王關 / 菁英關不算）：同一張出現 3 次以上很少見（不下調時約 16% 的場次、×0.25 約 0.6%），平均一場看到的不同小地圖比不下調多
+  const stats = (k) => {
+    let triple = 0, distinct = 0;
+    const config = rulesCfg({ RUN: { normalRepeatWeight: k } });
+    for (let seed = 1; seed <= 400; seed++) {
+      const { run, picked } = runPicks(config, seed);
+      const counts = Object.values(run.normalSeen);
+      assert(counts.reduce((a, b) => a + b, 0) === picked.filter((_, i) => stageType(i + 1, config) === 'normal').length, 'normalSeen only counts normal stages');
+      for (let i = 1; i < picked.length; i++) assert(picked[i] !== picked[i - 1], `seed ${seed}: same map twice in a row: ${picked}`);
+      if (Math.max(...counts) >= 3) triple++;
+      distinct += counts.length;
+    }
+    return { triple, distinct: distinct / 400 };
+  };
+  const flat = stats(1), decayed = stats(CONFIG.RUN.normalRepeatWeight);
+  assert(CONFIG.RUN.normalRepeatWeight < 1, 'normalRepeatWeight lowers the weight');
+  assert(decayed.triple <= 8 && decayed.triple * 5 < flat.triple, `a map shows up 3+ times too often: ${JSON.stringify(decayed)} vs flat ${JSON.stringify(flat)}`);
+  assert(decayed.distinct > flat.distinct + 0.4, `not more variety: ${JSON.stringify(decayed)} vs flat ${JSON.stringify(flat)}`);
 });
 
 test('Boss 關血量：第一個王關照原本的，之後每多一關 +bossHpPerStage（第 10 關 ×1.75）；樹妖一起放大；不是排定的王關、或成長設 0 就不變', () => {
@@ -703,9 +750,10 @@ test('牌的加成會進戰鬥：大砲傷害 +%、爆炸半徑 +%、減傷 %', 
 });
 
 // ---------- 武器欄與裝備效果 ----------
-import { baseStats, derivePlayerStats, needsDiscard, equipWeapon } from '../shared/cards.js';
-import { rampBonus } from '../shared/effects/ramp.js';
-import { traceShot } from '../shared/weapons.js';
+import { baseStats, derivePlayerStats, needsDiscard, equipWeapon } from '../shared/cards/cards.js';
+import { rampBonus } from '../shared/cards/effects/ramp.js';
+import { effectChips } from '../shared/cards/effects/index.js';
+import { traceShot } from '../shared/physics/weapons.js';
 import { replayChecked } from './replay-check.js';
 
 const cardById = (id) => CARDS.cards.find(c => c.id === id);
@@ -1657,6 +1705,71 @@ test('時間扭曲：普通回合結束後再給一個額外回合（不算新�
   advanceUntil(io2, () => io2.take('turn').filter(t => t.actorId === 'p1').length >= 2, 300_000);
   assert(!io2.take('turn').some(t => t.extra), 'no extra turns without the card');
   return { order: mine.slice(0, expected.length) };
+});
+
+test('無差別轟炸：冷卻 N 個自己的回合（轟炸 → 跳過 N 個 → 再轟炸，時間扭曲的額外回合也算），冷卻中的回合開始記 bombardCd；狀態列、同步、每關從 0 開始', () => {
+  const cd = CONFIG.EQUIP.bombard.cooldown;
+  // p1 的每個回合：turn 之前（上一個 turn 之後）有沒有他的轟炸、turn 帶的冷卻（同步欄位 bcd）、回合開始的 fx、turn.start 紀錄
+  const play = (effects, nTurns) => {
+    const m = matchWith(effects);
+    m.planAiTurn = () => ({ walk: null, plan: null });   // 敵人只發呆：只看 p1 的回合
+    const io = new FakeIo();
+    const records = [];
+    io.record = (ev, data) => records.push({ ev, ...data });
+    new Referee({ match: m, humans: mkPlayers(1), io }).start();
+    assert(advanceUntil(io, () => io.take('turn').filter(t => t.actorId === 'p1').length >= nTurns, 3_000_000), 'enough p1 turns');
+    const turns = [];
+    let bombed = false;
+    for (const msg of io.log) {
+      if (msg.t === 'shot' && msg.kind === 'bombard') { assert(msg.actorId === 'p1', 'only p1 bombards'); bombed = true; }
+      if (msg.t !== 'turn') continue;
+      if (msg.actorId === 'p1') {
+        const fx = (msg.fx || []).filter(f => f.type === 'bombardCd');
+        turns.push({ bombed, extra: !!msg.extra, bcd: msg.entities.find(e => e.id === 'p1').bcd, fx });
+      }
+      bombed = false;
+    }
+    const starts = records.filter(r => r.ev === 'turn.start' && r.pid === 'p1');
+    assert(starts.length >= nTurns, 'turn.start records');
+    return { m, turns: turns.slice(0, nTurns), starts: starts.slice(0, nTurns) };
+  };
+  // 規則：冷卻 0 = 回合開始轟炸、冷卻設成 N；冷卻中 = 不轟炸、減 1（回合開始的 fx / 紀錄帶減完的值）
+  const check = ({ turns, starts }, tag) => {
+    let c = 0;
+    turns.forEach((t, k) => {
+      const fire = c === 0;
+      c = fire ? cd : c - 1;
+      const want = fire ? [] : [{ type: 'bombardCd', id: 'p1', cd: c }];
+      assert(t.bombed === fire && t.bcd === c, `${tag} turn ${k}${t.extra ? '+' : ''}: bombed ${t.bombed} bcd ${t.bcd}, want ${fire} / ${c}`);
+      assert(JSON.stringify(t.fx) === JSON.stringify(want), `${tag} turn ${k}: fx ${JSON.stringify(t.fx)}`);
+      const logged = (starts[k].fx || []).filter(f => f.type === 'bombardCd');
+      assert(JSON.stringify(logged) === JSON.stringify(want), `${tag} turn ${k}: turn.start logs ${JSON.stringify(logged)}`);
+    });
+  };
+  const only = play({ bombard: 1 }, 2 * (cd + 1) + 1);
+  check(only, 'bombard');
+  const pattern = only.turns.map(t => (t.bombed ? 'B' : '-')).join('');
+  assert(pattern === ('B' + '-'.repeat(cd)).repeat(2) + 'B', `fires, skips ${cd}, fires again: ${pattern}`);
+  // 時間扭曲的額外回合也是自己的回合：一樣減冷卻（冷卻好了也會轟炸）
+  const both = play({ bombard: 1, extraTurn: 1 }, 2 * (cd + 1) + 2);
+  check(both, 'with extraTurn');
+  assert(both.turns[1].extra && (cd === 0 || !both.turns[1].bombed), 'the extra turn right after the first bombard counts as a cooldown turn');
+  // 狀態列
+  const p1 = only.m.byId('p1');
+  const label = () => effectChips(p1, { match: only.m }).map(c => c.label).filter(l => l.startsWith('無差別轟炸'));
+  p1.bombardCd = 2;
+  assert(label().join() === '無差別轟炸 冷卻 2', 'chip on cooldown: ' + label());
+  // 重連的快照帶冷卻，套得回去
+  const copy = matchWith({ bombard: 1 });
+  copy.applyEntities(only.m.snapshot().entities);
+  assert(copy.byId('p1').bombardCd === 2, 'snapshot carries the cooldown: ' + copy.byId('p1').bombardCd);
+  p1.bombardCd = 0;
+  assert(label().join() === '無差別轟炸 就緒', 'chip ready: ' + label());
+  assert(!(() => { const m0 = matchWith({}); return effectChips(m0.players[0], { match: m0 }); })().some(c => c.label.startsWith('無差別轟炸')), 'no chip without the card');
+  // 下一關從 0 開始：冷卻不跟著冒險帶走（就算 carry 裡有）
+  const next = new Match({ levelId: 'level1', players: mkPlayers(1), seed: 2, carry: { p1: { bombardCd: 2 } } });
+  assert(next.byId('p1').bombardCd === 0, 'new stage starts ready');
+  return { pattern, withExtra: both.turns.map(t => `${t.bombed ? 'B' : '-'}${t.extra ? '+' : ''}`).join(' ') };
 });
 
 test('狂熱：每過 10 輪，所有角色（含敵人、誤傷、燃燒）的傷害 +50%，會疊加；裁判每輪更新、每關重算', () => {

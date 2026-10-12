@@ -6,7 +6,7 @@ import { cave } from './cave.js';
 import { cyclops } from './cyclops.js';
 
 // 地圖畫面（見 GLOSSARY.md）：某一張地圖特有的畫面與演出——Boss 出招的動畫、王與招式的畫法、場景、HUD 上的提示、選曲、死亡特效。
-// 跟地圖機制（shared/mechanics/）成對：機制決定發生什麼，畫面決定怎麼演出來。照 match.mechanic.type 選（一般小關 = plain，什麼都沒有）。
+// 跟地圖機制（shared/maps/mechanics/）成對：機制決定發生什麼，畫面決定怎麼演出來。照 match.mechanic.type 選（一般小關 = plain，什麼都沒有）。
 // render.js / game-view.js 只在下面這些位置呼叫掛勾，不知道有哪些地圖；這裡的檔案也不碰 GameView 本身（不 import 音效 / 畫面模組），
 // 所以測試可以直接在 Node 裡載入。不分地圖的東西不放這裡：主題背景（backgrounds.js）、藤蔓、中毒、狙擊手 / 砲兵、武器的畫法。
 //

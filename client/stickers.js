@@ -1,5 +1,5 @@
-import { CONFIG } from '../shared/config.js';
-import { STICKERS, allowSticker } from '../shared/stickers.js';
+import { CONFIG } from '../shared/core/config.js';
+import { STICKERS, allowSticker } from '../shared/social/stickers.js';
 
 // 反應貼圖：右下角一排按鈕，按下去貼圖像彈幕一樣從畫面右邊飄到左邊（所有人都看得到）
 // DOM 疊在 canvas 上（跟著 canvas 縮放），不畫進 canvas，選牌畫面打開時也照樣飄
@@ -80,6 +80,13 @@ export class StickerUi {
     this.pump();
   }
 
+  // 聊天訊息（client/chat.js）：跟貼圖排同一條軌道；伺服器有洗版限制，所以不受排隊上限影響（不丟別人的話）
+  spawnText(from, text) {
+    if (!text) return;
+    this.pending.push({ from, text, at: performance.now() });
+    this.pump();
+  }
+
   pump() {
     if (this.pumpTimer) return;
     const now = performance.now();
@@ -94,17 +101,24 @@ export class StickerUi {
     this.pump();
   }
 
-  launch({ from, sticker: s }) {
+  launch({ from, sticker: s, text }) {
     const { name, color } = this.who(from);
     const item = el('div', 'dm');
     if (from === this.myId) item.classList.add('mine');
-    const img = el('img');
-    img.src = s.src;
-    img.alt = s.label;
     const tag = el('span', 'dm-name');
     tag.textContent = name;
     tag.style.color = color;
-    item.append(img, tag);
+    if (s) {
+      const img = el('img');
+      img.src = s.src;
+      img.alt = s.label;
+      item.append(img, tag);
+    } else {   // 聊天：名字在前、字在後
+      item.classList.add('text');
+      const words = el('span', 'dm-text');
+      words.textContent = text;
+      item.append(tag, words);
+    }
 
     item.style.top = `${LANE_Y * 100}%`;
     this.syncLayer();

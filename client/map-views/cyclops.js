@@ -1,10 +1,10 @@
-import { CONFIG } from '../../shared/config.js';
-import { CYCLOPS_ACTION_NAMES, poundLane } from '../../shared/cyclops.js';
+import { CONFIG } from '../../shared/core/config.js';
+import { CYCLOPS_ACTION_NAMES, poundLane, poundLedge, poundOrigin } from '../../shared/maps/cyclops.js';
 import { cave } from './cave.js';
 
 // 菁英關「地心探險」的地圖畫面：洞穴的部分（火把、照明、掉下來的鐘乳石）沿用 cave.js，
 // 加上獨眼巨人：回合的動畫腳本（照伺服器廣播的招式播）、身體 / 發光的獨眼 / 巨石 / 猛捶衝擊的繪圖、預定猛捶時的警示、倒下的特效。
-// 規則在 shared/cyclops.js；掛勾的說明見 index.js
+// 規則在 shared/maps/cyclops.js；掛勾的說明見 index.js
 const FPS = 60;
 const SKIN = '#b7794a', SKIN_DARK = '#7c4a26', HIDE = '#5b3a1e';
 const SLAM_AT = 0.8;   // 猛捶的預兆播到幾成時拳頭砸下去
@@ -21,11 +21,10 @@ export const cyclops = {
   abortScript(c) { c.state.fx = null; },   // 播到一半丟掉：舉起的手、巨石不要一直留著
   onDeath: onCyclopsDeath,
 
-  // 每一步：洞穴的（閃光、火星）+ 猛捶的衝擊在岩柱上揚起碎石（畫圖只讀狀態，不在畫圖時做這些）
+  // 每一步：洞穴的（閃光、火星）+ 猛捶的衝擊在平台上揚起碎石（畫圖只讀狀態，不在畫圖時做這些）
   update(c, dt) {
     cave.update(c, dt);
-    const lane = laneOf(c);
-    for (const p of c.projectiles) if (p.weapon && p.weapon.id === 'cyclopsShock' && lane && onLedge(lane, p.x)) shockDebris(c, p);
+    for (const p of c.projectiles) if (p.weapon && p.weapon.id === 'cyclopsShock' && laneAt(c, p)) shockDebris(c, p);
   },
 
   // 洞穴的（鐘乳石掉下來、火把點燃、閃光）+ 巨石砸碎
@@ -90,10 +89,11 @@ function* cyclopsTurnScript(c, msg) {
 
 function* cyclopsStepScript(c, b) {
   const match = c.match;
-  const fx = c.state.fx = { action: b.action, t: 0, phase: 'cast', targetId: b.targetId ?? null };
+  const fx = c.state.fx = { action: b.action, t: 0, phase: 'cast', targetId: b.targetId ?? null, ledge: b.ledge ?? null };
   const cast = Math.round(CONFIG.TIMING.bossCast * FPS);
   const target = b.targetId ? match.byId(b.targetId) : null;
   const cy = match.byId('cyclops');
+  const far = b.action === 'pound' && cy ? farLane(c, cy, b) : null;   // 打的是別根平台：衝擊從那根靠他的一端冒出來
   if (b.action === 'pound') c.fx.banner(`獨眼巨人：${CYCLOPS_ACTION_NAMES.pound}！`, '#fdba74');
   else if (b.action === 'throw') c.fx.banner(`獨眼巨人：${CYCLOPS_ACTION_NAMES.throw}${target ? ` → ${target.name}` : ''}！`, '#fca5a5');
   else c.fx.banner(`獨眼巨人${CYCLOPS_ACTION_NAMES.idle}`, '#e9d5ff');
@@ -105,6 +105,7 @@ function* cyclopsStepScript(c, b) {
       c.fx.sound('stomp', { x: cy.x });
       c.fx.particles(cy.x - cy.hw, cy.y, 14, { speed: 200, life: 0.7, size: 3.5, color: '#a8a29e', gravity: 700 });
       c.fx.particles(cy.x + cy.hw, cy.y, 14, { speed: 200, life: 0.7, size: 3.5, color: '#78716c', gravity: 700 });
+      if (far) c.fx.particles(far.ox, far.lane.bottom, 18, { speed: 180, life: 0.7, size: 3.5, color: '#a8a29e', gravity: 700 });
     }
     if (b.action === 'pound' && i > slam && i % 6 === 0) c.fx.shake(5);   // 捶完還在晃，天花板的鐘乳石要掉了
     if (b.action === 'throw' && i === cast - 8 && cy) c.fx.sound('heave', { x: cy.x });
@@ -132,10 +133,25 @@ function onCyclopsDeath(c, e) {
 
 // ---------- 小工具 ----------
 
-function laneOf(c) {
-  return c.match && c.match.level.mechanic && c.match.level.mechanic.ledge ? poundLane(c.match) : null;
+// 衝擊現在跑在哪個平台上（照它的高度與 x 對到 ledges 的哪一條線）；不在任何平台上回傳 null（跑出頭的那一點不畫）
+function laneAt(c, p) {
+  const ledges = c.match && c.match.level.mechanic && c.match.level.mechanic.ledges;
+  if (!ledges) return null;
+  for (let i = 0; i < ledges.length; i++) {
+    const lane = poundLane(c.match, i);
+    if (Math.abs(p.y - lane.y) < 1 && onLedge(lane, p.x)) return lane;
+  }
+  return null;
 }
 const onLedge = (lane, x) => x >= lane.x0 && x <= lane.x1;
+
+// 這一招猛捶打的平台不是巨人自己站的那根：回傳 { lane, ox }（衝擊出發點），是他自己那根回傳 null
+function farLane(c, cy, b) {
+  const ledges = c.match.level.mechanic.ledges;
+  if (!ledges || !Number.isInteger(b.ledge) || !ledges[b.ledge]) return null;
+  const lane = poundLane(c.match, b.ledge);
+  return onLedge(lane, cy.x) ? null : { lane, ox: poundOrigin(lane, cy) };
+}
 
 // 猛捶的衝擊揚起的碎石：每秒 30 顆（照遊戲時間，不照畫面更新次數；update 每一步呼叫）
 function shockDebris(c, p) {
@@ -279,7 +295,8 @@ function drawEyeGlow(ctx, c) {
   ctx.beginPath(); ctx.arc(eye.x + eye.px, eye.y + eye.py, 2.4 * eye.s, 0, Math.PI * 2); ctx.fill();
 }
 
-// 預定猛捶（玩家回合）或正在猛捶的預兆：還在的鐘乳石描紅框、往下畫一條會掉下去的虛線，巨人的岩柱頂面標出衝擊範圍。
+// 預定猛捶（玩家回合）或正在猛捶的預兆：還在的鐘乳石描紅框、往下畫一條會掉下去的虛線，要打的那個平台頂面標出衝擊範圍
+// （預定的 next.ledge；正在捶的照那一招的 ledge）。
 // 畫在遮光上面（暗的地方也看得到）；預兆時閃得比較快
 function drawPoundWarning(ctx, c) {
   const S = c.match.mechState;
@@ -306,7 +323,7 @@ function drawPoundWarning(ctx, c) {
     ctx.beginPath(); ctx.moveTo(s.tip.x, s.tip.y + 4); ctx.lineTo(s.tip.x, y); ctx.stroke();
     ctx.setLineDash([]);
   });
-  const lane = poundLane(c.match);
+  const lane = poundLane(c.match, poundLedge(c.match, casting ? fx : S.next));
   ctx.fillStyle = `rgba(251,146,60,${pulse * 0.35})`;
   ctx.fillRect(lane.x0, lane.top, lane.x1 - lane.x0, lane.bottom - lane.top);
   ctx.strokeStyle = `rgba(251,146,60,${pulse})`;
@@ -346,10 +363,10 @@ function drawBoulder(ctx, p) {
   ctx.restore();
 }
 
-// 猛捶的衝擊：一圈圈往前推的震波（跑到岩柱的盡頭就停：range，見 shared/cyclops.js 的 poundStep）
+// 猛捶的衝擊：一圈圈往前推的震波（跑到平台的盡頭就停：range，見 shared/maps/cyclops.js 的 poundStep）
 function drawShock(ctx, c, p) {
-  const lane = laneOf(c);
-  if (!lane || !onLedge(lane, p.x)) return;
+  const lane = laneAt(c, p);
+  if (!lane) return;
   const dir = p.vx >= 0 ? 1 : -1;
   for (let i = 0; i < p.trail.length; i += 3) {
     const t = p.trail[i], k = i / p.trail.length;

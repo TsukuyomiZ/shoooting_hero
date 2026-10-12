@@ -1,5 +1,5 @@
 // node test/stage-rules.js
-// 關卡規則（shared/stage-rules.js）：從（第幾關、人數、地圖池）＋ 一份設定算出這一關的數字——敵人血量倍率（小關 / 王）、
+// 關卡規則（shared/game/stage-rules.js）：從（第幾關、人數、地圖池）＋ 一份設定算出這一關的數字——敵人血量倍率（小關 / 王）、
 // 敵人傷害倍率、狂熱（幾輪一層、每層幾 %、第幾輪幾層），以及哪幾關是王關；
 // 設定可以換一份（Match / Run 收 config，建場時算一次，不讀也不改全域 CONFIG）；
 // 狂熱只有一個主人（match.fever 由 match.round 推出，不能直接寫；裁判的輪數就是 match.round）；
@@ -7,11 +7,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CONFIG } from '../shared/config.js';
-import { Match } from '../shared/match.js';
-import { Referee } from '../shared/referee.js';
-import { Run } from '../shared/run.js';
-import { stageRules, isBossStage } from '../shared/stage-rules.js';
+import { CONFIG } from '../shared/core/config.js';
+import { Match } from '../shared/game/match.js';
+import { Referee } from '../shared/game/referee.js';
+import { Run } from '../shared/game/run.js';
+import { stageRules, isBossStage } from '../shared/game/stage-rules.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const results = [];
@@ -136,20 +136,20 @@ const scan = (files, re) => files.flatMap(f => codeOf(read(f)).split('\n').map((
 const show = (hits) => hits.map(([f, n, l]) => `        ${f}:${n}: ${l.trim()}`).join('\n');
 const ALL = [...jsFiles('shared'), ...jsFiles('client'), ...jsFiles('server')];
 
-test('架構檢查：關卡規則的設定（FEVER、RUN.bossStages / enemyHpPerStage / bossHpPerStage、ENEMY_HP_PER_EXTRA_PLAYER、ENEMY.damageMult / damageMultLate / lateFromStage）只有 shared/stage-rules.js 讀', () => {
+test('架構檢查：關卡規則的設定（FEVER、RUN.bossStages / enemyHpPerStage / bossHpPerStage、ENEMY_HP_PER_EXTRA_PLAYER、ENEMY.damageMult / damageMultLate / lateFromStage）只有 shared/game/stage-rules.js 讀', () => {
   const RULE_CONFIG = /\bFEVER\b|\bbossStages\b|\beliteStages\b|\benemyHpPerStage\b|\bbossHpPerStage\b|\bENEMY_HP_PER_EXTRA_PLAYER\b|\bdamageMultLate\b|\blateFromStage\b|\bENEMY\.damageMult\b/;
   const caught = ['CONFIG.FEVER.damagePct', 'CONFIG.RUN.bossStages.includes(s)', 'CONFIG.RUN.eliteStages', 'const { enemyHpPerStage } = CONFIG.RUN;', 'CONFIG.ENEMY.damageMult', 'R.bossHpPerStage', 'x * CONFIG.ENEMY_HP_PER_EXTRA_PLAYER', 'E.lateFromStage'];
   assert(caught.every(s => RULE_CONFIG.test(s)), 'the scan misses: ' + caught.filter(s => !RULE_CONFIG.test(s)));
   assert(!['this.match.fever', "'fever'", 'm.damageMult(p, w)', 'this.rules.enemyDamage', 'CONFIG.ENEMY.hp', 'isBossStage(stage + 1)'].some(s => RULE_CONFIG.test(s)), 'the scan flags ordinary code');
-  const files = ALL.filter(f => f !== 'shared/config.js' && f !== 'shared/stage-rules.js');
+  const files = ALL.filter(f => f !== 'shared/core/config.js' && f !== 'shared/game/stage-rules.js');
   const hits = scan(files, RULE_CONFIG);
-  assert(!hits.length, 'stage-rule config read outside shared/stage-rules.js:\n' + show(hits));
+  assert(!hits.length, 'stage-rule config read outside shared/game/stage-rules.js:\n' + show(hits));
   return { files: files.length };
 });
 
 test('架構檢查：沒有人自己算狂熱或寫 fever（feverAt 只在 stage-rules.js / match.js），客戶端不自己數輪（不留 this.round / view.round）', () => {
   const FEVER_AT = /\bfeverAt\b/;
-  const stray = scan(ALL.filter(f => f !== 'shared/stage-rules.js' && f !== 'shared/match.js'), FEVER_AT);
+  const stray = scan(ALL.filter(f => f !== 'shared/game/stage-rules.js' && f !== 'shared/game/match.js'), FEVER_AT);
   assert(!stray.length, 'feverAt outside stage-rules.js / match.js:\n' + show(stray));
   const WRITE = /\.fever\s*(=(?!=)|\+\+|--|[-+*/]=)/;
   assert(['m.fever = 1;', 'this.match.fever=x', 'match.fever++', 'm.fever += 1'].every(s => WRITE.test(s)) && !['m.fever === 0', 'if (m.fever > 0)', 'const f = this.match.fever;'].some(s => WRITE.test(s)), 'the write scan');

@@ -6,12 +6,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { CONFIG } from '../shared/config.js';
-import { Run } from '../shared/run.js';
-import { Match } from '../shared/match.js';
-import { Referee } from '../shared/referee.js';
-import { validateCards, needsDiscard } from '../shared/cards.js';
-import { logValue } from '../shared/utils.js';
+import { CONFIG } from '../shared/core/config.js';
+import { Run } from '../shared/game/run.js';
+import { Match } from '../shared/game/match.js';
+import { Referee } from '../shared/game/referee.js';
+import { validateCards, needsDiscard } from '../shared/cards/cards.js';
+import { logValue } from '../shared/core/utils.js';
 import { GameLog } from '../server/logger.js';
 import { RoomManager } from '../server/rooms.js';
 import { createServer } from '../server/server.js';
@@ -67,7 +67,7 @@ function advanceUntil(io, pred, maxMs = 600_000) {
   return false;
 }
 
-const CARDS = validateCards(JSON.parse(fs.readFileSync(new URL('../shared/cards.json', import.meta.url), 'utf8'))).cards;
+const CARDS = validateCards(JSON.parse(fs.readFileSync(new URL('../shared/cards/cards.json', import.meta.url), 'utf8'))).cards;
 const BIG = 100_000;
 // 開一關之後把所有人的血拉高，不會被一發打死、也不會因為 config 的血量設定提早結束
 function beefUp(run) {

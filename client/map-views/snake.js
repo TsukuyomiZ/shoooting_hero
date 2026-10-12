@@ -1,6 +1,6 @@
-import { CONFIG } from '../../shared/config.js';
-import { SNAKE_ACTION_NAMES, chargeLane, takeDrops, pickupAlong } from '../../shared/snake-boss.js';
-import { clamp } from '../../shared/utils.js';
+import { CONFIG } from '../../shared/core/config.js';
+import { SNAKE_ACTION_NAMES, chargeLane, takeDrops, pickupAlong } from '../../shared/maps/snake-boss.js';
+import { clamp } from '../../shared/core/utils.js';
 
 // 叢林巨蟒的地圖畫面：巨蟒回合的動畫腳本（照伺服器廣播的招式播）、巨蟒倒下的特效、蛇血（掉出來、喝到、自己走過去先喝），
 // 與巨蟒 / 藤蔓 / 蛇血 / 招式的繪圖。掛勾的說明見 index.js
@@ -162,7 +162,7 @@ function addDrops(c, drops) {
   showDrops(c, drops, takeDrops(c.match, drops));
 }
 
-// 掉出來的蛇血的畫面：items = 這次新加進場上的（重播時由 shared/volley.js 加），用 0.7 秒的拋物線飛到落點；
+// 掉出來的蛇血的畫面：items = 這次新加進場上的（重播時由 shared/physics/volley.js 加），用 0.7 秒的拋物線飛到落點；
 // 好幾瓶時照 drops 裡的順序一瓶一瓶飛出來
 function showDrops(c, drops, items) {
   const match = c.match;

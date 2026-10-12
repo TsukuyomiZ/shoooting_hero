@@ -1,5 +1,5 @@
-import { CONFIG } from '../../shared/config.js';
-import { BEE_ACTION_NAMES } from '../../shared/hive.js';
+import { CONFIG } from '../../shared/core/config.js';
+import { BEE_ACTION_NAMES } from '../../shared/maps/hive.js';
 import { text } from '../draw.js';
 
 // 小關「小心擊發」的地圖畫面：蜜蜂回合的動畫腳本（照伺服器廣播的招式播）、蜜蜂飛出蜂巢、蜂巢 / 蜜蜂倒下，
@@ -122,7 +122,7 @@ function* beeStepScript(c, bee, b) {
   }
 }
 
-// 剛飛出來的蜜蜂（已經建好的角色；重播時由 shared/volley.js 建）：從蜂巢口噴出一點蜂蜜色的粒子、飄字、嗡嗡聲
+// 剛飛出來的蜜蜂（已經建好的角色；重播時由 shared/physics/volley.js 建）：從蜂巢口噴出一點蜂蜜色的粒子、飄字、嗡嗡聲
 function showBees(c, bees) {
   if (!bees || !bees.length) return;
   const hive = c.match.byId('hive');

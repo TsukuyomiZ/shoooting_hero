@@ -6,8 +6,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createServer } from '../server/server.js';
-import { STICKER_LIMIT } from '../shared/stickers.js';
-import { VERSION, versionLabel } from '../shared/version.js';
+import { STICKER_LIMIT } from '../shared/social/stickers.js';
+import { CHAT_LIMIT, CHAT_MAX } from '../shared/social/chat.js';
+import { VERSION, versionLabel } from '../shared/core/version.js';
 
 const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sh-e2e-log-'));
 const srv = await createServer({ port: 0, host: '127.0.0.1', logDir });
@@ -128,6 +129,19 @@ try {
   assert(gotB.length === STICKER_LIMIT.count && gotB.every(m => m.from === a.id && m.id === 'lol'), `sticker relay / limit: ${JSON.stringify(gotB)}`);
   assert(!a.log.some(m => m.t === 'sticker' && m.from === a.id), 'sender should not get its own sticker echoed');
 
+  // 聊天：整理過（怪字元換空白、截斷）再轉給其他人、不回給自己；空的丟掉；洗版超過上限的丟掉
+  const mkC = b.mark();
+  a.send({ t: 'chat', text: '  \n ' });
+  a.send({ t: 'chat', text: '衝啊\u202e！' + '啊'.repeat(50) });
+  for (let i = 0; i < CHAT_LIMIT.count + 1; i++) a.send({ t: 'chat', text: 'gg' });
+  b.send({ t: 'chat', text: '收到' });   // 乙的訊息當「前面的都處理完了」的記號
+  await a.waitFrom(0, m => m.t === 'chat' && m.from === b.id && m.text === '收到', 'chat from 乙');
+  await new Promise(r => setTimeout(r, 100));
+  const chatB = b.log.slice(mkC).filter(m => m.t === 'chat');
+  assert(chatB.length === CHAT_LIMIT.count && chatB.every(m => m.from === a.id), `chat relay / limit: ${JSON.stringify(chatB)}`);
+  assert(chatB[0].text === ('衝啊 ！' + '啊'.repeat(50)).slice(0, CHAT_MAX) && chatB.slice(1).every(m => m.text === 'gg'), `chat cleaned: ${JSON.stringify(chatB)}`);
+  assert(!a.log.some(m => m.t === 'chat' && m.from === a.id), 'sender should not get its own chat echoed');
+
   // 甲開火，兩邊收到一模一樣的 shot
   a.send({ t: 'fire', weapon: 'cannon', angle: 45, power: 50, x: meA.x + 8, y: meA.y, facing: 1, stamina: 190 });
   const shotA = await a.waitFrom(0, m => m.t === 'shot', 'shot (甲)');
@@ -179,6 +193,7 @@ try {
   assert(find('turn.start', l => l.room === code && l.actor === a.id && l.ai === false), 'turn.start logged');
   assert(find('move', l => l.room === code && l.pid === a.id), 'move logged');
   assert(find('sticker', l => l.pid === a.id && l.sticker === 'lol') && find('sticker.drop', l => l.reason === 'unknown') && find('sticker.drop', l => l.reason === 'spam'), 'stickers logged');
+  assert(find('chat', l => l.pid === a.id && l.text === 'gg') && find('chat.drop', l => l.reason === 'empty') && find('chat.drop', l => l.reason === 'spam'), 'chat logged');
   assert(find('fire', l => l.room === code && l.pid === a.id && l.weapon === 'cannon' && l.angle === 45) && find('shot', l => l.room === code && l.pid === a.id), 'fire + result logged');
   assert(find('player.disconnect', l => l.room === code && l.pid === b.id && l.inGame), 'disconnect logged');
   assert(find('turn.takeover', l => l.pid === b.id) && find('ai.turn', l => l.actor === b.id && l.takeover), 'AI takeover logged');

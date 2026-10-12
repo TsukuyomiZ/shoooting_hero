@@ -1,7 +1,7 @@
 // 音效：全部用 Web Audio 即時合成（不用音檔），走 audio.js 的「音效」匯流排（設定面板調音量）。
 // sfx.play(名稱, { x, vol, ...參數 })：x = 發出聲音的世界座標（做左右聲道），vol = 這一聲的音量倍率
 // 要調哪個聲音就改底下 SOUNDS 裡那一條；GAP = 同一種聲音最短間隔（同一幀好幾顆砲彈爆炸只響一次）
-import { CONFIG } from '../shared/config.js';
+import { CONFIG } from '../shared/core/config.js';
 import { audio } from './audio.js';
 
 const GAP = { step: 0.06, explode: 0.05, hurt: 0.06, splash: 0.15, plop: 0.05, buzz: 0.2, yourTurn: 0.5, thunk: 0.05, fizzle: 0.1 };

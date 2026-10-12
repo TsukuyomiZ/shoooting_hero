@@ -3,16 +3,16 @@
 // 新武器飛鏢（綠，一回合三次）與高壓水炮（白，射程 300、擊退強、有後座力）。
 // 血量一律自己設（不受 config 影響），武器數值照 config 現在的設定算；裁判的飛鏢回合流程在別的測試
 import fs from 'node:fs';
-import { CONFIG } from '../shared/config.js';
-import { Match } from '../shared/match.js';
-import { Entity } from '../shared/entities.js';
-import { Rng } from '../shared/rng.js';
-import { planShot } from '../shared/ai.js';
-import { validateCards, baseStats, derivePlayerStats } from '../shared/cards.js';
-import { replayVolley } from '../shared/volley.js';
+import { CONFIG } from '../shared/core/config.js';
+import { Match } from '../shared/game/match.js';
+import { Entity } from '../shared/physics/entities.js';
+import { Rng } from '../shared/core/rng.js';
+import { planShot } from '../shared/ai/ai.js';
+import { validateCards, baseStats, derivePlayerStats } from '../shared/cards/cards.js';
+import { replayVolley } from '../shared/physics/volley.js';
 import {
   isEquippable, launchVelocity, shotRange, makeProjectile, advanceProjectile, simulateShot, aimPreview, applyRecoil, blastRadius,
-} from '../shared/weapons.js';
+} from '../shared/physics/weapons.js';
 
 const results = [];
 function test(name, fn) {
@@ -543,7 +543,7 @@ test('AI 代打一回合只射一發：有拋射武器時不拿飛鏢只丟一�
 test('牌庫：伺服器的載入流程讀 cards.json 沒有警告；飛鏢（綠）、高壓水炮（白）兩張武器牌，說明的數字跟 config 一致', () => {
   assert(loaderOut.warns.length === 0, 'loader warnings: ' + loaderOut.warns.join('; '));
   assert(Array.isArray(loaded) && loaded.length > 0 && loaderOut.logs.some(l => l.includes(String(loaded.length))), 'loaded: ' + loaderOut.logs.join('; '));
-  const raw = JSON.parse(fs.readFileSync(new URL('../shared/cards.json', import.meta.url), 'utf8'));
+  const raw = JSON.parse(fs.readFileSync(new URL('../shared/cards/cards.json', import.meta.url), 'utf8'));
   const { warnings } = validateCards(raw);
   assert(warnings.length === 0, warnings.join('; '));
   const byId = (id) => loaded.find(c => c.id === id);
@@ -560,7 +560,7 @@ test('牌庫：伺服器的載入流程讀 cards.json 沒有警告；飛鏢（�
 
 // ---------- 重播 ----------
 
-test('重播：高壓水炮的後座力、迴力鏢去回穿透，客戶端照事件重播（shared/volley.js）跟伺服器位元級一致', () => {
+test('重播：高壓水炮的後座力、迴力鏢去回穿透，客戶端照事件重播（shared/physics/volley.js）跟伺服器位元級一致', () => {
   const cases = {
     waterCannon: (m) => { placeAt(m, m.enemies[0], m.players[0].x + 150); placeAt(m, m.enemies[1], m.players[0].x + 175); return [aimAt(m.players[0], m.enemies[0]), 100]; },
     waterCannonLeft: (m) => { placeAt(m, m.players[0], 250); return [180, 100]; },

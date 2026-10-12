@@ -2,19 +2,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
-import { CONFIG } from '../shared/config.js';
-import { Run } from '../shared/run.js';
-import { validateCards } from '../shared/cards.js';
-import { isSticker, allowSticker } from '../shared/stickers.js';
-import { logValue, logWanted } from '../shared/utils.js';
+import { CONFIG } from '../shared/core/config.js';
+import { Run } from '../shared/game/run.js';
+import { validateCards } from '../shared/cards/cards.js';
+import { isSticker, allowSticker } from '../shared/social/stickers.js';
+import { CHAT_MAX, cleanChat, allowChat } from '../shared/social/chat.js';
+import { logValue, logWanted } from '../shared/core/utils.js';
 import { NO_LOG } from './logger.js';
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // 去掉容易看錯的 I O 0 1
 const ROOM_IDLE_MS = 60_000;                              // 全員斷線多久後回收房間
 // 雜訊類紀錄（亂送 / 被擋下的訊息）：正常玩不太會有，限制額度免得被亂送的客戶端灌爆（見 RoomManager.record）
-const NOISE_EVENTS = new Set(['msg.bad', 'msg.ignored', 'action.ignored', 'move.reject', 'sticker.drop', 'msg.unlogged']);
+const NOISE_EVENTS = new Set(['msg.bad', 'msg.ignored', 'action.ignored', 'move.reject', 'sticker.drop', 'chat.drop', 'msg.unlogged']);
 const NOISE_LIMIT = { windowMs: 10_000, count: 30 };
-const CARDS_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../shared/cards.json');
+const CARDS_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../shared/cards/cards.json');
 
 const makeId = () => randomBytes(9).toString('base64url');
 // 客戶端送來的字串欄位：物件 / 陣列一律當成空字串（亂送 {"toString":0} 的話 String() 會丟錯），其他照 String()
@@ -31,7 +32,7 @@ export function loadCards() {
   try {
     raw = JSON.parse(fs.readFileSync(CARDS_PATH, 'utf8'));
   } catch (err) {
-    console.error('[cards] 讀不到或解析失敗 shared/cards.json：', err.message);
+    console.error('[cards] 讀不到或解析失敗 shared/cards/cards.json：', err.message);
     return [];
   }
   const { cards, warnings } = validateCards(raw);
@@ -294,6 +295,15 @@ class Room {
       if (why) return this.record('sticker.drop', { pid: client.id, name: m.name, sticker: logValue(msg.id), reason: why });
       this.record('sticker', { pid: client.id, name: m.name, sticker: msg.id });
       this.broadcast({ t: 'sticker', from: client.id, id: msg.id }, client.id);
+      return;
+    }
+    // 聊天：跟貼圖一樣任何時候都能送、送的人自己先播；轉出去的是整理過的字
+    if (msg.t === 'chat') {
+      const text = cleanChat(msg.text);
+      const why = !text ? 'empty' : !allowChat(m.chatTimes ||= [], Date.now()) ? 'spam' : null;
+      if (why) return this.record('chat.drop', { pid: client.id, name: m.name, text: logValue(msg.text, CHAT_MAX), reason: why });
+      this.record('chat', { pid: client.id, name: m.name, text });
+      this.broadcast({ t: 'chat', from: client.id, text }, client.id);
       return;
     }
     if (this.started) {
