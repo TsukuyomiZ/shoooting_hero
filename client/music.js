@@ -9,11 +9,16 @@ import { snakeHiss } from './sfx.js';
 const TRACKS = {
   normal: { src: 'assets/music/canyon-echoes.mp3', volume: 0.7 },   // 小關
   fever: { src: 'assets/music/canyon-fever.mp3', volume: 0.7 },     // 小關狂熱生效後
+  // 洞穴地圖（岩穴、地心探險）的一般版 / 狂熱版、巨蠍巢穴的 Boss 曲：2026-10-12 使用者用 Suno 做的（後兩首 Cover 一般版）
+  cave: { src: 'assets/music/sneaky-desert-adventure.mp3', volume: 0.7 },
+  caveFever: { src: 'assets/music/sneaky-desert-fever.mp3', volume: 0.7 },
+  scorpion: { src: 'assets/music/sneaky-desert-scorpion.mp3', volume: 0.7 },
   tree: { src: 'assets/music/guardian-of-the-canopy.mp3', volume: 0.7 },   // 古樹之庭（使用者選原曲，不疊樹葉聲；要的話加 leaves: 1）
   snake: { src: 'assets/music/savage-jungle-menace.mp3', volume: 0.7, intro: 'hiss' },   // 叢林巨蟒
 };
 const HISS = { at: 0.6, vol: 0.25, musicAt: 1.9, musicFade: 1.5, prevFade: 0.8 };   // 哈氣在第幾秒、多大聲；音樂第幾秒開始、淡入幾秒；前一首幾秒收掉
-const PRELOAD = { normal: ['fever'], fever: ['normal'] };   // 放這首時先把哪幾首解碼起來（狂熱一來就能馬上換）；其他曲子用到才載，不佔記憶體
+// 放這首時先把哪幾首解碼起來（狂熱一來就能馬上換）；其他曲子用到才載，不佔記憶體
+const PRELOAD = { normal: ['fever'], fever: ['normal'], cave: ['caveFever'], caveFever: ['cave'] };
 const FADE = 2;                    // 換曲 / 停止的淡入淡出秒數
 
 export class Music {

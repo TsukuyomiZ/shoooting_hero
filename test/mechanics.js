@@ -33,7 +33,7 @@ const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion fai
 const J = JSON.stringify;
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
 const HOOKS = ['build', 'ready', 'cascade', 'moved', 'turnStart', 'turnEnd', 'roundStart', 'attackMult', 'struck', 'passed', 'absorbHit', 'eventExtras', 'replayEvent', 'aiTurn', 'snapshot', 'restore'];
-const WANT = { treeGarden: 'tree', jungleSerpent: 'snake', beehive: 'hive', cave: 'cave', depths: 'cyclops' };
+const WANT = { treeGarden: 'tree', jungleSerpent: 'snake', beehive: 'hive', cave: 'cave', depths: 'cyclops', scorpionDen: 'scorpion' };
 // 每個機制的狀態（match.mechState）的欄位：跟搬進來之前的 match.tree / snake / hive 一樣，巨蟒多了場上的蛇血（items，原本的 match.items）
 const STATE_KEYS = {
   tree: ['def', 'hpScale', 'minions', 'seq', 'next'],
@@ -41,6 +41,7 @@ const STATE_KEYS = {
   hive: ['def', 'hpScale', 'bees', 'seq', 'fresh'],
   cave: ['def', 'lit', 'fallen'],
   cyclops: ['def', 'lit', 'fallen', 'next'],
+  scorpion: ['def', 'lit', 'fallen', 'windy', 'hole', 'facing', 'out', 'stunned'],
 };
 
 // 一個關卡暫時加進 LEVELS，建 Match 看會不會丟錯
@@ -56,7 +57,7 @@ function buildError(level) {
   }
 }
 
-test('每張地圖拿到對的機制：古樹之庭 / 叢林巨蟒 / 小心擊發 / 岩穴各自一個，其他都是 plain；狀態只有那一個機制建（match.mechState，一般小關 = null）', () => {
+test('每張地圖拿到對的機制：古樹之庭 / 叢林巨蟒 / 小心擊發 / 岩穴 / 地心探險 / 巨蠍巢穴各自一個，其他都是 plain；狀態只有那一個機制建（match.mechState，一般小關 = null）', () => {
   const got = {};
   for (const [id, level] of Object.entries(LEVELS)) {
     const mech = mechanicFor(level, id);

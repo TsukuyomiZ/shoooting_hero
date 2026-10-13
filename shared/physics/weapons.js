@@ -53,9 +53,10 @@ export function blastRadius(owner, weapon) {
   return weapon.radius * Math.max(0.2, 1 + pct / 100);
 }
 
-// 這顆飛行物撞不撞得到 e（不看位置）：倒下的、已經穿透過 / 不會再撞到的（p.ignore）、自己人的子彈會穿過去的都不算
+// 這顆飛行物撞不撞得到 e（不看位置）：倒下的、碰不到的（躲起來的，見 Entity.intangible）、已經穿透過 / 不會再撞到的（p.ignore）、
+// 自己人的子彈會穿過去的都不算
 function canHit(p, e) {
-  if (!e.alive || p.ignore.has(e) || (p.passAllies && e !== p.owner && e.team === p.owner.team)) return false;
+  if (!e.alive || e.intangible || p.ignore.has(e) || (p.passAllies && e !== p.owner && e.team === p.owner.team)) return false;
   if (e.allyPass && p.owner && e !== p.owner && e.team === p.owner.team) return false;   // 蜂巢、蜜蜂：自己人的子彈穿過去
   return true;
 }

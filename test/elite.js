@@ -638,7 +638,7 @@ globalThis.document ??= { addEventListener() {}, hidden: false, createElement: f
 globalThis.localStorage ??= { getItem: () => null, setItem() {} };
 const { GameView } = await import('../client/game-view.js');
 
-await test('真的 GameView：地心探險從開場播到巨人猛捶與丟巨石（全員 AI 代打；每幀 update + render，含遮光）：客戶端的地形、鐘乳石、下一招跟伺服器一樣；菁英關的橫幅與音樂', () => base(() => {
+await test('真的 GameView：地心探險從開場播到巨人猛捶與丟巨石（全員 AI 代打；每幀 update + render，含遮光）：客戶端的地形、鐘乳石、下一招跟伺服器一樣；菁英關的橫幅與音樂（洞穴的曲子）', () => base(() => {
   const players = mkPlayers(2);
   const m = new Match({ levelId: 'depths', players, seed: 9, stage: 3 });
   for (const p of m.players) { p.hp = p.maxHp = 3000; }
@@ -684,7 +684,7 @@ await test('真的 GameView：地心探險從開場播到巨人猛捶與丟巨�
   assert(Buffer.compare(Buffer.from(m.terrain.mask), Buffer.from(view.match.terrain.mask)) === 0, 'client terrain = server');
   assert(J(view.match.mechState.fallen) === J(m.mechState.fallen) && view.match.terrain.fallen.size === m.terrain.fallen.size, 'fallen synced');
   assert(J(view.match.mechState.next) === J(m.mechState.next), 'next synced: ' + J([view.match.mechState.next, m.mechState.next]));
-  assert(tracks.filter(Boolean).every(t => t === 'normal' || t === 'fever') && tracks.some(Boolean), 'elite plays the small-stage music: ' + [...new Set(tracks)]);
+  assert(tracks.filter(Boolean).every(t => t === 'cave' || t === 'caveFever') && tracks.includes('cave'), 'elite plays the cave music (cave fever version when fever kicks in): ' + [...new Set(tracks)]);
   return { actions: [...seen], introHeld: +introGone.toFixed(2), time: Math.round(view.time) };
 }));
 

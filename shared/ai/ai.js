@@ -50,7 +50,7 @@ function targeting(world, shooter, weapons) {
   // 已經閉上的古樹之口不用再打（張著的嘴「血量」是 1，七成機率會被當成最好打的目標，等於 AI 會優先把嘴打閉）；
   // 蜂巢不打（打一下就放出一隻蜜蜂，斷線代打的玩家去戳它只會害到隊伍）
   const avoid = (e) => e.kind === 'hive';
-  const targets = world.entities.filter(e => e.alive && e.team !== shooter.team && !(e.closeOnHit && e.closedTurns > 0) && !avoid(e));
+  const targets = world.entities.filter(e => e.alive && !e.intangible && e.team !== shooter.team && !(e.closeOnHit && e.closedTurns > 0) && !avoid(e));
   if (!targets.length) return null;
   const arcId = ARC_PREFERENCE.find(id => weapons.includes(id));
   // AI 一回合只射一發：有拋射武器時不拿一回合可以射好幾次的武器（飛鏢）只丟一支

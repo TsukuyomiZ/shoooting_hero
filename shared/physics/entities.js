@@ -32,6 +32,8 @@ export class Entity {
     this.optional = !!o.optional;  // 打不打都可以：全隊只剩這種敵人也算過關（蜂巢、蜜蜂）
     this.allyPass = !!o.allyPass;  // 自己人的子彈會穿過它、也不擋自己人的視線（蜂巢、蜜蜂）
     this.noKill = !!o.noKill;   // 打倒它不算擊殺（蜂巢）
+    // 碰不到：子彈穿過去、爆炸波及不到、AI 不瞄它（躲在洞穴深處的洞穴巨蠍）。由地圖機制照它的狀態設定（兩邊各自推，不同步）
+    this.intangible = !!o.intangible;
     this.waitTurns = o.waitTurns | 0;   // 蜜蜂：還要待機幾個自己的回合才開始衝（見 hive.js）
     // 判定形狀：預設是矩形；'ellipse' = 內切在矩形裡的橢圓（叢林巨蟒的頭），子彈命中與爆炸距離都照橢圓算
     this.shape = o.shape || null;

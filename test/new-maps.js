@@ -109,12 +109,12 @@ function assertReplayMatches(cm, shot, label) {
 
 // ---------------- 地圖池 ----------------
 
-test('三張新地圖都在一般地圖池（腹背受敵 / 大亂鬥 / 小心擊發），Boss 池不變', () => {
+test('三張新地圖都在一般地圖池（腹背受敵 / 大亂鬥 / 小心擊發），Boss 池是古樹之庭 / 叢林巨蟒 / 巨蠍巢穴', () => {
   const normal = levelsInPool('normal');
   for (const [id, name] of [['flanked', '腹背受敵'], ['brawl', '大亂鬥'], ['beehive', '小心擊發']]) {
     assert(normal.includes(id) && LEVELS[id].name === name, `${id} ${LEVELS[id] && LEVELS[id].name}`);
   }
-  assert(levelsInPool('boss').join() === 'treeGarden,jungleSerpent', 'boss pool ' + levelsInPool('boss'));
+  assert(levelsInPool('boss').join() === 'treeGarden,jungleSerpent,scorpionDen', 'boss pool ' + levelsInPool('boss'));
   return { normal };
 });
 

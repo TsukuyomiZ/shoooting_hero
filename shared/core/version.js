@@ -6,7 +6,7 @@
 //   2. 在 CHANGELOG 最上面加一筆同版本號的紀錄（還沒改版前的改動，就加在最上面那一筆裡）
 //   3. package.json 的 version 跟著改（1.2 BETA → "1.2.0-beta"、正式版 1.2 → "1.2.0"）
 // test/version.js 會檢查這三個地方對得上。
-export const VERSION = { channel: 'BETA', number: '1.3' };
+export const VERSION = { channel: 'BETA', number: '1.4' };
 
 // 每一筆改動的種類（面板上的標籤，照這個順序列）
 export const CHANGE_TYPES = [
@@ -17,6 +17,17 @@ export const CHANGE_TYPES = [
 
 // 版本履歷：新的在最上面。每一筆 { version, channel, date, title, new: [...], change: [...], fix: [...] }，沒有的種類可以省略
 export const CHANGELOG = [
+  {
+    version: '1.4', channel: 'BETA', date: '2026-10-13',
+    title: '新 Boss「洞穴巨蠍」與洞穴的背景音樂',
+    new: [
+      '新 Boss 關「巨蠍巢穴」：洞穴巨蠍躲在三個洞裡，只露出發紅的雙眼',
+      '巨蠍有巨鉗、背甲、毒針三個部位，每擊破一個就少動一次，三個都擊破就打倒',
+      '點亮巨蠍那個洞旁的火把會把牠逼出來暈眩一回合，醒來才出招、鑽到別的洞',
+      '巨蠍巢穴多人時，每一輪開始颳起強風，把火把全部吹熄',
+      '洞穴地圖（岩穴、地心探險）有自己的背景音樂與狂熱版，洞穴巨蠍有專屬的 Boss 曲',
+    ],
+  },
   {
     version: '1.3', channel: 'BETA', date: '2026-10-12',
     title: '敵人會走動、遊戲內聊天與會燒完的火把',

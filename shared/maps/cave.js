@@ -7,13 +7,14 @@ import { clamp } from '../core/utils.js';
 // - 鐘乳石：天花板垂下來的地形（level.stalactites，遮罩值 STALACTITE，見 terrain.js）。擋子彈、炸不壞；
 //   被任何一方的飛行物打到（直擊那一根、或爆炸範圍碰到）就整根掉下來：從遮罩拿掉，變成一顆從尖端開始自由落下的飛行物
 //   （WEAPONS.stalactite，事件的 adds，見 shared/physics/volley.js），砸到第一個角色（傷害算打下它的人的攻擊）或落地就碎掉
-// - 火把：level.mechanic.torches = [{ x, y（底部，插在地上 / 平台上）, lit（一開始就亮著）, faint（光很微弱）}]。
+// - 火把：level.mechanic.torches = [{ x, y（底部，插在地上 / 平台上）, lit（一開始就亮著）, faint（光很微弱）, light（這支的光圈半徑，沒寫 = CAVE.torchLight）}]。
 //   玩家方的攻擊打在火把旁邊（離火把 CAVE.torchReach px 內，爆炸的話再加上爆炸半徑）、或玩家自己走過去碰到，就點燃。
 //   還亮著但已經變暗的也一樣：隨時都能補回最亮（2026-10-08 使用者：「隨時都能補滿，都沒被擊中才會慢慢熄掉」）。
 //   火把會燒完：點燃 / 補滿的那一輪亮度 CAVE.torchRounds（3，最亮），之後每一輪開始暗一格（3 → 2 → 1），
 //   一直沒人去點就 3 輪後熄滅（0）。一開始就亮著的火把算第 1 輪點燃的。
 //   亮度不另外存：狀態記的是每支火把「第幾輪點燃的」，亮度照現在的輪數（match.round）推出來（torchLevel）——
-//   伺服器、客戶端（照伺服器的訊息設輪數）、重連都算得一樣，變暗 / 熄滅不用另外廣播
+//   伺服器、客戶端（照伺服器的訊息設輪數）、重連都算得一樣，變暗 / 熄滅不用另外廣播。
+//   會颳風的對戰（狀態的 windy = true：巨蠍巢穴的多人）：每一輪開始一陣強風把火把全部吹熄，只有這一輪點燃的亮著
 // - 陰影：不在任何一支亮著的火把的光圈裡（光圈半徑照亮度縮小，torchLight；畫面的照明也照這個畫）。
 //   站在陰影裡的敵人造成的傷害 +CAVE.shadowDamagePct%（地圖機制的 attackMult：看結算傷害那一下他身體中心在不在陰影裡）。
 //   照明是畫面（client/map-views/cave.js）：看不到的地方一樣打得到
@@ -44,10 +45,18 @@ function levelAt(at, round) {
   return clamp(R - Math.max(0, round - at), 0, R);
 }
 
+// 第 i 支火把在第 round 輪的亮度。會颳風的對戰（狀態的 windy，例如巨蠍巢穴的多人，見 scorpion.js 的 buildScorpion）：每一輪開始一陣強風把火把全部吹熄，
+// 只有這一輪點燃的亮著（最亮）
+function levelOf(S, i, round) {
+  const at = S.lit[i];
+  if (S.windy && at !== Math.max(1, round)) return 0;
+  return levelAt(at, round);
+}
+
 // 第 i 支火把現在的亮度（0 = 熄著）：照 match.round 推。不是洞穴的地圖一律 0
 export function torchLevel(match, i) {
   const S = caveState(match);
-  return S ? levelAt(S.lit[i], match.round) : 0;
+  return S ? levelOf(S, i, match.round) : 0;
 }
 
 // 火焰的位置
@@ -61,11 +70,12 @@ export function lightScale(level) {
   return Math.min(1, C.dimLight + (1 - C.dimLight) * (level - 1) / (C.torchRounds - 1));
 }
 
-// 火把 t 在亮度 level 時的光圈：圓心（火焰上方一點）、半徑（CAVE.torchLight，出生點那支微弱的 faintLight，再照亮度縮小）。
-// 陰影的判定（inShadow）與畫面的照明（client/map-views/cave.js）都照這個
+// 火把 t 在亮度 level 時的光圈：圓心（火焰上方一點）、半徑（CAVE.torchLight，出生點那支微弱的 faintLight，
+// 關卡給這支火把自己的 light 就照它，再照亮度縮小）。陰影的判定（inShadow）與畫面的照明（client/map-views/cave.js）都照這個
 export function torchLight(t, level) {
   const f = flameOf(t);
-  return { x: f.x, y: f.y - 6, r: (t.faint ? CONFIG.CAVE.faintLight : CONFIG.CAVE.torchLight) * lightScale(level) };
+  const r = t.faint ? CONFIG.CAVE.faintLight : t.light ?? CONFIG.CAVE.torchLight;
+  return { x: f.x, y: f.y - 6, r: r * lightScale(level) };
 }
 
 // (x, y) 在不在陰影裡：洞穴裡、不在任何一支亮著的火把的光圈裡（光圈的邊上算照得到）。不是洞穴的地圖沒有陰影（false）
@@ -91,8 +101,8 @@ export function roundCave(match, fx) {
   const S = caveState(match);
   if (!S) return;
   S.lit.forEach((at, i) => {
-    const now = levelAt(at, match.round);
-    if (now < levelAt(at, match.round - 1)) fx.push({ type: now > 0 ? 'torchDim' : 'torchOut', torch: i, light: now });
+    const now = levelOf(S, i, match.round);
+    if (now < levelOf(S, i, match.round - 1)) fx.push({ type: now > 0 ? 'torchDim' : 'torchOut', torch: i, light: now });
   });
 }
 

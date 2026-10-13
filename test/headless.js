@@ -536,13 +536,18 @@ function runTenStages(config) {
   assert(picks.length === 9 && picks[0].summary.length === 2, 'picks summary');
   assert(picks.map(p => p.isBoss).join() === [2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => n === 5 || n === 10).join(), 'picks announce the next boss stage');
   const starts = io.take('start');
-  // Boss 關從 Boss 池抽（古樹之庭 / 叢林巨蟒），血量都只吃人數放大
+  // Boss 關從 Boss 池抽（古樹之庭 / 叢林巨蟒 / 巨蠍巢穴），血量都只吃人數放大（巨蠍看背甲）
+  const BOSS_HP = {
+    treeGarden: ['eye', () => CONFIG.TREE_BOSS.eyeHp],
+    jungleSerpent: ['snake', () => CONFIG.SNAKE_BOSS.hp],
+    scorpionDen: ['scorpionShell', () => CONFIG.SCORPION.hp.shell],
+  };
   for (const k of [4, 9]) {
     const bossStart = starts[k];
-    const tree = bossStart.levelId === 'treeGarden';
-    const boss = bossStart.snapshot.entities.find(e => e.id === (tree ? 'eye' : 'snake'));
+    const [bossId, baseHp] = BOSS_HP[bossStart.levelId];
+    const boss = bossStart.snapshot.entities.find(e => e.id === bossId);
     // 第 5 關的王照原本的血量；第 10 關的王再 ×(1 + 0.15 × 5) = ×1.75
-    const bossHp2p = Math.round((tree ? CONFIG.TREE_BOSS.eyeHp : CONFIG.SNAKE_BOSS.hp) * (1 + CONFIG.ENEMY_HP_PER_EXTRA_PLAYER) * (k === 9 ? 1.75 : 1));
+    const bossHp2p = Math.round(baseHp() * (1 + CONFIG.ENEMY_HP_PER_EXTRA_PLAYER) * (k === 9 ? 1.75 : 1));
     assert(bossStart.stageInfo.isBoss && bossStart.stageInfo.stage === k + 1 && bossStart.stageInfo.stageCount === 10, 'boss stage info');
     assert(bossLevels.includes(bossStart.levelId) && boss && boss.hp === bossHp2p && boss.mhp === bossHp2p, `boss stage ${k + 1} hp ${boss && boss.hp} vs ${bossHp2p}`);
     assert(bossStart.carry.p1 && bossStart.carry.p1.maxHp >= CONFIG.PLAYER.hp, 'carry travels to boss stage');

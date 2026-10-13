@@ -253,6 +253,21 @@ export const CONFIG = {
     walk: { speed: 50, edge: 4 },
   },
 
+  // ---- Boss 關：巨蠍巢穴的洞穴巨蠍（規則在 shared/maps/scorpion.js）----
+  // 牆上三個洞，巨蠍躲在其中一個（只露出發紅的雙眼，打不到）。三個部位各有自己的血量（hp，再照 Boss 的倍率放大），
+  // 打到哪個扣哪個；三個都擊破 = 打倒（沒有另外的本體血量）。
+  // 點亮牠那個洞的火把 → 馬上被逼出洞外並暈眩一回合（打得到）；醒來的回合：震擊周圍（WEAPONS.scorpionBurst）+ 還沒擊破的部位各出一招
+  // → 鑽地換到別的洞；躲著的回合只從洞裡射毒刺。擊破一個部位 = 之後每回合少動一次、那一招不會再出（2026-10-12 使用者：永久少一次）。
+  //   巨鉗 → 巨鉗夾擊：夾 pinchReach px 內離鉗子最近的玩家（WEAPONS.scorpionPinch），範圍裡沒人就撲空
+  //   背甲 → 甲殼地鳴：震波沿著地面往兩邊跑到地圖邊（WEAPONS.scorpionQuake），站在岩台上 / 半空中的人不會被打到
+  //   毒針 → 毒刺：每位玩家各射一發（WEAPONS.scorpionSting，直線、穿過地形、上毒）
+  // cast = 動畫秒數：emerge = 被逼出來時從地底升上來；attack = 每一招（震擊、部位出招、暈眩、躲著射毒刺）的預兆；burrow = 鑽地換洞
+  SCORPION: {
+    hp: { shell: 150, pincer: 110, stinger: 80 },
+    pinchReach: 260,
+    cast: { emerge: 0.9, attack: 0.75, burrow: 0.9 },
+  },
+
   // 樹妖：古樹之口召喚出來，每回合慢慢走一段（2026-10-08 起，原本站著不動），投擲長矛
   TREANT: {
     hp: 15,              // 基礎血量（會依人數放大）
@@ -539,6 +554,57 @@ export const CONFIG = {
       passAllies: true,
       shellRadius: 13,
       color: '#78716c',
+    },
+
+    // ---- 巨蠍巢穴：洞穴巨蠍的招式（enemyOnly；規則見 shared/maps/scorpion.js）。數字都是我先抓的（使用者沒指定），再吃敵人傷害倍率 ----
+    scorpionBurst: {      // 震擊周圍（暈眩醒來）：從洞口中間往兩邊衝到洞口邊，打站在那個洞口前面地上的人（往外推）
+      id: 'scorpionBurst', name: '震擊周圍', enemyOnly: true,
+      damage: 20,
+      knockback: 220,
+      radius: 0,
+      gravity: 0,
+      speed: 900,
+      hitRadius: 22,        // 地面上方一個人高（站在岩台上、半空中的打不到）
+      pierce: true, passTerrain: true, passAllies: true,
+      shellRadius: 22,
+      color: '#a16207',
+    },
+    scorpionPinch: {      // 巨鉗夾擊：鉗子直直夾向範圍內最近的玩家，甩得很遠
+      id: 'scorpionPinch', name: '巨鉗夾擊', enemyOnly: true,
+      damage: 24,
+      knockback: 320,
+      radius: 0,
+      gravity: 0,
+      speed: 1200,
+      hitRadius: 14,
+      passTerrain: true, passAllies: true,
+      shellRadius: 14,
+      color: '#7f1d1d',
+    },
+    scorpionQuake: {      // 甲殼地鳴：震波貼著地面往兩邊跑，只打腳踩在地上的人
+      id: 'scorpionQuake', name: '甲殼地鳴', enemyOnly: true,
+      damage: 18,
+      knockback: 160,
+      radius: 0,
+      gravity: 0,
+      speed: 1500,
+      hitRadius: 6,
+      pierce: true, passTerrain: true, passAllies: true,
+      shellRadius: 6,
+      color: '#a8a29e',
+    },
+    scorpionSting: {      // 毒刺：每位玩家各一發，直線、穿過地形、上毒（中毒規則見 POISON，這張圖沒有蛇血）
+      id: 'scorpionSting', name: '毒刺', enemyOnly: true,
+      damage: 12,
+      poison: 2,            // 這張圖沒有蛇血、毒解不掉（POISON.persist）：每回合都會疊，先給少一點
+      knockback: 60,
+      radius: 0,
+      gravity: 0,
+      speed: 1400,
+      hitRadius: 8,
+      passTerrain: true, passAllies: true,
+      shellRadius: 6,
+      color: '#84cc16',
     },
   },
 

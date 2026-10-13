@@ -442,13 +442,13 @@ export class GameView {
     return `狂熱！所有角色的傷害 +${n * this.match.rules.feverPct}%`;
   }
 
-  // 背景音樂：小關放山谷曲，狂熱生效後換狂熱版（跟狂熱橫幅同一刻）；Boss 關由地圖畫面決定（例如古樹之庭、叢林巨蟒）。
-  // 曲目表在 music.js 的 TRACKS
+  // 背景音樂：地圖畫面指定的曲子（例如 Boss 關、洞穴地圖；狂熱版也由它照 match.fever 換）；
+  // 沒指定的小關、菁英關放山谷曲，狂熱生效後換狂熱版（跟狂熱橫幅同一刻）。曲目表在 music.js 的 TRACKS
   musicTrack() {
     if (!this.started || !this.match) return null;
-    // 小關、菁英關（狂熱照小關的規則）：山谷曲 / 狂熱版；Boss 關由地圖畫面決定
-    if (this.match.level.pool !== 'boss') return this.match.fever > 0 ? 'fever' : 'normal';
-    return this.mapView.musicTrack(this.mapCtx);
+    const own = this.mapView.musicTrack(this.mapCtx);
+    if (own || this.match.level.pool === 'boss') return own;
+    return this.match.fever > 0 ? 'fever' : 'normal';
   }
 
   *aiTurnScript(msg) {

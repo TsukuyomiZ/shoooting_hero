@@ -4,6 +4,7 @@ import { snake } from './snake.js';
 import { hive } from './hive.js';
 import { cave } from './cave.js';
 import { cyclops } from './cyclops.js';
+import { scorpion } from './scorpion.js';
 
 // 地圖畫面（見 GLOSSARY.md）：某一張地圖特有的畫面與演出——Boss 出招的動畫、王與招式的畫法、場景、HUD 上的提示、選曲、死亡特效。
 // 跟地圖機制（shared/maps/mechanics/）成對：機制決定發生什麼，畫面決定怎麼演出來。照 match.mechanic.type 選（一般小關 = plain，什麼都沒有）。
@@ -33,7 +34,8 @@ import { cyclops } from './cyclops.js';
 // 每個掛勾都可以不寫（不寫 = 下面的預設）。ctx2d = canvas 的 2D context；e = 角色；hurt = 剛被打到（畫成白色）。
 // 標 ※ 的是當初規劃之外、為了畫面一模一樣（畫圖、飄字、粒子的順序跟改之前相同，見 golden 比對）才多拆出來的：
 //   create(match) → state                 每次 setup：這一場的畫面狀態（c.state）
-//   musicTrack(c) → 曲目 | null           Boss 關的背景音樂（music.js 的 TRACKS；小關、菁英關的曲目由 GameView 決定）
+//   musicTrack(c) → 曲目 | null           這張地圖的背景音樂（music.js 的 TRACKS）：每一刻都會問，小關要換狂熱版就自己看 c.match.fever。
+//                                         null = 小關、菁英關放山谷曲 / 狂熱版（GameView 決定），Boss 關安靜
 //   turnScript(c, msg)                    （generator）aiTurn 帶 boss.steps 的回合：出招的動畫，照伺服器的結果套用
 //   abortScript(c)                        事件腳本播到一半被丟掉（丟錯、setup 換一場）：清掉 turnScript 留下的出招狀態
 //                                         （預兆、蓄力、閉眼…），不然會一直畫著。腳本自己的 finally 不一定跑得到，所以另外通知
@@ -102,7 +104,7 @@ export function defineMapView(adapter) {
   return Object.freeze(v);
 }
 
-const VIEWS = Object.fromEntries([plain, tree, snake, hive, cave, cyclops].map(a => [a.type, defineMapView(a)]));
+const VIEWS = Object.fromEntries([plain, tree, snake, hive, cave, cyclops, scorpion].map(a => [a.type, defineMapView(a)]));
 
 /** 這場（match.mechanic.type）的地圖畫面。沒有對應的畫面 → 丟錯（新的地圖機制要配一個，沒有演出就寫一個空的） */
 export function mapViewFor(match) {

@@ -16,6 +16,21 @@ export function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+// 拱形的洞口（牆上的洞，例如巨蠍巢穴）：h = { x0, x1（洞口左右）, top（洞頂）, bottom（洞底）, lean（洞頂往左右偏多少）}。
+// 只建路徑，填色 / 描邊自己來（裝飾畫洞、洞穴的照明挖出整個洞都照這個形狀）
+export function archPath(ctx, h) {
+  const { x0, x1, top, bottom } = h;
+  const w = x1 - x0, mid = top + (bottom - top) * 0.45;
+  const peak = (x0 + x1) / 2 + (h.lean || 0);
+  ctx.beginPath();
+  ctx.moveTo(x0, bottom);
+  ctx.lineTo(x0 + 3, mid);
+  ctx.bezierCurveTo(x0 + 6, top + (mid - top) * 0.2, peak - w * 0.32, top, peak, top);
+  ctx.bezierCurveTo(peak + w * 0.32, top, x1 - 6, top + (mid - top) * 0.2, x1 - 3, mid);
+  ctx.lineTo(x1, bottom);
+  ctx.closePath();
+}
+
 export function text(ctx, str, x, y, o = {}) {
   ctx.save();
   ctx.font = `${o.bold ? 'bold ' : ''}${o.size || 14}px ${FONT}`;

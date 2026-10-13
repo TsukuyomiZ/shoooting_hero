@@ -471,7 +471,8 @@ export class Referee {
       const nextLedge = boss.next && Number.isInteger(boss.next.ledge) ? { nextLedge: boss.next.ledge } : {};
       this.record('ai.turn', { ...who, ...moved, boss: steps, next: boss.next && boss.next.action, ...nextLedge, changes: hpChanges(this.match, before) });
       this.io.broadcast({ t: 'aiTurn', actorId: actor.id, entities, walk: null, ...moved, shot: null, boss });
-      const stepSecs = boss.steps.reduce((s, st) => s + T.bossCast
+      // 每一招的預兆動畫：招式自己帶 cast（秒，例如洞穴巨蠍一回合好幾招、每招短一點）就照它，不然 bossCast
+      const stepSecs = boss.steps.reduce((s, st) => s + (st.cast ?? T.bossCast)
         + (st.shot ? st.shot.flightFrames + st.shot.settleFrames : st.still.settleFrames) / 60, 0);
       secs = T.aiThink + glideSecs + stepSecs + T.afterShotPad;
     } else {

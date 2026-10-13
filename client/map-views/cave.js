@@ -20,6 +20,8 @@ export const cave = {
   // glow = 火把第幾支 → 畫面上的光圈半徑（照亮度慢慢變過去）；level = 上一步看到的每支火把亮度（看哪支剛燒完、點燃前亮不亮）
   create: () => ({ bursts: [], ignite: new Map(), glow: new Map(), level: null }),
 
+  musicTrack: (c) => (c.match.fever > 0 ? 'caveFever' : 'cave'),   // 洞穴地圖的曲子，狂熱生效後換洞穴的狂熱版（地心探險沿用）
+
   // 閃光過了就丟掉；光圈照亮度慢慢變大 / 縮小，剛燒完的冒一陣煙；亮著的火把偶爾飄出火星（越暗越少）
   update(c, dt) {
     const s = c.state;
@@ -74,7 +76,7 @@ export const cave = {
 
   // 洞裡是暗的：角色畫完之後蓋一層遮光（瞄準線、飛行物、特效、飄字畫在上面，看得到）
   shaded: () => true,
-  drawShade,
+  drawShade: (ctx, c) => drawShade(ctx, c),
 
   // 「敵人剩餘」同一行標亮著幾支火把（名單框才不會變高，蓋到天花板的鐘乳石）
   hud(c, [label, color]) {
@@ -207,8 +209,10 @@ function lightsOf(c) {
 }
 
 // 遮光：整片暗下來，光源的地方挖出柔和的圓（destination-out），再在火把周圍疊一點暖色；
-// 熄著的火把淡淡地畫在遮光上面（知道要去點哪裡）；站在陰影裡的敵人（傷害加成）身上透出一圈紅光
-function drawShade(ctx, c) {
+// 熄著的火把淡淡地畫在遮光上面（知道要去點哪裡）；站在陰影裡的敵人（傷害加成）身上透出一圈紅光。
+// aura(e) = 這個敵人要不要畫紅光（別的地圖畫面自己標陰影的，例如洞穴巨蠍只露發紅的雙眼）；
+// more(g) = 額外的照明：在遮光的暫存畫布上用 destination-out 再挖掉一些地方（例如巨蠍巢穴：火把亮著的洞整個照亮）
+export function drawShade(ctx, c, aura = () => true, more = null) {
   const S = c.match && c.match.mechState;
   if (!S) return;
   const L = c.layer ? c.layer() : null;   // 遮光先畫在暫存畫布上（挖出光的圓），再整張疊上去
@@ -228,6 +232,7 @@ function drawShade(ctx, c) {
     g.fillStyle = grad;
     g.beginPath(); g.arc(l.x, l.y, l.r, 0, Math.PI * 2); g.fill();
   }
+  if (more) more(g);
   g.globalCompositeOperation = 'source-over';
   ctx.drawImage(L.canvas, 0, 0);
   for (const l of lights) {
@@ -249,14 +254,14 @@ function drawShade(ctx, c) {
     ctx.beginPath(); ctx.arc(t.x, t.y - TORCH_H + 2, 1.6, 0, Math.PI * 2); ctx.fill();
   });
   ctx.restore();
-  drawShadowAuras(ctx, c);
+  drawShadowAuras(ctx, c, aura);
 }
 
 // 站在陰影裡的敵人（造成的傷害 +CAVE.shadowDamagePct%，判定見 shared/maps/cave.js 的 inShadow）：上半身透出一圈會呼吸的紅光
-function drawShadowAuras(ctx, c) {
+function drawShadowAuras(ctx, c, aura) {
   const pulse = 0.28 + 0.1 * Math.sin(c.time * 4);
   for (const e of c.match.enemies) {
-    if (!e.alive || !inShadow(c.match, e.cx, e.cy)) continue;
+    if (!e.alive || !aura(e) || !inShadow(c.match, e.cx, e.cy)) continue;
     const x = e.cx, y = e.y - e.h * 0.68, r = Math.max(e.hw, 12) + 8;
     const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
     grad.addColorStop(0, `rgba(248,113,113,${pulse + 0.15})`);

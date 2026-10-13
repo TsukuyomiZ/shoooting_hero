@@ -1,7 +1,10 @@
+import { archPath } from './draw.js';
+
 // 地圖上純裝飾的圖案（關卡的 decor，不影響物理）：先畫成圖。back 畫在水之後、地形之前；front 畫在地形之後、角色之前。
 // 大樹（樹影重重、小心擊發）：trunk = 樹幹多邊形，canopy = 樹冠一團團的葉子 [x, y, 半徑]，
 // twigs = 樹枝上長出來的小枝條 [x, y, dx, dy]（從 (x, y) 長到 (x + dx, y + dy)，末端一片葉子）；
-// canopyFront = 蓋在地形上面的樹冠（小心擊發的樹幹是地形，樹冠要畫在它前面才看得到）
+// canopyFront = 蓋在地形上面的樹冠（小心擊發的樹幹是地形，樹冠要畫在它前面才看得到）。
+// 牆上的洞（巨蠍巢穴）：burrows = [{ x0, x1, top, bottom, lean }]（洞口左右、洞頂、洞底（藏在地面後面）、洞頂往左右偏多少）
 export function buildDecor(decor, W, H) {
   const layer = () => {
     const c = document.createElement('canvas');
@@ -13,6 +16,7 @@ export function buildDecor(decor, W, H) {
   if (decor.trunk) drawTrunk(ctx, decor.trunk);
   if (decor.canopy) drawCanopy(ctx, decor.canopy);
   if (decor.twigs) drawTwigs(ctx, decor.twigs);
+  if (decor.burrows) drawBurrows(ctx, decor.burrows);
   let front = null;
   if (decor.canopyFront) {
     front = layer();
@@ -38,6 +42,36 @@ function drawTwigs(ctx, twigs) {
     ctx.strokeStyle = 'rgba(16,50,20,0.7)';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(10, 0); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// 牆上的洞：拱形的洞口，裡面越深越黑，外面一圈岩石的邊、洞頂一點碎石的陰影
+function drawBurrows(ctx, holes) {
+  for (const h of holes) {
+    const { x0, x1, top, bottom } = h;
+    const w = x1 - x0;
+    const peak = (x0 + x1) / 2 + (h.lean || 0);
+    ctx.save();
+    archPath(ctx, h);
+    const g = ctx.createRadialGradient(peak, bottom - (bottom - top) * 0.35, 8, peak, bottom - (bottom - top) * 0.35, w * 0.75);
+    g.addColorStop(0, '#020103');
+    g.addColorStop(0.7, '#0c0810');
+    g.addColorStop(1, '#1c1620');
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = '#4a4550';
+    ctx.lineWidth = 9;
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(140,132,146,0.35)';   // 岩石邊上的亮面
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.clip();
+    const sh = ctx.createLinearGradient(0, top, 0, top + 60);   // 洞頂往裡面的陰影
+    sh.addColorStop(0, 'rgba(0,0,0,0.6)');
+    sh.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sh;
+    ctx.fillRect(x0, top, w, 60);
     ctx.restore();
   }
 }

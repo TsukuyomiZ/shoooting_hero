@@ -397,6 +397,7 @@ export class Match {
     const later = [];   // 地圖機制要等大家都扣完血才做的事（例如蜂巢扣 1、放蜜蜂）
     for (const e of aliveBefore) {
       if (opts.exclude && opts.exclude.has(e)) continue;
+      if (e.intangible) continue;   // 躲起來的（例如洞穴深處的巨蠍）：直擊、波及都碰不到
       const direct = e === directHit;
       const d = e.distanceTo(x, y);
       if (!direct && (!splash || d > R)) continue;
