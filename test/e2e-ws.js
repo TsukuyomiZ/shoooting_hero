@@ -1,6 +1,7 @@
 // node test/e2e-ws.js
 // 真的開伺服器，用兩個 WebSocket 客戶端跑一場開頭：
 // 看大廳列表、私人房間 → 建房 → 加入 → 準備 → 開始 → 甲移動、丟貼圖、開火 → 兩邊收到同一份 shot → 乙的回合 → 乙斷線被 AI 代打 → 乙用 token 重連拿到 state
+// → 冒險打完（列表馬上不列、斷線的移出、最後一個人離開結算畫面房間立刻回收）
 // 最後檢查紀錄（LOG）檔把這些都記下來了（寫在暫存資料夾，不會弄髒專案的 logs/）
 import fs from 'node:fs';
 import os from 'node:os';
@@ -175,6 +176,20 @@ try {
   const errC = await c.waitFrom(0, m => m.t === 'error', 'join started room error');
   assert(/開始/.test(errC.msg), 'joining a started room is refused');
 
+  // 冒險打完：大廳列表馬上不列；已經斷線的乙直接移出；甲在看結算畫面時房間還在，甲一走就立刻回收（不等閒置 60 秒）
+  const mkA2 = a.mark();
+  b2.close();
+  await a.waitFrom(mkA2, m => m.t === 'playerStatus' && m.id === b.id && m.connected === false, '乙 disconnected before run over');
+  const room = srv.manager.rooms.get(lobbyA.code);
+  const mkW2 = w.mark();
+  room.run.referee.gameOver('lose');   // 全滅：走正式的路徑（裁判 → 肉鴿流程 runOver → 房間）
+  await a.waitFrom(mkA2, m => m.t === 'runOver' && m.result === 'lose', 'runOver');
+  await w.waitFrom(mkW2, m => m.t === 'rooms' && !m.rooms.some(r => r.code === lobbyA.code), 'finished room leaves the list');
+  assert(srv.manager.rooms.has(lobbyA.code) && room.members.size === 1 && room.members.has(a.id), 'room stays while 甲 watches the summary; 乙 dropped');
+  a.close();
+  for (let i = 0; i < 100 && srv.manager.rooms.has(lobbyA.code); i++) await new Promise(r => setTimeout(r, 20));
+  assert(!srv.manager.rooms.has(lobbyA.code), 'room destroyed as soon as the last player leaves the summary');
+
   // 紀錄檔：上面每一步都有記到（同步寫入，收到訊息時那一筆已經在檔案裡）
   const logs = fs.readFileSync(srv.log.file, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l));
   const find = (ev, pred = () => true) => logs.find(l => l.ev === ev && pred(l));
@@ -199,11 +214,14 @@ try {
   assert(find('turn.takeover', l => l.pid === b.id) && find('ai.turn', l => l.actor === b.id && l.takeover), 'AI takeover logged');
   assert(find('player.reconnect', l => l.room === code && l.pid === b.id && l.inGame), 'reconnect logged');
   assert(find('room.join.fail', l => l.code === code && l.reason === 'started'), 'refused join logged');
+  assert(find('room.over', l => l.room === code && l.watching === 1 && l.dropped.length === 1 && l.dropped[0].pid === b.id), 'room.over logged');
+  assert(find('player.disconnect', l => l.room === code && l.pid === a.id && l.runOver), 'leaving the summary logged');
+  assert(find('room.destroy', l => l.room === code && l.reason === 'empty') && !find('room.idle', l => l.room === code), 'finished room destroyed without idling');
   const iFire = logs.indexOf(find('fire')), iShot = logs.indexOf(find('shot')), iTurn = logs.indexOf(find('turn.start'));
   assert(iTurn < iFire && iFire < iShot, 'log lines are in order');
 
   console.log('E2E OK', { code: lobbyA.code, shotHit: shotA.hit.type, flightFrames: shotA.flightFrames, holes: state.snapshot.holes.length, logLines: logs.length });
-  a.close(); b2.close(); c.close(); w.close();
+  c.close(); w.close();
   await srv.close();
   fs.rmSync(logDir, { recursive: true, force: true });
   clearTimeout(overall);

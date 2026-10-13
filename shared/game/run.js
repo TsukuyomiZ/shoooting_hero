@@ -19,7 +19,7 @@ import { weightedPick } from '../maps/mechanics/common.js';
 // 效果自己的欄位（例如腎上腺素的暫時加成、噬魂者帶著走的 %）由效果建在玩家身上。
 // 要指定隊友的牌（效果的 target，例如攜手之伴）：選牌訊息的 link = 指定的隊友，定下來交給效果（picked）記；
 // 攜手之伴的連結記在玩家的 links（雙向，見 linksOf）
-// io 同 Referee：{ broadcast(msg, exceptId), schedule(fn, ms), cancel(h), now() }
+// io 同 Referee：{ broadcast(msg, exceptId), schedule(fn, ms), cancel(h), now() }，可以多給 ended(result)：整場冒險打完時呼叫（送出 runOver 之後）
 // config = 關卡規則讀的設定（總關數、哪幾關是王關，再一路傳給每一關的 Match；測試換自己的數字用，其他設定還是全域 CONFIG）
 export class Run {
   constructor({ players, seed, io, cards, config = CONFIG }) {
@@ -348,6 +348,7 @@ export class Run {
     this.io.broadcast({
       t: 'runOver', result, stage: this.stage, stageCount: this.stageCount, type: this.stageType, cards: this.stageInfo().cards, summary: this.summary(),
     });
+    if (typeof this.io.ended === 'function') this.io.ended(result);   // 伺服器的房間：列表不再列、走掉的人移出
   }
 
   // 這一關打贏之後的選牌，稀有度權重另外加多少：菁英關 = RUN.eliteRarityBonus，其他 = null

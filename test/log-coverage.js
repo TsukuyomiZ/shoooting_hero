@@ -96,6 +96,12 @@ const ROOM_PHASES = {
     m.mgr.onMessage(a, { t: 'ready', ready: true }); m.mgr.onMessage(a, { t: 'start' });
     return { ...m, who: a, ctx: { code: a.room.code } };
   },
+  // 冒險打完、還在看結算畫面
+  runOver: () => {
+    const s = ROOM_PHASES.inGame();
+    s.who.room.run.referee.gameOver('lose');
+    return s;
+  },
 };
 // 在某個階段送一則訊息，回傳這則訊息寫出的紀錄（遊戲中的房間送完就停掉，計時器不會留著）
 function sendToRoom(phase, make) {

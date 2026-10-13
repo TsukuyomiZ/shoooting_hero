@@ -57,9 +57,10 @@ export class RoomManager {
     this.lastRoomsJson = '';   // 上一次推給大廳的列表（沒變就不推）
   }
 
-  // 大廳的公開房間列表：私人房間不列；開始了的照樣列（標 started，不能加入）。等人中的排前面、再照建立順序
+  // 大廳的公開房間列表：私人房間不列；開始了的照樣列（標 started，不能加入），冒險打完的不列（剩下的人在看結算畫面）。
+  // 等人中的排前面、再照建立順序
   roomsPayload() {
-    const rooms = [...this.rooms.values()].filter(r => !r.isPrivate && r.hostId).map(r => ({
+    const rooms = [...this.rooms.values()].filter(r => !r.isPrivate && r.hostId && !r.over).map(r => ({
       code: r.code, host: r.members.get(r.hostId).name, players: r.members.size, max: CONFIG.MAX_PLAYERS, started: r.started,
     }));
     rooms.sort((x, y) => x.started - y.started);
@@ -237,6 +238,9 @@ class Room {
 
   record(ev, data) { this.manager.record(ev, data, this); }
 
+  // 這場冒險打完了（runOver 已經送出，還在的人在看結算畫面）
+  get over() { return !!(this.run && this.run.phase === 'over'); }
+
   // ---- 大廳 ----
   add(client) {
     client.room = this;
@@ -364,7 +368,7 @@ class Room {
       if (this.hostId) this.record('room.host', { pid: this.hostId, name: this.members.get(this.hostId).name });
     }
     if (!this.members.size) return this.manager.destroyRoom(this, 'empty');
-    this.sendLobby();
+    if (!this.started) this.sendLobby();   // 冒險打完後有人走：其他人還在看結算畫面，不送房間大廳
   }
 
   // ---- 遊戲（一場冒險） ----
@@ -379,6 +383,7 @@ class Room {
       cancel: (h) => clearTimeout(h),
       now: () => Date.now(),
       record: (ev, data) => this.record(ev, data),   // 裁判 / 肉鴿流程寫紀錄（玩家看不到）
+      ended: () => this.onRunOver(),
     };
     const cards = loadCards();
     this.record('room.start', {
@@ -388,6 +393,15 @@ class Room {
     this.run = new Run({ players, seed, io, cards });
     this.run.start();
     this.manager.notifyBrowsers();   // 列表上改標「遊戲中」
+  }
+
+  // 冒險打完（Run.runOver 送出 runOver 之後）：大廳列表不再列這間；已經斷線的人回不來看結算了（客戶端收到 runOver 就丟掉 token），
+  // 直接移出——全都斷線了房間就跟著回收，不用等 ROOM_IDLE_MS。還在看結算畫面的人走了再一個個移出（見 onDisconnect）
+  onRunOver() {
+    const gone = [...this.members.values()].filter(m => !m.client);
+    this.record('room.over', { watching: this.members.size - gone.length, dropped: gone.map(m => ({ pid: m.id, name: m.name })) });
+    for (const m of gone) this.remove(m.id);
+    this.manager.notifyBrowsers();
   }
 
   broadcast(msg, exceptId) {
@@ -401,10 +415,14 @@ class Room {
     const m = this.members.get(client.id);
     if (!m || m.client !== client) return;
     // voluntary = 遊戲中自己按離開（之後不能用 token 接回來）；否則是斷線（遊戲中由 AI 代打、可以重連）
-    this.record('player.disconnect', { pid: client.id, name: m.name, inGame: this.started, ...(voluntary ? { voluntary: true } : {}) });
+    // runOver = 冒險已經打完（離開結算畫面）
+    this.record('player.disconnect', {
+      pid: client.id, name: m.name, inGame: this.started, ...(voluntary ? { voluntary: true } : {}), ...(this.over ? { runOver: true } : {}),
+    });
     m.client = null;
     client.room = null;
-    if (!this.started) {
+    // 還沒開始、或冒險已經打完：直接移出房間（最後一個人走了就回收）
+    if (!this.started || this.over) {
       this.remove(client.id);
       return;
     }
