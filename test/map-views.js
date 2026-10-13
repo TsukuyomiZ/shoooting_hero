@@ -56,7 +56,7 @@ function fakeCtx(match, state) {
   return { c: { match, time: 1, currentId: null, projectiles: [], state, fx: sink, *shotScript() {} }, fx };
 }
 
-await test('每張地圖拿到對的地圖畫面（照 match.mechanic.type）：古樹之庭 / 叢林巨蟒 / 小心擊發 / 岩穴 / 地心探險 / 巨蠍巢穴各自一個，其他都是 plain；每個掛勾都在', () => {
+await test('每張地圖拿到對的地圖畫面（照 match.mechanic.type）：古樹之庭 / 叢林巨蟒 / 小心擊發 / 岩穴 / 地心探險 / 大樹守衛 / 巨蠍巢穴各自一個，其他都是 plain；每個掛勾都在', () => {
   const got = {};
   for (const id of Object.keys(LEVELS)) {
     const m = matchOf(id);
@@ -69,7 +69,7 @@ await test('每張地圖拿到對的地圖畫面（照 match.mechanic.type）：
     const s1 = v.create(m), s2 = v.create(m);
     assert(s1 && typeof s1 === 'object' && s1 !== s2, `${id}: create builds a fresh state every time`);
   }
-  assert(Object.values(got).filter(t => t !== 'plain').sort().join() === 'cave,cyclops,hive,scorpion,snake,tree', 'one map each: ' + J(got));
+  assert(Object.values(got).filter(t => t !== 'plain').sort().join() === 'cave,cyclops,guardian,hive,scorpion,snake,tree', 'one map each: ' + J(got));
   return got;
 });
 
@@ -134,7 +134,7 @@ await test('render.js / game-view.js 不認得任何一張地圖：程式碼（�
     const imports = importsOf(src);
     const views = imports.filter(s => /map-views\//.test(s));
     assert(views.every(s => s === './map-views/index.js'), `${f} imports a map view directly: ${views}`);
-    assert(!imports.some(s => /shared\/maps\/(tree-boss|snake-boss|hive|cave|cyclops|scorpion)\.js$|-view\.js$/.test(s)), `${f} imports map code: ${imports}`);
+    assert(!imports.some(s => /shared\/maps\/(tree-boss|snake-boss|hive|cave|cyclops|guardian|scorpion)\.js$|-view\.js$/.test(s)), `${f} imports map code: ${imports}`);
     out[f] = views;
   }
   assert(out['client/game-view.js'].length === 1, 'game-view.js picks the map view through index.js');
@@ -144,8 +144,8 @@ await test('render.js / game-view.js 不認得任何一張地圖：程式碼（�
 await test('地圖畫面不碰 GameView 本身：不 import 音效 / 畫面模組（只 import shared/ 與通用的繪圖小工具），不寫 view.particles / shake / treeFx…（特效走 c.fx）', () => {
   const dir = 'client/map-views/';
   const files = fs.readdirSync(path.join(ROOT, dir)).filter(f => f.endsWith('.js'));
-  assert(['index.js', 'plain.js', 'tree.js', 'snake.js', 'hive.js', 'cave.js', 'cyclops.js', 'scorpion.js'].every(f => files.includes(f)), 'map-views/: ' + files);
-  const ALLOWED = /^(\.\.\/\.\.\/shared\/(?:[\w-]+\/)+[\w-]+\.js|\.\.\/(draw|weapon-art)\.js|\.\/(plain|tree|snake|hive|cave|cyclops|scorpion)\.js)$/;
+  assert(['index.js', 'plain.js', 'tree.js', 'snake.js', 'hive.js', 'cave.js', 'cyclops.js', 'guardian.js', 'scorpion.js'].every(f => files.includes(f)), 'map-views/: ' + files);
+  const ALLOWED = /^(\.\.\/\.\.\/shared\/(?:[\w-]+\/)+[\w-]+\.js|\.\.\/(draw|weapon-art)\.js|\.\/(plain|tree|snake|hive|cave|cyclops|guardian|scorpion)\.js)$/;
   const GAMEVIEW = /\bview\s*\.|\bsfx\b|\baudio\b|\bdocument\b|\bwindow\b|\.(particles|flashes|linkFlashes|floatTexts|treeFx|snakeFx|painter|banner|shake)\s*(=(?!=)|\.push\b|\[)/;
   for (const f of files) {
     const src = read(dir + f);

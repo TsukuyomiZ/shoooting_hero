@@ -114,13 +114,13 @@ function assertSame(m, c, label) {
 
 // ---------------- 關卡種類 ----------------
 
-await test('關卡種類：第 3、8 關是菁英關、第 5、10 關是 Boss 關，其他是小關；跟 Boss 關重疊的算 Boss 關；地圖池 elite 只有地心探險', () => base(() => {
+await test('關卡種類：第 3、8 關是菁英關、第 5、10 關是 Boss 關，其他是小關；跟 Boss 關重疊的算 Boss 關；地圖池 elite 有地心探險、大樹守衛', () => base(() => {
   const types = Array.from({ length: 10 }, (_, i) => stageType(i + 1));
   assert(types.join() === 'normal,normal,elite,normal,boss,normal,normal,elite,normal,boss', 'types ' + types);
   const overlap = { ...CONFIG, RUN: { ...CONFIG.RUN, eliteStages: [2, 5], bossStages: [5] } };
   assert(stageType(5, overlap) === 'boss' && !isEliteStage(5, overlap) && isBossStage(5, overlap) && stageType(2, overlap) === 'elite', 'boss wins over elite');
-  assert(J(levelsInPool('elite')) === '["depths"]' && LEVELS.depths.name === '地心探險', 'elite pool');
-  assert(!levelsInPool('normal').includes('depths') && !levelsInPool('boss').includes('depths'), 'only in the elite pool');
+  assert(J(levelsInPool('elite')) === '["depths","forestGuard"]' && LEVELS.depths.name === '地心探險' && LEVELS.forestGuard.name === '大樹守衛', 'elite pool ' + J(levelsInPool('elite')));
+  for (const id of levelsInPool('elite')) assert(!levelsInPool('normal').includes(id) && !levelsInPool('boss').includes(id), id + ' only in the elite pool');
   // 菁英關照小關的規則：血量吃人數 × 關數、有狂熱
   const r = stageRules({ stage: 3, players: 2, pool: 'elite' });
   const n = stageRules({ stage: 3, players: 2, pool: 'normal' });
@@ -130,7 +130,7 @@ await test('關卡種類：第 3、8 關是菁英關、第 5、10 關是 Boss �
 
 // ---------------- 冒險流程 ----------------
 
-await test('一場冒險：第 3、8 關打地心探險；開場的 stageInfo、stage.start 紀錄、picks（下一關）、stageClear（這一關 / 下一關 / 獎勵）、runOver 都帶關卡種類', () => base(() => {
+await test('一場冒險：第 3、8 關從菁英池各抽一張（兩張都打到、不重複）；開場的 stageInfo、stage.start 紀錄、picks（下一關）、stageClear（這一關 / 下一關 / 獎勵）、runOver 都帶關卡種類', () => base(() => {
   const io = new FakeIo();
   const run = new Run({ players: mkPlayers(2), seed: 3, io, cards: CARDS.cards });
   run.start();
@@ -151,8 +151,9 @@ await test('一場冒險：第 3、8 關打地心探險；開場的 stageInfo、
   }
   assert(run.phase === 'over' && run.result === 'win', 'won');
   const ids = levels.map(l => l.split('#')[0]);
-  assert(ids[2] === 'depths' && ids[7] === 'depths' && ids.filter(id => id === 'depths').length === 2, 'elite stages: ' + levels.join());
-  assert(J(run.elitesUsed) === '["depths","depths"]', 'elitesUsed ' + J(run.elitesUsed));
+  const elite = levelsInPool('elite');
+  assert(elite.includes(ids[2]) && elite.includes(ids[7]) && ids[2] !== ids[7] && ids.filter(id => elite.includes(id)).length === 2, 'elite stages: ' + levels.join());
+  assert(J(run.elitesUsed) === J([ids[2], ids[7]]), 'elitesUsed ' + J(run.elitesUsed));
   const starts = io.take('start');
   assert(starts.map(s => s.stageInfo.type).join() === 'normal,normal,elite,normal,boss,normal,normal,elite,normal,boss', 'start types');
   assert(starts[2].stageInfo.isBoss === false && starts[4].stageInfo.isBoss === true, 'isBoss kept');

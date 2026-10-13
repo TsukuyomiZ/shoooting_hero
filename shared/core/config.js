@@ -253,6 +253,27 @@ export const CONFIG = {
     walk: { speed: 50, edge: 4 },
   },
 
+  // ---- 菁英關：大樹守衛（森林；規則在 shared/maps/guardian.js）----
+  // 站在大樹前面的守衛，有重力、會被擊退（地面底下是炸不壞的樹根，坑挖不到水裡）。血量跟一般敵人一樣依人數、關數放大（不是 Boss）。
+  // 下一招事先抽好（開場一次、之後每次用掉就再抽，權重 weights），玩家回合畫面上會標出來：
+  //   charge = 衝鋒：衝向離他最近的玩家，撞到第一個人就停下（WEAPONS.guardianCharge），衝到樹根 / 地圖邊也停
+  //   shield = 舉盾：一抽到就把盾舉起來（面向離他最近的玩家），舉著的時候受到的傷害 -shieldCut%；
+  //            輪到他時（這一輪結束）盾牌前方 bashReach px 內的玩家吃盾擊（WEAPONS.guardianBash）
+  //   leap   = 躍擊：一抽到就鎖定離他最遠的玩家「當下」站的地方，地上畫警示範圍；輪到他時跳過去刺下來，
+  //            落地點兩邊各 leapZone px（再加上判定半徑）內的玩家受傷（WEAPONS.guardianLeap），提早走開就躲得掉
+  // 衝鋒、躍擊的傷害看距離（出招當下他離目標 / 落地點多遠）：near px 以內是武器的 damage、far px 以上是 damageFar，中間照比例
+  // cast = 每一招的預兆動畫秒數（躍擊含跳在空中的時間）
+  GUARDIAN: {
+    hp: 200,
+    weights: { charge: 40, shield: 30, leap: 30 },
+    near: 80,
+    far: 560,
+    shieldCut: 30,
+    bashReach: 60,
+    leapZone: 20,
+    cast: { charge: 0.8, bash: 0.8, leap: 1.4 },
+  },
+
   // ---- Boss 關：巨蠍巢穴的洞穴巨蠍（規則在 shared/maps/scorpion.js）----
   // 牆上三個洞，巨蠍躲在其中一個（只露出發紅的雙眼，打不到）。三個部位各有自己的血量（hp，再照 Boss 的倍率放大），
   // 打到哪個扣哪個；三個都擊破 = 打倒（沒有另外的本體血量）。
@@ -554,6 +575,46 @@ export const CONFIG = {
       passAllies: true,
       shellRadius: 13,
       color: '#78716c',
+    },
+
+    // ---- 大樹守衛的招式（enemyOnly；規則見 shared/maps/guardian.js）。damage → damageFar = 離得越遠傷害越高（GUARDIAN.near ~ far），再吃敵人傷害倍率 ----
+    guardianCharge: {     // 衝鋒：飛行物就是守衛自己，貼著地面直直衝過去，撞到第一個玩家就停（樹根、地圖邊也擋得住他）
+      id: 'guardianCharge', name: '衝鋒', enemyOnly: true, passOwner: true,
+      damage: 30,           // 使用者定的：離得越遠越痛 30 → 50、擊退 120
+      damageFar: 50,
+      knockback: 120,
+      radius: 0,
+      gravity: 0,
+      speed: 760,
+      hitRadius: 18,        // = 守衛的半寬（身體碰到身體就撞上）
+      passTerrain: true, passAllies: true,
+      shellRadius: 18,
+      color: '#7c5a3a',
+    },
+    guardianBash: {       // 盾擊：從盾牌往前推一小段（GUARDIAN.bashReach），打盾牌前方的每個玩家
+      id: 'guardianBash', name: '盾擊', enemyOnly: true,
+      damage: 45,           // 使用者定的
+      knockback: 200,       // 使用者沒給，我先抓 200（往盾牌前方推）
+      radius: 0,
+      gravity: 0,
+      speed: 900,
+      hitRadius: 16,
+      pierce: true, passTerrain: true, passAllies: true,
+      shellRadius: 12,
+      color: '#a16207',
+    },
+    guardianLeap: {       // 躍擊：落地那一下往兩邊震開（GUARDIAN.leapZone），打警示範圍裡的每個玩家
+      id: 'guardianLeap', name: '躍擊', enemyOnly: true,
+      damage: 50,           // 使用者定的：離得越遠越痛 50 → 70
+      damageFar: 70,
+      knockback: 160,       // 使用者沒給，我先抓 160（往落地點外面推）
+      radius: 0,
+      gravity: 0,
+      speed: 900,
+      hitRadius: 20,
+      pierce: true, passTerrain: true, passAllies: true,
+      shellRadius: 12,
+      color: '#65a30d',
     },
 
     // ---- 巨蠍巢穴：洞穴巨蠍的招式（enemyOnly；規則見 shared/maps/scorpion.js）。數字都是我先抓的（使用者沒指定），再吃敵人傷害倍率 ----

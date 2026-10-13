@@ -372,7 +372,7 @@ export class Match {
 
   // 爆炸 / 命中：傷害（同隊含自己 ×FRIENDLY_FIRE，再吃雙方的效果加成與狂熱）、燃燒、擊退。回傳傷害清單。
   // radius 0 的武器（迴力鏢）與 opts.directOnly（穿透）只打 directHit；opts.exclude 裡的角色不受影響。
-  // 一個人要扣的傷害：武器傷害 × 距離 × 攻擊者的倍率與狂熱（× 誤傷）→ × 對首領 → × 減傷 → × 誤傷減傷 → 效果的 share（攜手之伴：
+  // 一個人要扣的傷害：武器傷害 × 距離 × 攻擊者的倍率與狂熱（× 誤傷）→ × 對首領 → × 減傷 → × 地圖機制的受傷倍率 → × 誤傷減傷 → 效果的 share（攜手之伴：
   // 先減再跟活著的連結對象平分，清單裡多一筆 shared = 被打的人）。
   // 先照這一下之前的場面算好每個人要扣多少（誰活著、誰有無敵、隊友幾個），再一起扣：
   // 同一發炸到好幾個人時，結果不會因為角色的排列順序（誰先加入房間）而不同
@@ -413,6 +413,7 @@ export class Match {
       let dmg = weapon.damage * factor * atk * (friendly ? CONFIG.FRIENDLY_FIRE : 1);
       if (e.boss && attacker) dmg *= Math.max(0, 1 + Effects.effectSum('damageBoss', attacker, { match: this, weaponId: weapon.id }) / 100);
       dmg *= Math.max(0, 1 - this.armorOf(e, alliesBefore(e)) / 100);
+      dmg *= this.mechanic.defenseMult(this, e);   // 地圖機制的受傷倍率（例如大樹守衛舉盾）
       if (friendly) dmg *= Math.max(0, 1 - Effects.effectSum('friendlyArmor', e, { match: this }) / 100);
       const entry = { id: e.id, dmg: 0, friendly };
       damages.push(entry);
