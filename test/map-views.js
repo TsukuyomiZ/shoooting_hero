@@ -5,7 +5,9 @@
 // 真的 GameView（Node 裡、假 canvas）把每種地圖從開場播一段（含 render、王 / 蜜蜂的回合），角色身上不會多出畫面用的欄位；
 // 畫面跟著遊戲時間走（update 掛勾；同一串訊息每步之間畫 0 ~ 3 次結果一樣、畫圖不改狀態）、巨蟒的頭平順縮回、大地震擊的碎屑、
 // 「閉上了！」照嘴巴的開闔判斷、腳本中斷（丟錯 / setup）清掉出招狀態（abortScript 掛勾）、復活後不再是「中毒倒下」；
-// turn / turnFx 帶的場上道具經地圖機制換進 match.mechState（GameView 不認得主人）
+// turn / turnFx 帶的場上道具經地圖機制換進 match.mechState（GameView 不認得主人）；
+// 右上的名單框：地圖畫面給的幾行平常的字就放得下（Boss / 菁英的血量、下一招分兩行），太長的名字 / 一行由 render 縮小、截掉，不超出框；
+// 血條旁的燃燒 / 中毒 / 流血標記不超出畫面（站在最右邊的角色整排改放到血條左邊）
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,7 +37,7 @@ const HOOKS = ['create', 'musicTrack', 'turnScript', 'abortScript', 'update', 's
   'drawScene', 'shaded', 'drawShade', 'drawEntityFirst', 'drawEntityBare', 'drawEntity', 'drawFigure', 'hpBar', 'drawProjectile', 'hud'];
 // 只給畫面用、不該出現在 Entity / 場上的道具（地圖機制的狀態 match.mechState.items）上的欄位（以前放在角色、道具身上的那些）
 const VIEW_ONLY = ['viewOpen', 'viewDx', 'viewDy', 'viewT', 'windup', 'windDir', 'charging', 'floatedClosed', 'splashShown',
-  'poisonDeath', 'deathHandled', 'netTarget', 'netVy', 'slowMo', 'stepDist', 'anim'];
+  'poisonDeath', 'deathHandled', 'netTarget', 'netVy', 'slowMo', 'stepDist', 'anim', 'bleedSeen', 'bleedLoss', 'bleedClock'];
 const matchOf = (id, n = 2) => new Match({ levelId: id, players: mkPlayers(n), seed: 3, stage: LEVELS[id].pool === 'boss' ? 5 : 1 });
 
 // 錄下 canvas 呼叫的假 ctx
@@ -69,7 +71,7 @@ await test('每張地圖拿到對的地圖畫面（照 match.mechanic.type）：
     const s1 = v.create(m), s2 = v.create(m);
     assert(s1 && typeof s1 === 'object' && s1 !== s2, `${id}: create builds a fresh state every time`);
   }
-  assert(Object.values(got).filter(t => t !== 'plain').sort().join() === 'cave,cyclops,guardian,hive,scorpion,snake,tree', 'one map each: ' + J(got));
+  assert(Object.values(got).filter(t => t !== 'plain').sort().join() === 'cave,cyclops,guardian,hive,prison,scorpion,snake,swordsman,tengu,tree', 'one map each: ' + J(got));
   return got;
 });
 
@@ -122,7 +124,7 @@ const clientFiles = () => fs.readdirSync(path.join(ROOT, 'client'), { recursive:
 await test('render.js / game-view.js 不認得任何一張地圖：程式碼（註解除外）不提地圖的名字，只透過 map-views/index.js', () => {
   // 地圖的名字：英文的（camelCase 的開頭或中間，例如 treeSpear、snakeBlood、drawTreeScene；全大寫的，例如 SNAKE_BOSS）與畫面上的中文。
   // 不能用 /i：(?![a-z]) 會連大寫字母一起擋掉，treeSpear 就漏掉了
-  const MAP_NAMES = /\b(tree|snake|hive|bees?|eye|mouth|treant|minion|cave|torch(?:es)?|stalactites?|cyclops|boulder|scorpion)(?![a-z])|(Tree|Snake|Hive|Bees?|Eye|Mouth|Treant|Minion|Cave|Torch(?:es)?|Stalactites?|Cyclops|Boulder|Scorpion)(?![a-z])|\b(TREE|SNAKE|HIVE|BEES?|EYE|MOUTH|TREANT|MINION|CAVE|CYCLOPS|SCORPION)(?![A-Z])|closeOnHit|\.part\b|古樹|巨蟒|蜂巢|蜜蜂|樹妖|蛇血|洞穴|岩穴|鐘乳石|火把|獨眼巨人|地心探險|巨蠍/;
+  const MAP_NAMES = /\b(tree|snake|hive|bees?|eye|mouth|treant|minion|cave|torch(?:es)?|stalactites?|cyclops|boulder|scorpion|prison|executioner|guillotine|chandeliers?|swordsman|tengu)(?![a-z])|(Tree|Snake|Hive|Bees?|Eye|Mouth|Treant|Minion|Cave|Torch(?:es)?|Stalactites?|Cyclops|Boulder|Scorpion|Prison|Executioner|Guillotine|Chandeliers?|Swordsman|Tengu)(?![a-z])|\b(TREE|SNAKE|HIVE|BEES?|EYE|MOUTH|TREANT|MINION|CAVE|CYCLOPS|SCORPION|EXECUTIONER|SWORDSMAN|TENGU)(?![A-Z])|closeOnHit|\.part\b|古樹|巨蟒|蜂巢|蜜蜂|樹妖|蛇血|洞穴|岩穴|鐘乳石|火把|獨眼巨人|地心探險|巨蠍|處刑|囚籠|斷頭台|吊燈|監獄|流浪劍士|劍氣|天狗|羽刃|風彈/;
   const caught = ['treeSpear', 'snakeBlood', 'drawTreeScene', 'beeTurnScript', 'CONFIG.SNAKE_BOSS', "e.kind === 'hive'", 'e.minion', 'drawEye(ctx)', 'drawTorches', "id === 'stalactite'"];
   assert(caught.every(s => MAP_NAMES.test(s)), 'the scan misses: ' + caught.filter(s => !MAP_NAMES.test(s)));
   assert(!['street', 'eyes', 'keyEvent', 'archive'].some(s => MAP_NAMES.test(s)), 'the scan flags ordinary words');
@@ -134,7 +136,7 @@ await test('render.js / game-view.js 不認得任何一張地圖：程式碼（�
     const imports = importsOf(src);
     const views = imports.filter(s => /map-views\//.test(s));
     assert(views.every(s => s === './map-views/index.js'), `${f} imports a map view directly: ${views}`);
-    assert(!imports.some(s => /shared\/maps\/(tree-boss|snake-boss|hive|cave|cyclops|guardian|scorpion)\.js$|-view\.js$/.test(s)), `${f} imports map code: ${imports}`);
+    assert(!imports.some(s => /shared\/maps\/(tree-boss|snake-boss|hive|cave|cyclops|guardian|scorpion|prison|swordsman|tengu)\.js$|-view\.js$/.test(s)), `${f} imports map code: ${imports}`);
     out[f] = views;
   }
   assert(out['client/game-view.js'].length === 1, 'game-view.js picks the map view through index.js');
@@ -144,8 +146,8 @@ await test('render.js / game-view.js 不認得任何一張地圖：程式碼（�
 await test('地圖畫面不碰 GameView 本身：不 import 音效 / 畫面模組（只 import shared/ 與通用的繪圖小工具），不寫 view.particles / shake / treeFx…（特效走 c.fx）', () => {
   const dir = 'client/map-views/';
   const files = fs.readdirSync(path.join(ROOT, dir)).filter(f => f.endsWith('.js'));
-  assert(['index.js', 'plain.js', 'tree.js', 'snake.js', 'hive.js', 'cave.js', 'cyclops.js', 'guardian.js', 'scorpion.js'].every(f => files.includes(f)), 'map-views/: ' + files);
-  const ALLOWED = /^(\.\.\/\.\.\/shared\/(?:[\w-]+\/)+[\w-]+\.js|\.\.\/(draw|weapon-art)\.js|\.\/(plain|tree|snake|hive|cave|cyclops|guardian|scorpion)\.js)$/;
+  assert(['index.js', 'plain.js', 'tree.js', 'snake.js', 'hive.js', 'cave.js', 'cyclops.js', 'guardian.js', 'scorpion.js', 'prison.js', 'swordsman.js', 'tengu.js'].every(f => files.includes(f)), 'map-views/: ' + files);
+  const ALLOWED = /^(\.\.\/\.\.\/shared\/(?:[\w-]+\/)+[\w-]+\.js|\.\.\/(draw|weapon-art)\.js|\.\/(plain|tree|snake|hive|cave|cyclops|guardian|scorpion|prison|swordsman|tengu)\.js)$/;
   const GAMEVIEW = /\bview\s*\.|\bsfx\b|\baudio\b|\bdocument\b|\bwindow\b|\.(particles|flashes|linkFlashes|floatTexts|treeFx|snakeFx|painter|banner|shake)\s*(=(?!=)|\.push\b|\[)/;
   for (const f of files) {
     const src = read(dir + f);
@@ -685,6 +687,137 @@ await test('背景音樂（GameView.musicTrack）：地圖畫面指定的曲子�
     const hot = view.musicTrack();
     assert(calm === calmWant && hot === hotWant, `${levelId}: ${calm} → ${hot} (want ${calmWant} → ${hotWant})`);
     out[levelId] = `${calm}→${hot}`;
+  }
+  return out;
+});
+
+// ---- 右上的名單框（2026-10-14 的修正：大樹守衛 / 獨眼巨人的「下一招」那一行超出框、被畫面右邊切掉）----
+// 估字寬的假 ctx：中文、全形、符號（U+2000 以上）一個字 = 字級，其他 0.6 倍字級（比真的字型寬一點，估出來放得下就一定放得下）。
+// fillText 記下畫了什麼、在哪裡、當下的字型
+const fontPx = (font) => +(/(\d+(?:\.\d+)?)px/.exec(font) || [0, 10])[1];
+const textW = (s, font) => Array.from(String(s)).reduce((w, ch) => w + (ch.codePointAt(0) >= 0x2000 ? 1 : 0.6) * fontPx(font), 0);
+function measuringCanvas(drawn) {
+  const t = {
+    font: '10px sans-serif',
+    createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    getImageData: (x, y, w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    createLinearGradient: () => ({ addColorStop() {} }), createRadialGradient: () => ({ addColorStop() {} }), createPattern: () => ({}),
+    measureText: (s) => ({ width: textW(s, t.font) }),
+    fillText: (s, x, y) => drawn.push({ s: String(s), x, y, font: t.font }),
+  };
+  const ctx = new Proxy(t, { get: (o, k) => (k in o ? o[k] : () => {}), set: (o, k, v) => { o[k] = v; return true; } });
+  return { ...fakeCanvas(), getContext: () => ctx };
+}
+const ROSTER_LINE = 228;   // 名單框底下那幾行最多多寬（render.js：從 W-250 寫到跟血條的右端 W-22 對齊）
+
+await test('右上名單：地圖畫面給的幾行（血量、下一招…）用平常的字（粗體 13 px）就放得進名單框——大樹守衛、獨眼巨人的血量與下一招分兩行（每一招、四位數的血量、預設的名字「玩家123」）', () => {
+  const out = {};
+  const players = [1, 2, 3, 4].map(i => ({ id: `p${i}`, name: `玩家${612 + i}` }));
+  const byType = new Map();
+  for (const [id, L] of Object.entries(LEVELS)) if (!byType.has((L.mechanic && L.mechanic.type) || 'plain')) byType.set((L.mechanic && L.mechanic.type) || 'plain', id);
+  for (const [type, levelId] of byType) {
+    const L = LEVELS[levelId];
+    const m = new Match({ levelId, players, seed: 3, stage: L.pool === 'boss' ? 5 : L.pool === 'elite' ? 3 : 1 });
+    for (const e of m.enemies) { e.hp = e.maxHp = 9999; }
+    const mv = mapViewFor(m);
+    // 每一種預定的下一招（大樹守衛：衝鋒（帶名字）/ 舉盾（帶減傷）/ 躍擊；獨眼巨人：巨石投擲（全員）/ 猛捶 / 一般招式 + 超巨石（再一行：封哪個平台）/ 震盪獅吼）
+    const plans = type === 'guardian' ? [{ action: 'charge', targetId: 'p4' }, { action: 'shield', facing: -1 }, { action: 'leap', x: 300, y: 578, targetId: 'p2' }]
+      : type === 'cyclops' ? [{ action: 'throw' }, { action: 'pound', ledge: 1 }, { action: 'throw', seal: 0 }, { action: 'pound', ledge: 2, seal: 1 }, { action: 'roar' }] : [null];
+    let widest = 0;
+    for (const plan of plans) {
+      if (plan) m.mechState.next = plan;
+      const { c } = fakeCtx(m, {});
+      const lines = mv.hud(c, ['敵人剩餘 12 / 12', '#fca5a5']);
+      for (const [s] of lines) {
+        const w = textW(s, 'bold 13px');
+        assert(w <= ROSTER_LINE, `${levelId} ${plan ? plan.action : ''}: "${s}" is ${w.toFixed(1)} px wide (box ${ROSTER_LINE})`);
+        widest = Math.max(widest, w);
+      }
+      if (type === 'guardian' || type === 'cyclops') {
+        const name = type === 'guardian' ? '大樹守衛' : '獨眼巨人';
+        const extra = plan && Number.isInteger(plan.seal) ? 1 : 0;   // 投擲之後還要丟超巨石：再一行
+        assert(lines.length === 3 + extra && lines[1][0] === `${name} 9999 / 9999` && lines[2][0].startsWith('下一招：') && lines[1][1] === lines[2][1], `${levelId}: hp and next on two lines ` + J(lines));
+        if (extra) assert(lines[3][0].startsWith('＋超巨石：封住') && lines[3][1] === lines[1][1], `${levelId}: seal line ` + J(lines));
+      }
+    }
+    out[levelId] = Math.round(widest);
+  }
+  assert(byType.has('guardian') && byType.has('cyclops') && byType.size >= 8, 'every kind of map: ' + [...byType.keys()]);
+  return out;
+});
+
+await test('右上名單：太長的名字 / 太長的一行，render 縮小字（最小 10 px）、還放不下就截掉補「…」——不超出名單框、名字不蓋到血條', () => {
+  const W = CONFIG.WORLD_W;
+  // 名字最多 12 個字（大廳、伺服器都截到 12）
+  const players = [
+    { id: 'p1', name: '一二三四五六七八九十甲乙' }, { id: 'p2', name: 'WWWWWWWWWWWW' }, { id: 'p3', name: '超級無敵霹靂長的名字喔啦' }, { id: 'p4', name: '玩家616' },
+  ];
+  const out = {};
+  for (const levelId of ['forestGuard', 'depths', 'level1']) {
+    const m = new Match({ levelId, players, seed: 3, stage: LEVELS[levelId].pool === 'elite' ? 3 : 1 });
+    if (levelId === 'forestGuard') m.mechState.next = { action: 'charge', targetId: 'p3' };   // 「下一招：衝鋒 → 很長的名字」
+    const io = fakeIo();
+    new Referee({ match: m, humans: players, io, stageInfo: { stage: 3, stageCount: 10, isBoss: false, type: 'normal', levelId, levelName: LEVELS[levelId].name, cards: { p1: ['a', 'b', 'c'], p3: Array(12).fill('a') } } }).start();
+    const drawn = [];
+    const view = new GameView(measuringCanvas(drawn));
+    view.music = { play() {}, setRate() {} };
+    view.myId = 'p1';
+    view.transport = { send() {} };
+    for (const msg of io.log.splice(0)) view.onMessage(msg);
+    drawn.length = 0;
+    view.render();
+    const names = drawn.filter(d => d.x === W - 232);
+    const lines = drawn.filter(d => d.x === W - 250 && d.s !== '隊伍');
+    assert(names.length === players.length && lines.length >= 1, `${levelId}: roster drawn: ${names.length} names / ${lines.length} lines`);
+    for (const d of names) assert(d.x + textW(d.s, d.font) <= W - 92 && fontPx(d.font) >= 10, `${levelId}: name "${d.s}" at ${d.font} runs into the hp bar`);
+    for (const d of lines) assert(d.x + textW(d.s, d.font) <= W - 22 && fontPx(d.font) >= 10, `${levelId}: line "${d.s}" at ${d.font} runs out of the box`);
+    assert(names.some(d => d.s.endsWith('…')) && names.some(d => fontPx(d.font) < 13), `${levelId}: long names were shrunk / cut: ` + J(names.map(d => [d.s, d.font])));
+    if (levelId === 'forestGuard') {
+      const next = lines.find(d => d.s.startsWith('下一招：衝鋒 → '));
+      assert(next && fontPx(next.font) < 13, 'the long charge line was fitted: ' + J(next));
+    }
+    out[levelId] = names.map(d => d.s);
+  }
+  return out;
+});
+
+// ---- 血條旁的狀態標記（2026-10-14 的修正：出生在最右邊的大樹守衛、獨眼巨人，燃燒 / 中毒 / 流血的層數畫到畫面外面被切掉）----
+await test('血條旁的燃燒 / 中毒 / 流血標記不超出畫面：大樹守衛、獨眼巨人站在最右邊的出生點、玩家走到最右邊（有連結標記）時，整排改放到血條左邊（順序不變、不蓋到血條和連結標記）；平常照樣排在血條右邊', () => {
+  const W = CONFIG.WORLD_W;
+  const STACKS = { burn: 7, poison: 23, bleed: 150 };   // 三種都有、最後一個是三位數（整排最寬）
+  const kindOf = Object.fromEntries(Object.entries(STACKS).map(([k, v]) => [String(v), k]));
+  const out = {};
+  for (const [levelId, id, at] of [['forestGuard', 'guardian', null], ['depths', 'cyclops', null], ['level1', 'p1', W - 12], ['level1', 'p1', 500]]) {
+    const players = mkPlayers(2);
+    const m = new Match({ levelId, players, seed: 3, stage: LEVELS[levelId].pool === 'elite' ? 3 : 1 });
+    const io = fakeIo();
+    new Referee({ match: m, humans: players, io }).start();
+    const drawn = [];
+    const view = new GameView(measuringCanvas(drawn));
+    view.music = { play() {}, setRate() {} };
+    view.myId = 'p2';
+    view.transport = { send() {} };
+    for (const msg of io.log.splice(0)) view.onMessage(msg);
+    const e = view.match.byId(id);
+    if (at !== null) e.x = at;
+    const linked = e.isPlayer;
+    if (linked) e.links = ['p2'];   // 攜手之伴的連結標記畫在血條左邊
+    Object.assign(e, STACKS);
+    drawn.length = 0;
+    view.render();
+    const bw = (view.mapView.hpBar(view.mapCtx, e) || {}).w || (e.boss ? 90 : 46);
+    const ty = e.y - e.h - 16 + 8;   // 層數的字寫在血條的高度（render.js：by + 3 再往下 5）
+    const nums = drawn.filter(d => Math.abs(d.y - ty) < 0.01 && kindOf[d.s]).sort((a, b) => a.x - b.x);
+    const tag = `${levelId} ${id} at ${Math.round(e.x)}`;
+    assert(nums.map(d => kindOf[d.s]).join() === 'burn,poison,bleed', `${tag}: marks drawn in order: ` + J(nums));
+    // 圖示在層數左邊 6 px 的地方、左右各約 7 px 寬；層數照估的字寬
+    const spans = nums.map(d => [d.x - 13, d.x + textW(d.s, d.font)]);
+    for (const [l, r] of spans) assert(l >= 0 && r <= W, `${tag}: a mark runs off the canvas: ${J(spans)}`);
+    const right = spans.every(([l]) => l >= e.x + bw / 2), left = spans.every(([, r]) => r <= e.x - bw / 2 - (linked ? 18 : 0));
+    assert(right || left, `${tag}: marks overlap the hp bar (${e.x - bw / 2} ~ ${e.x + bw / 2}) or the link mark: ${J(spans)}`);
+    if (at === 500) assert(right && nums[0].x === e.x + bw / 2 + 13, `${tag}: in the middle the row stays right of the bar as before`);
+    else assert(left, `${tag}: at the right edge the row moves left of the bar`);
+    out[tag] = `${right ? 'right' : 'left'} ${spans.map(([l, r]) => `${Math.round(l)}~${Math.round(r)}`).join(' ')}`;
   }
   return out;
 });

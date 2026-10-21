@@ -32,17 +32,20 @@ function test(name, fn) {
 const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
 const J = JSON.stringify;
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
-const HOOKS = ['build', 'ready', 'cascade', 'moved', 'turnStart', 'turnEnd', 'roundStart', 'attackMult', 'defenseMult', 'struck', 'passed', 'absorbHit', 'eventExtras', 'replayEvent', 'aiTurn', 'snapshot', 'restore'];
-const WANT = { treeGarden: 'tree', jungleSerpent: 'snake', beehive: 'hive', cave: 'cave', depths: 'cyclops', forestGuard: 'guardian', scorpionDen: 'scorpion' };
+const HOOKS = ['build', 'ready', 'cascade', 'moved', 'hazardStart', 'hazardStep', 'hazardFinish', 'turnStart', 'turnEnd', 'roundStart', 'attackMult', 'defenseMult', 'hurt', 'struck', 'passed', 'absorbHit', 'eventExtras', 'replayEvent', 'aiTurn', 'snapshot', 'restore'];
+const WANT = { treeGarden: 'tree', jungleSerpent: 'snake', beehive: 'hive', cave: 'cave', depths: 'cyclops', forestGuard: 'guardian', scorpionDen: 'scorpion', prisonYard: 'prison', wanderer: 'swordsman', tenguPeak: 'tengu' };
 // 每個機制的狀態（match.mechState）的欄位：跟搬進來之前的 match.tree / snake / hive 一樣，巨蟒多了場上的蛇血（items，原本的 match.items）
 const STATE_KEYS = {
   tree: ['def', 'hpScale', 'minions', 'seq', 'next'],
   snake: ['def', 'next', 'dropped', 'itemSeq', 'items'],
   hive: ['def', 'hpScale', 'bees', 'seq', 'fresh'],
   cave: ['def', 'lit', 'fallen'],
-  cyclops: ['def', 'lit', 'fallen', 'next'],
+  cyclops: ['def', 'lit', 'fallen', 'next', 'turns', 'sealed'],
   guardian: ['def', 'next'],
   scorpion: ['def', 'lit', 'fallen', 'windy', 'hole', 'facing', 'out', 'stunned'],
+  swordsman: ['def', 'next', 'qi', 'parry', 'flying', 'roam'],
+  tengu: ['def', 'next', 'hover', 'flying', 'flyingTurn', 'seq', 'clock', 'roam'],
+  prison: ['def', 'hpScale', 'released', 'up', 'mood', 'cryLeft', 'next', 'beastNext', 'whip', 'guard', 'stuns', 'cage', 'spawned', 'seq', 'fallen'],
 };
 
 // 一個關卡暫時加進 LEVELS，建 Match 看會不會丟錯

@@ -2,11 +2,15 @@
 //   0 = 空、1 = 土（可破壞）、2 = 樹皮（不可破壞，Boss 的樹幹）、
 //   3 = 平台（不可破壞；子彈與身體都穿得過，只有從上面落下來時站得住——可以從下面跳上去）、
 //   4 = 鐘乳石（洞穴天花板垂下來的；跟樹皮一樣擋子彈與身體、炸不壞，只會整根掉下來，見 dropStalactite 與 shared/maps/cave.js）
+//   5 = 巨石（對戰中才放上去的大石頭，例如獨眼巨人的超巨石；跟樹皮一樣擋子彈與身體、炸不壞，只會整塊拿掉，見 addBoulder / removeBoulder）
 // 自己做多邊形掃描填色與圓形挖洞，不依賴 canvas 反鋸齒，所以伺服器（Node）與每個瀏覽器算出來的結果完全一樣。
 export const SOIL = 1;
 export const HARD = 2;
 export const PLATFORM = 3;
 export const STALACTITE = 4;
+export const BOULDER = 5;
+
+const SOLID = (v) => v === SOIL || v === HARD || v === STALACTITE || v === BOULDER;
 
 export class Terrain {
   // opts.hard = 不可破壞的多邊形；opts.platforms = 可穿透的平台（頂面要是水平的）；
@@ -83,16 +87,15 @@ export class Terrain {
     return this.mask[py * this.w + px];
   }
 
-  // 擋得住子彈與身體的地形（土、樹皮、鐘乳石）。平台不算：子彈穿得過，人也能從下面跳上去
+  // 擋得住子彈與身體的地形（土、樹皮、鐘乳石、巨石）。平台不算：子彈穿得過，人也能從下面跳上去
   isSolid(x, y) {
-    const v = this.at(x, y);
-    return v === SOIL || v === HARD || v === STALACTITE;
+    return SOLID(this.at(x, y));
   }
 
   // 擋得住 team 這一隊的飛行物：實心地形；平台是別隊的掩體（platformCover）時平台也擋（小心擊發的樹枝擋得住玩家的子彈）
   blocksShot(x, y, team) {
     const v = this.at(x, y);
-    if (v === SOIL || v === HARD || v === STALACTITE) return true;
+    if (SOLID(v)) return true;
     return v === PLATFORM && this.platformCover !== null && team !== this.platformCover;
   }
 
@@ -103,7 +106,7 @@ export class Terrain {
   // 平台只有腳還在平台上面（腳底那一格不是平台）時才撐得住——從下面往上跳、或卡在平台裡的人會穿過去
   supports(x, y) {
     const below = this.at(x, y + 1);
-    if (below === SOIL || below === HARD || below === STALACTITE) return true;
+    if (SOLID(below)) return true;
     return below === PLATFORM && this.at(x, y) !== PLATFORM;
   }
 
@@ -178,10 +181,36 @@ export class Terrain {
     };
   }
 
-  // 用一份洞的清單重建地形（新加入 / 重連時同步用）。已經掉下來的鐘乳石（fallen）不補回去；快照裡的 fallen 由地圖機制的 restore 套
+  // 放上一塊巨石（多邊形）：只填原本是空的像素（土、天花板、鐘乳石都不動），回傳要重畫的矩形。
+  // 多邊形不要包到土：放上去之後才挖的坑會挖掉那些土，重建（reset 先挖洞、地圖機制再放巨石）時卻會被巨石填回去，兩邊就不一樣了
+  addBoulder(poly) {
+    this.fillPolygon(poly, BOULDER, 0);
+    this.version++;
+    return polyRect(this, poly);
+  }
+
+  // 拿掉一塊巨石（放的時候那個多邊形）：只清掉巨石的像素。回傳要重畫的矩形
+  removeBoulder(poly) {
+    this.fillPolygon(poly, 0, BOULDER);
+    this.version++;
+    return polyRect(this, poly);
+  }
+
+  // 用一份洞的清單重建地形（新加入 / 重連時同步用）。已經掉下來的鐘乳石（fallen）不補回去；快照裡的 fallen 由地圖機制的 restore 套。
+  // 巨石不是關卡的地形：重建之後就沒了，由地圖機制的 restore 照快照再放回去
   reset(holes = []) {
     this.holes = [];
     this.fillPolygons();
     for (const hole of holes) this.carve(hole.x, hole.y, hole.r);
   }
+}
+
+// 多邊形的外框（夾在地圖範圍內）：重畫用的矩形 { x0, y0, x1, y1 }
+function polyRect(t, poly) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of poly) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  return {
+    x0: Math.max(0, Math.floor(x0)), y0: Math.max(0, Math.floor(y0)),
+    x1: Math.min(t.w - 1, Math.ceil(x1)), y1: Math.min(t.h - 1, Math.ceil(y1)),
+  };
 }

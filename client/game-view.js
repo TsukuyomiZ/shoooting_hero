@@ -1,8 +1,8 @@
 import { CONFIG } from '../shared/core/config.js';
 import { Match } from '../shared/game/match.js';
 import { replayVolley } from '../shared/physics/volley.js';
-import { glideAt } from '../shared/ai/ai-move.js';
-import { stateOf, shotFloats, killFloats, turnFxOps, volleyLook } from '../shared/cards/effects/index.js';
+import { glideAt, glideDist } from '../shared/ai/ai-move.js';
+import { stateOf, shotFloats, killFloats, turnFxOps, volleyLook, feverOps, readState } from '../shared/cards/effects/index.js';
 import { clamp, lerpAngle } from '../shared/core/utils.js';
 import { Renderer } from './render.js';
 import { TerrainPainter } from './terrain-painter.js';
@@ -10,13 +10,14 @@ import { mapViewFor } from './map-views/index.js';
 import { Music } from './music.js';
 import { audio } from './audio.js';
 import { sfx } from './sfx.js';
-import { STAGE_LOOK, stageTypeOf, stageLook } from './stage-look.js';
+import { STAGE_LOOK, stageTypeOf, stageLook, difficultyName } from './stage-look.js';
+import { difficultyOf, difficultyDesc, difficultyConfig, showsRangeHints } from '../shared/game/stage-rules.js';
 
 const FPS = 60;
 const inRect = (p, r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 const SLOT_KEYS = { Digit1: 0, Digit2: 1, Digit3: 2 };
 const STEP_STRIDE = 34;   // 走多少 px 踩一步（移動速度 130 px/s ≈ 每秒 4 步）
-const LAUNCH_SOUNDS = { sniper: 'sniper', sonic: 'sonic', darts: 'dart', waterCannon: 'waterJet' };   // 開火的聲音（沒列的都是大砲聲）
+const LAUNCH_SOUNDS = { sniper: 'sniper', sonic: 'sonic', darts: 'dart', waterCannon: 'waterJet', rapier: 'stab' };   // 開火的聲音（沒列的都是大砲聲）
 
 // 客戶端的遊戲畫面：
 // - 自己的回合：本地物理即時操作，定時把位置回報給裁判，放開滑鼠送 fire
@@ -52,6 +53,7 @@ export class GameView {
     this.flashes = [];
     this.linkFlashes = [];             // 攜手之伴分擔傷害時，兩人之間閃一下的連線 { a, b, life }
     this.floatTexts = [];
+    this.ambient = [];                 // 整個畫面的演出（效果給的，例如狂熱時的氣球；見 startAmbient）
     this.mapView = null;               // 這張地圖的地圖畫面（setup 時照地圖機制選，見 client/map-views/index.js）
     this.mapCtx = null;                // 給地圖畫面的掛勾用的 c（見 mapContext）
     this.scratch = null;               // 地圖畫面的暫存畫布（見 scratchLayer）
@@ -61,6 +63,8 @@ export class GameView {
     this.slowMo = false;               // 慢動作中（自己的回合在空中瞄準，見 frame）
     this.timeScale = 1;                // 畫面的速度倍率：main.js 每一步 update 的 dt = 固定步長 × 這個（慢動作時 < 1）
     this.time = 0;
+    // 真實時間（秒）：要跟伺服器的時鐘一起動的東西用（例如回合裡飛的流浪劍士劍氣）——畫面時間（time）在卡頓、慢動作時會比真實時間慢。測試可以換掉
+    this.clock = () => performance.now() / 1000;
     this.shake = 0;
     this.banner = null;
     this.nextBanner = null;    // 排著的橫幅（目前的那張是 hold，見 showBanner）
@@ -89,9 +93,16 @@ export class GameView {
   //   stepDist     走了多遠（踩腳步聲用）
   //   poisonDeath  是被毒倒的（換成「中毒倒下」的橫幅；又活過來就清掉）
   //   deathHandled 這次倒下已經播過死亡特效 / 橫幅（伺服器的狀態說他又活著 = 下次倒下再播）
+  //   bleedSeen    已經算過的 e.bledThisTurn（本地物理 / 重播走路時流血扣的，見 bleedFx）
+  //   bleedLoss    流血扣了、還沒飄字的血；bleedClock = 從第一點沒飄的開始過了幾秒（每 0.5 秒飄一次「-N」）
   look(e) {
     let v = this.looks.get(e);
-    if (!v) this.looks.set(e, v = { netTarget: null, netVy: 0, slowMo: false, splashShown: null, stepDist: 0, poisonDeath: false, deathHandled: false });
+    if (!v) {
+      this.looks.set(e, v = {
+        netTarget: null, netVy: 0, slowMo: false, splashShown: null, stepDist: 0, poisonDeath: false, deathHandled: false,
+        bleedSeen: e.bledThisTurn, bleedLoss: 0, bleedClock: 0,
+      });
+    }
     return v;
   }
 
@@ -117,9 +128,14 @@ export class GameView {
       // pickup（喝到蛇血）也一樣：會改上限，不能被之後才播的舊快照蓋回去
       // slow（別人開 / 關慢動作）也是：畫面落後時，之後才播的他的 turn 會把光環清掉
       // resume（飛鏢射完一發、回合接著繼續）一定要等那一發重播完才套：重播中能操作的話，按著的方向鍵會混進重播的物理
-      case 'turn': case 'aiTurn': case 'shot': case 'skip': case 'turnFx': case 'gameOver': case 'water': case 'pickup': case 'slow': case 'resume':
+      // hazard（回合中的危險物打到人 / 飛完）也是：扣的血不能被之後才播的舊快照蓋回去
+      case 'turn': case 'aiTurn': case 'shot': case 'skip': case 'turnFx': case 'gameOver': case 'water': case 'pickup': case 'slow': case 'resume': case 'hazard':
         if (msg.t === 'turn' && document.hidden) this.cueTurn(msg);   // 分頁在背景：輪到自己的提示音收到就響，不等前面的動畫播完
         if (msg.t === 'resume') msg.at = performance.now();   // 伺服器收到這則就開始倒數：剩下的秒數從收到的時候算
+        if (msg.t === 'turn' || msg.t === 'hazard') msg.recvAt = this.clock();   // 回合裡的危險物照收到的時刻算位置（佇列裡排隊的時間不算延遲）
+        // 回合裡的危險物打到人 / 飛完：畫面收到就先演（佇列前面可能還在播這個回合的開火 / AI 代打），扣血照順序在佇列裡套。
+        // 只有已經播到那個回合（seq 對得上）才先演，不然照順序來
+        if (msg.t === 'hazard' && this.mapCtx && msg.seq !== undefined && msg.seq === this.hazardSeq) this.mapView.hazard(this.mapCtx, msg, true);
         this.queue.push(msg);
         this.pump();
         break;
@@ -137,6 +153,12 @@ export class GameView {
         this.waiting = false;
         break;
       case 'move':
+        // 他在流血時帶的血量（netHp）也走佇列，位置照舊馬上套：畫面落後時（分頁在背景、很卡）先套上的話，之後才播的舊快照
+        // （他的 turn、resume…）會把血量蓋回流血之前，下一筆再把同一段流血飄一次
+        if (Number.isFinite(msg.hp)) {
+          this.queue.push({ t: 'netHp', id: msg.id, hp: msg.hp });
+          this.pump();
+        }
         if (this.holdMoves) this.heldMoves.set(msg.id, msg);   // 重播一波時先收著（重播的物理不受影響），播完再套最新的
         else this.applyMove(msg);
         break;
@@ -166,6 +188,15 @@ export class GameView {
     }
   }
 
+  // 別人的 move 帶的血量（他在流血：血量只有他自己的畫面在扣，照伺服器轉來的顯示，少掉的照流血飄字、滴血）。
+  // 從佇列照順序播（見 onMessage 的 'move'）：前面排著的快照都套過了才輪到它
+  onNetHp(msg) {
+    const e = this.match.byId(msg.id);
+    if (!e || msg.id === this.myId) return;
+    if (msg.hp < e.hp) this.noteBleed(e, e.hp - msg.hp);
+    e.hp = msg.hp;
+  }
+
   flushMoves() {
     const held = [...this.heldMoves.values()];
     this.heldMoves.clear();
@@ -177,25 +208,34 @@ export class GameView {
     this.holdMoves = false;
     this.heldMoves = new Map();
     if (this.slowMo) this.setSlowMo(false);
-    this.match = new Match({ levelId: msg.levelId, players: msg.players, seed: msg.seed, carry: msg.carry || {}, stage: msg.stage || 1 });
+    // 關卡規則照這場的難度算（跟伺服器的 Match 一樣，見 difficultyConfig）
+    const difficulty = (msg.stageInfo || msg.run || {}).difficulty;
+    this.match = new Match({ levelId: msg.levelId, players: msg.players, seed: msg.seed, carry: msg.carry || {}, stage: msg.stage || 1, config: difficultyConfig(difficulty) });
+    this.rangeHints = showsRangeHints(difficulty);   // 這場的難度畫不畫菁英怪招式的提示範圍（地圖畫面的 c.rangeHints）
     this.match.applySnapshot(msg.snapshot);
     this.looks = new WeakMap();
     this.mapView = mapViewFor(this.match);   // 一般小關 = plain（什麼都不演）
     this.mapCtx = this.mapContext(this.mapView.create(this.match));
+    this.hazardSeq = null;   // 現在播到的回合的危險物是第幾個回合的（turn 的 hazard.seq；新的一關從頭算）
     this.stageInfo = msg.stageInfo || msg.run || null;
     this.runOver = null;
     this.banner = null;       // 上一關（或斷線前）還在播 / 排著的橫幅不帶過來
     this.nextBanner = null;
     if (this.stageInfo) {
       const L = stageLook(this.stageInfo);
-      // 菁英關多一行說明；剛開場（start，不是重連的 state）時停滿時間（hold）：第一個回合的橫幅等它播完才出來
-      const sub = stageTypeOf(this.stageInfo) === 'elite' ? '強力的菁英怪鎮守　打贏後選牌比較容易出稀有牌' : null;
+      // 菁英關多一行說明；不是一般難度的冒險，第 1 關多一行難度的說明（菁英之路：哪幾關是菁英關、敵人傷害不打折）。
+      // 剛開場（start，不是重連的 state）時停滿時間（hold）：第一個回合的橫幅等它播完才出來
+      const si = this.stageInfo;
+      const hard = difficultyOf(si.difficulty) !== 'normal';
+      const sub = stageTypeOf(si) === 'elite' ? '強力的菁英怪鎮守　打贏後選牌比較容易出稀有牌'
+        : hard && si.stage === 1 ? `${difficultyName(si.difficulty)}　${difficultyDesc(si.difficulty)}` : null;
       this.showBanner(L.name ? `${L.name}：${this.stageInfo.levelName}` : `第 ${this.stageInfo.stage} 關：${this.stageInfo.levelName}`, L.banner, sub, { hold: !!sub && msg.t === 'start' });
     }
     for (const e of this.match.entities) if (!e.alive) this.look(e).deathHandled = true;   // 重連時不要重播死亡特效
     this.players = msg.players;
     for (const p of msg.players) this.playerStatus.set(p.id, p.connected !== false);
-    this.painter = new TerrainPainter(this.match.terrain, { platformStyle: this.match.level.platformStyle, style: this.match.level.terrainStyle });
+    const lvl = this.match.level;
+    this.painter = new TerrainPainter(this.match.terrain, { platformStyle: lvl.platformStyle, style: lvl.terrainStyle, hardLook: lvl.hardLook });
     this.queue = [];
     this.script = null;
     this.wait = null;
@@ -205,6 +245,7 @@ export class GameView {
     this.flashes = [];
     this.linkFlashes = [];
     this.floatTexts = [];
+    this.ambient = [];
     this.result = null;
     this.canAct = false;
     this.waiting = false;
@@ -225,6 +266,8 @@ export class GameView {
       get time() { return view.time; },
       get currentId() { return view.currentId; },
       get projectiles() { return view.projectiles; },
+      get rangeHints() { return view.rangeHints !== false; },
+      clock: () => view.clock(),
       shotScript: (shot, extra) => view.shotScript(shot, extra),
       layer: () => view.scratchLayer(),
       state,
@@ -364,8 +407,14 @@ export class GameView {
       case 'water':
         this.onWater(msg);
         break;
+      case 'netHp':
+        this.onNetHp(msg);
+        break;
       case 'pickup':
         this.onPickup(msg);
+        break;
+      case 'hazard':
+        this.onHazard(msg);
         break;
       case 'slow':
         this.onSlow(msg);
@@ -399,6 +448,7 @@ export class GameView {
     }
     this.currentId = msg.actorId;
     this.match.round = msg.round;
+    if (Number.isFinite(msg.wind)) this.match.wind = msg.wind;   // 有風的關卡：這個回合的風（預覽、HUD）
     this.currentIsAi = !!msg.ai;
     const actor = this.match.byId(msg.actorId);
     const mine = msg.actorId === this.myId && !msg.ai;
@@ -407,6 +457,9 @@ export class GameView {
     this.mouse.down = false;
     this.lastSent = null;
     this.deadline = mine && msg.turnTime ? performance.now() + msg.turnTime * 1000 : null;
+    // 這回合出發的危險物（例如流浪劍士的劍氣）：地圖畫面開始畫它飛（at = 收到 turn 的時刻，照真實時間往前推）
+    this.hazardSeq = msg.hazard ? msg.hazard.seq : null;
+    if (msg.hazard) this.mapView.hazard(this.mapCtx, { start: msg.hazard, recvAt: msg.recvAt ?? this.clock() });
     if (!actor) return;
     for (const fx of msg.fx || []) {   // 回合開始的效果（中毒結算、站在蛇血上喝掉、恩賜之杖回血）
       const e = this.match.byId(fx.id);
@@ -434,11 +487,14 @@ export class GameView {
     sfx.play('yourTurn');
   }
 
-  // 狂熱剛疊上新的一層（新的一輪跨過門檻）：回傳橫幅底下的提示字，每層只提示一次。Boss 關一直是 0 層，不會提示
+  // 狂熱剛疊上新的一層（新的一輪跨過門檻）：回傳橫幅底下的提示字，每層只提示一次。Boss 關一直是 0 層，不會提示。
+  // 效果要的狂熱演出（feverFx，例如狂歡派對）也在這時候播（每層一次；重連、新的一關不會重播：setup 記下了現在的層數）
   feverNotice() {
     const n = this.match.fever;
     if (n <= this.feverShown) return null;
     this.feverShown = n;
+    const ops = feverOps(this.match);
+    if (ops) this.playEffectOps(ops, []);
     return `狂熱！所有角色的傷害 +${n * this.match.rules.feverPct}%`;
   }
 
@@ -469,6 +525,7 @@ export class GameView {
     yield { frames: CONFIG.TIMING.aiThink * FPS };
     if (msg.walk && actor.alive) yield* this.walkScript(actor, msg.walk, msg.pickups || []);
     if (msg.glide && actor.alive) yield* this.glideScript(actor, msg.glide);   // 蝙蝠：在空中直線飄一段
+    if (msg.fx) this.effectFx(msg.fx);   // 走路 / 飄移途中流血倒下、算到流血來源的擊殺：擊殺的效果（例如噬魂者）走完才飄字
     if (msg.shot) {
       actor.aiming = true;
       actor.facing = msg.shot.facing;
@@ -497,7 +554,8 @@ export class GameView {
     while (k < pickups.length) this.onPickup(pickups[k++]);
   }
 
-  // 飄移（沒有物理的角色：蝙蝠、獨眼巨人；伺服器在 shared/ai/ai-move.js 算好）：照 glideAt 逐幀內插，最後一幀剛好停在伺服器放的地方
+  // 飄移（沒有物理的角色：蝙蝠、獨眼巨人；伺服器在 shared/ai/ai-move.js 算好）：照 glideAt 逐幀內插，最後一幀剛好停在伺服器放的地方。
+  // 流血的話飄完照直線距離扣一次（跟伺服器的 planGlide 同一個算法；扣到倒下就在這裡倒下，伺服器也不讓他出招）
   *glideScript(e, g) {
     const x0 = e.x, y0 = e.y;
     if (g.dx) e.facing = Math.sign(g.dx);
@@ -507,6 +565,7 @@ export class GameView {
       e.x = p.x;
       e.y = p.y;
     }
+    e.bleedFor(glideDist(g));
   }
 
   // 重播一發（或一波轟炸）：shared/physics/volley.js 照伺服器的事件逐幀重播（跟伺服器同一個幀迴圈）。
@@ -517,10 +576,12 @@ export class GameView {
     if (!run) return;
     const actor = this.match.byId(shot.actorId);
     const weapon = CONFIG.WEAPONS[shot.weapon];
-    const look = volleyLook(shot.kind);   // 效果的一波攻擊（例如無差別轟炸）：橫幅由效果給
+    // 回合開始的一波攻擊：效果的（例如無差別轟炸）橫幅由效果給，地圖機制的（例如流浪劍士的劍氣）由地圖畫面給
+    const look = volleyLook(shot.kind) || this.mapView.turnVolley(this.mapCtx, shot);
     if (look) {
-      // 回合開始的效果攻擊：這時已經輪到持有者了（turn 訊息要等那一波播完才會來）；新的回合，上一回合的飛鏢鎖定不算
-      this.currentId = shot.actorId;
+      // 回合開始的攻擊：這時已經輪到他了（turn 訊息要等那一波播完才會來；地圖機制的那一波出手的是敵人，輪到的人是 turnId）；
+      // 新的回合，上一回合的飛鏢鎖定不算
+      this.currentId = shot.turnId ?? shot.actorId;
       if (shot.round) this.match.round = shot.round;
       this.canAct = false;
       this.waiting = false;
@@ -572,10 +633,11 @@ export class GameView {
   // 一顆飛行物出發（自己 / 隊友 / AI 開火）：砲聲、砲口的火花、震一下
   showLaunch(weapon, p) {
     sfx.play(LAUNCH_SOUNDS[weapon.id] || 'cannon', { x: p.x });
-    const color = weapon.id === 'plasma' ? '#67e8f9' : weapon.id === 'waterCannon' ? '#bae6fd' : '#ffcc66';
-    this.spawnParticles(p.x, p.y, weapon.id === 'darts' ? 3 : 8, { speed: 140, life: 0.25, size: 3, color, gravity: 0 });
-    // 飛鏢輕輕一甩、高壓水炮有後座力（射手被推出去由重播的物理演），其他照拋射 / 直線
-    this.shake = Math.max(this.shake, weapon.id === 'darts' ? 1 : weapon.recoil ? 6 : weapon.gravity > 0 ? 5 : 2);
+    const light = weapon.id === 'darts' || weapon.id === 'rapier';   // 飛鏢一甩、刺劍一刺：沒有砲口的火花，只有一點點
+    const color = weapon.id === 'plasma' ? '#67e8f9' : weapon.id === 'waterCannon' ? '#bae6fd' : weapon.id === 'rapier' ? '#f1f5f9' : '#ffcc66';
+    this.spawnParticles(p.x, p.y, light ? 3 : 8, { speed: 140, life: 0.25, size: 3, color, gravity: 0 });
+    // 飛鏢、刺劍輕輕一下、高壓水炮有後座力（射手被推出去由重播的物理演），其他照拋射 / 直線
+    this.shake = Math.max(this.shake, light ? 1 : weapon.recoil ? 6 : weapon.gravity > 0 ? 5 : 2);
   }
 
   // 一個飛行事件的畫面（狀態已經由 shared/physics/volley.js 套好：飛行物、挖坑、角色的事件狀態、地圖機制建的道具 / 角色）：
@@ -598,6 +660,11 @@ export class GameView {
         break;
       case 'range':   // 飛到最長路徑還沒打到東西（高壓水炮）：散成水霧。半路被設了路徑長度的招式（例如跑到岩柱盡頭的衝擊）由地圖畫面演
         if (weapon.range === undefined) break;
+        if (weapon.id === 'rapier') {   // 西洋刺劍刺到底沒碰到東西：劍尖閃一下（不是水霧）
+          this.spawnParticles(ev.x, ev.y, 5, { speed: 60, life: 0.25, size: 1.8, color: '#f8fafc', gravity: 0 });
+          this.flashes.push({ x: ev.x, y: ev.y, r: 5, life: 0.16, maxLife: 0.16, tint: '241,245,249' });
+          break;
+        }
         sfx.play('fizzle', { x: ev.x });
         this.spawnParticles(ev.x, ev.y, 14, { speed: 110, life: 0.45, size: 3, color: '#bae6fd', gravity: 250 });
         break;
@@ -612,6 +679,11 @@ export class GameView {
         if (weapon.id === 'darts') {   // 飛鏢：插進去「咚」一聲，不爆炸
           sfx.play('thunk', { x: ev.x });
           this.spawnParticles(ev.x, ev.y, 4, { speed: 90, life: 0.3, size: 2, color: '#e7e5e4', gravity: 500 });
+          break;
+        }
+        if (weapon.id === 'rapier') {   // 西洋刺劍：刺中「咚」一聲、劍尖迸出一點火花，不爆炸（刺中人的血由下面的流血飄字噴）
+          sfx.play('thunk', { x: ev.x });
+          this.spawnParticles(ev.x, ev.y, 5, { speed: 110, life: 0.25, size: 1.8, color: '#f1f5f9', gravity: 300 });
           break;
         }
         if (weapon.id === 'waterCannon') {   // 高壓水炮：水柱打散、水花四濺（不是爆炸）
@@ -634,7 +706,14 @@ export class GameView {
       }
     }
     this.mapView.showEvent(this.mapCtx, ev, made);   // 例如打到巨蟒跨過門檻掉蛇血、打到蜂巢飛出蜜蜂
-    for (const d of ev.damages || []) {
+    this.showDamages(ev.damages);
+    const owner = ev.heal ? this.match.byId(shot.actorId) : null;
+    if (owner) this.floatText(owner, `+${ev.heal} 吸血`, '#4ade80', 16);
+  }
+
+  // 傷害清單（Match.applyExplosion 的 damages：飛行事件的、回合中危險物的）的飄字與特效：無敵擋下、地圖畫面自己演的、分擔、扣血、上燃燒 / 中毒 / 流血、免疫
+  showDamages(damages) {
+    for (const d of damages || []) {
       const e = this.match.byId(d.id);
       if (!e) continue;
       if (d.blocked) {
@@ -663,9 +742,29 @@ export class GameView {
         e.hurtTimer = 0.35;
         this.floatText(e, `中毒 +${d.poison}`, '#c084fc', 16);
       }
+      if (d.bleed) {   // 流血（會流血的攻擊；傷害 0 也會有）：噴一點血
+        e.hurtTimer = 0.35;
+        this.floatText(e, `流血 +${d.bleed}`, '#ef4444', 16);
+        this.spawnParticles(e.cx, e.cy, 8, { speed: 110, life: 0.5, size: 2.5, color: '#dc2626', gravity: 500 });
+      }
+      if (d.immune) this.floatText(e, '免疫', '#9ca3af', 15);   // 免疫異常狀態（例如金剛不壞）：這一下該上的燃燒 / 中毒 / 流血沒上
     }
-    const owner = ev.heal ? this.match.byId(shot.actorId) : null;
-    if (owner) this.floatText(owner, `+${ev.heal} 吸血`, '#4ade80', 16);
+  }
+
+  // 回合中的危險物（地圖機制的 hazard*，例如流浪劍士的劍氣）打到人 / 飛完（伺服器的 hazard）：被打到的人照伺服器的血量
+  // （不動位置：行動玩家的位置在他自己的畫面上）、飄字，再交給地圖畫面演（例如劍氣的位置校正、飛完、再揮一輪）
+  onHazard(msg) {
+    for (const s of msg.hp || []) {
+      const e = this.match.byId(s.id);
+      if (!e) continue;
+      e.hp = s.hp;
+      if (s.shield !== undefined) e.shield = s.shield;   // 被無敵擋下也算用掉一次
+      readState(e, s);   // 效果自己的狀態（例如被虐體質的層數）
+      if (!s.alive && e.alive) e.die(s.cause || 'hit');
+    }
+    this.showDamages(msg.damages);
+    if (msg.recvAt === undefined) msg.recvAt = this.clock();
+    this.mapView.hazard(this.mapCtx, msg, false);
   }
 
   // 回合結束的狀態與效果：燃燒扣血 / 甩掉層數、效果的（例如神佑之石、燒死敵人的噬魂加成、時間扭曲；畫面動作由效果給）、地圖畫面的
@@ -673,6 +772,7 @@ export class GameView {
     if (msg.atStart) {   // 回合根本沒開始（回合開始就被毒倒）：現在是他的回合位置，HUD 不要還停在上一位
       this.currentId = msg.actorId;
       if (msg.round) this.match.round = msg.round;
+      if (Number.isFinite(msg.wind)) this.match.wind = msg.wind;
       this.canAct = false;
       this.waiting = false;
       this.setShotLock(null, null);
@@ -689,6 +789,8 @@ export class GameView {
           this.spawnParticles(e.cx, e.cy, 12, { speed: 70, life: 0.7, size: 4, color: '#f97316', gravity: -160 });
         }
         if (fx.shaken > 0) this.floatText(e, `甩掉 ${fx.shaken} 層燃燒`, '#fdba74', 14);
+      } else if (fx.type === 'bleed') {   // 流血：自己的回合結束時止血（層數清掉，快照的 bl 也是 0）
+        this.floatText(e, '止血', '#9ca3af', 14);
       } else if ((ops = turnFxOps(fx, e))) {   // 效果的（例如神佑之石、噬魂、時間扭曲）
         this.playEffectOps(ops, banners);
       } else if (!this.mapView.turnFx(this.mapCtx, e, fx)) {   // 地圖畫面的（例如古樹之口又張開了、巨蟒被燒到掉出蛇血）
@@ -701,11 +803,23 @@ export class GameView {
     yield { frames: Math.round(CONFIG.TIMING.fxDelay * FPS * 0.6) };
   }
 
+  // 流血扣到倒下、算到流血來源的擊殺時效果另外記的 fx（aiTurn / skip 帶的，例如噬魂者；同燒死時回合結束的 turnFx）：照效果給的畫面動作播
+  effectFx(list) {
+    const banners = [];
+    for (const fx of list) {
+      const e = this.match.byId(fx.id);
+      const ops = e ? turnFxOps(fx, e) : null;
+      if (ops) this.playEffectOps(ops, banners);
+    }
+    if (banners.length) this.showBanner(banners.map(b => b[0]).join('　·　'), banners[0][1]);
+  }
+
   // 效果給的畫面動作（見 shared/cards/effects/index.js 的 turnFx）：照順序做；橫幅收進 banners（跟同一次的其他橫幅合成一行），
-  // 飄字與粒子在那個角色身上（角色不在了就跳過）
+  // ambient 是整個畫面的演出（不在哪個角色身上，見 startAmbient），飄字與粒子在那個角色身上（角色不在了就跳過）
   playEffectOps(ops, banners) {
     for (const op of ops) {
       if (op[0] === 'banner') { banners.push([op[1], op[2]]); continue; }
+      if (op[0] === 'ambient') { this.startAmbient(op[1], op[2]); continue; }
       const t = this.match.byId(op[1]);
       if (!t) continue;
       if (op[0] === 'float') this.floatText(t, op[2], op[3], op[4]);
@@ -764,10 +878,11 @@ export class GameView {
     const a = this.match.byId(msg.actorId);
     if (a) { const v = this.look(a); v.netTarget = null; v.slowMo = false; }   // 不要再滑回他最後回報的位置（例如掉進水裡的那一點）
     const name = a ? a.name : '';
-    // 淹死（water）的橫幅由 onDeath 播
+    // 淹死（water）、流血倒下（bleed）的橫幅由 onDeath 播
     if (msg.reason === 'timeout') this.showBanner(msg.actorId === this.myId ? '時間到！' : `${name} 時間到`, '#fbbf24');
-    else if (msg.reason !== 'water') this.showBanner(`${name} 跳過`, '#fbbf24');
+    else if (msg.reason !== 'water' && msg.reason !== 'bleed') this.showBanner(`${name} 跳過`, '#fbbf24');
     for (const s of splashes) this.onSplash(this.match.byId(s.id), s);
+    if (msg.fx) this.effectFx(msg.fx);   // 流血倒下算到的擊殺（流血來源的效果，例如噬魂者）
     this.canAct = false;
     this.waiting = false;
     this.mouse.down = false;
@@ -849,6 +964,7 @@ export class GameView {
   updateInput() {
     const me = this.me;
     if (!me) return;
+    if (this.canAct && this.deadline !== null && performance.now() >= this.deadline) this.timeUp(me);
     if (!this.canAct || !me.alive) { me.moveDir = 0; me.vineDir = 0; me.aiming = false; me.hangDrain = false; return; }
     me.hangDrain = true;   // 自己的回合：掛在藤蔓上也耗體力，用完就鬆手（Entity.updateVine）；回合一結束就關掉，一直掛著
     me.moveDir = (this.keys.KeyA ? -1 : 0) + (this.keys.KeyD ? 1 : 0);
@@ -864,10 +980,22 @@ export class GameView {
     }
   }
 
+  // 自己的回合在這個畫面上時間到了（伺服器那邊超時的 skip 隨後就到）：不能再操作、停下來（不再走路流血），
+  // 還沒回報的最後一段位置 / 血量馬上補送一次（不等節流）。之後照伺服器的 skip 套最後的狀態
+  timeUp(me) {
+    this.canAct = false;
+    this.mouse.down = false;
+    me.moveDir = 0;
+    me.vineDir = 0;
+    const s = this.lastSent;
+    if (me.alive && (!s || s.x !== me.x || s.y !== me.y || s.facing !== me.facing || s.vine !== me.onVine)) this.sendMove(me);
+  }
+
+  // hp = 自己畫面上的血量（流血：走路時本地已經扣了，伺服器在他流血時照收、只能減不能加，見 Match.applyPositionReport）
   sendMove(me) {
     this.lastMoveSent = this.time;
     this.lastSent = { x: me.x, y: me.y, facing: me.facing, vine: me.onVine };
-    this.transport.send({ t: 'move', x: me.x, y: me.y, vy: me.vy, facing: me.facing, stamina: me.stamina, vine: me.onVine });
+    this.transport.send({ t: 'move', x: me.x, y: me.y, vy: me.vy, facing: me.facing, stamina: me.stamina, vine: me.onVine, hp: me.hp });
   }
 
   fire() {
@@ -882,10 +1010,10 @@ export class GameView {
     me.moveDir = 0;
     me.vineDir = 0;
     if (this.lockWeapon) me.weapon = this.lockWeapon;   // 射過飛鏢的回合只能射飛鏢（送別的伺服器會擋掉，就卡在等結果）
-    // 空中也能開火：連同當下的垂直速度一起送，伺服器從同一個狀態接著算落地；掛在藤蔓上開火就帶 vine
+    // 空中也能開火：連同當下的垂直速度一起送，伺服器從同一個狀態接著算落地；掛在藤蔓上開火就帶 vine；hp 同 sendMove（流血）
     this.transport.send({
       t: 'fire', weapon: me.weapon, angle: me.aimAngle, power: me.aimPower,
-      x: me.x, y: me.y, vy: me.vy, facing: me.facing, stamina: me.stamina, vine: me.onVine,
+      x: me.x, y: me.y, vy: me.vy, facing: me.facing, stamina: me.stamina, vine: me.onVine, hp: me.hp,
     });
   }
 
@@ -963,11 +1091,13 @@ export class GameView {
         if (e.id === this.myId && this.canAct) this.reportWater(e);
         if (!e.splash.died) this.onSplash(e, e.splash);   // 淹死的由 onDeath 播
       }
+      this.bleedFx(e, dt);
       if (e.alive) {   // 伺服器的狀態把他救回來了（applyState）：下次倒下再播，也不再是「中毒倒下」（除非又被毒倒）
         if (v.deathHandled) v.poisonDeath = false;
         v.deathHandled = false;
       } else if (!v.deathHandled) {
         v.deathHandled = true;
+        if (e.id === this.myId && this.canAct && e.deathCause === 'bleed') this.reportBleedDeath(e);
         this.onDeath(e);
       }
     }
@@ -999,23 +1129,54 @@ export class GameView {
         e.update(dt, world);
         // 自己的回合走過道具（例如蛇血），先在本地撿（跟伺服器同一套判斷）——之後在本地掉水才會照撿了之後的狀態算，跟伺服器一樣。
         // 撿到了就馬上回報位置：伺服器檢查的線段就停在道具上，一定也會判到（之後的 pickup 只是確認）
-        if (e.id === this.myId && this.canAct && e.waterFalls === falls && this.mapView.predictMove(this.mapCtx, e, px, py)) this.sendMove(e);
+        if (e.id === this.myId && this.canAct && e.alive && e.waterFalls === falls && this.mapView.predictMove(this.mapCtx, e, px, py)) this.sendMove(e);
       }
       this.moveSfx(e, px, py, wantedJump);
     }
   }
 
   // 自己操作時掉進水裡：本地已經先扣血、回到岸上（或淹死），把落水的那一點與最後站穩的地方回報給伺服器結算。
-  // 撐住了回合繼續（還有體力就能接著動）；按著的方向鍵要放開重按才會再走，免得一回到崖邊又直接走下去。淹死就等伺服器的 skip
+  // 撐住了回合繼續（還有體力就能接著動）；按著的方向鍵要放開重按才會再走，免得一回到崖邊又直接走下去。淹死就等伺服器的 skip。
+  // hp = 落水扣血之前的血量（流血扣到那時候為止的；伺服器先照它對齊，再自己扣同樣的落水傷害）
   reportWater(me) {
     const s = me.splash;
-    this.transport.send({ t: 'move', x: s.x, y: s.y, facing: me.facing, stamina: me.stamina, safe: { x: s.sx, y: s.sy } });
+    this.transport.send({ t: 'move', x: s.x, y: s.y, facing: me.facing, stamina: me.stamina, safe: { x: s.sx, y: s.sy }, hp: s.hp });
     this.keys.KeyA = this.keys.KeyD = false;   // 按住不放的 keydown 是 repeat，會被忽略，所以要重按
     if (s.died) {
       this.canAct = false;
       this.deadline = null;
       this.mouse.down = false;
     }
+  }
+
+  // 自己的回合走路流血扣到倒下（本地物理）：馬上回報倒下的位置（hp 0，伺服器照收、結束這回合），之後不能再操作；等伺服器的 skip
+  reportBleedDeath(me) {
+    this.sendMove(me);
+    this.canAct = false;
+    this.deadline = null;
+    this.mouse.down = false;
+  }
+
+  // 流血的飄字與滴血：本地物理 / 重播走路扣的（e.bledThisTurn 變多了）先累積起來，每 0.5 秒（倒下時馬上）飄一次「-N」；
+  // 扣血的那幾幀身上滴血。粒子都在這裡（update）生，畫的時候不改任何東西
+  bleedFx(e, dt) {
+    const v = this.look(e);
+    const d = e.bledThisTurn - v.bleedSeen;
+    v.bleedSeen = e.bledThisTurn;
+    if (d > 0) this.noteBleed(e, d);
+    if (!(v.bleedLoss > 0)) return;
+    v.bleedClock += dt;
+    if (v.bleedClock < 0.5 && e.alive) return;
+    this.floatText(e, `-${v.bleedLoss}`, '#ef4444', 16);
+    v.bleedLoss = 0;
+    v.bleedClock = 0;
+  }
+
+  // 流血扣了 n 點（本地物理，或別人回報的 move 帶來的）：記下來等 bleedFx 飄字，身上滴幾滴血（不閃白：一直走一直扣，閃起來太吵）
+  noteBleed(e, n) {
+    const v = this.look(e);
+    v.bleedLoss += n;
+    this.spawnParticles(e.cx, e.y - e.h * 0.4, Math.min(3, n), { speed: 40, life: 0.6, size: 2.5, color: '#dc2626', gravity: 600 });
   }
 
   // 腳步聲、起跳聲：比這一幀前後的差別（自己 / AI 跑本地物理；遠端玩家是插值到他回報的位置，他的起跳看 move 帶的 vy）
@@ -1047,6 +1208,7 @@ export class GameView {
   onDeath(e) {
     if (this.mapView.onDeath(this.mapCtx, e)) return;   // 地圖畫面自己的死亡特效（例如古樹倒下、巨蟒倒下、蜂巢被打掉）
     if (this.look(e).poisonDeath) { this.showBanner(`${e.name} 中毒倒下了！`, '#c084fc'); return; }
+    if (e.deathCause === 'bleed') { this.showBanner(`${e.name} 失血倒下了！`, '#ef4444'); return; }
     if (e.deathCause === 'water') {
       this.splash(e.x);
       this.splash(e.x);
@@ -1105,6 +1267,31 @@ export class GameView {
     this.linkFlashes = this.linkFlashes.filter(f => f.life > 0);
     for (const f of this.floatTexts) { f.life -= dt; f.y -= 30 * dt; }
     this.floatTexts = this.floatTexts.filter(f => f.life > 0);
+    for (const a of this.ambient) a.t += dt;
+    this.ambient = this.ambient.filter(a => a.t < a.dur);
+  }
+
+  // 整個畫面的演出（效果的 ambient 動作，例如狂歡派對在狂熱疊上新的一層時）：一筆 { kind, t, dur, sprites }，
+  // 開始的時候把要畫的東西都決定好（亂數只在這裡用），t 在 updateEffects 推進、播完就拿掉；Renderer.drawAmbient 只照 t 算位置、不改任何東西。
+  // balloons = 一群半透明的氣球從戰場下面往上飄過整個畫面（每顆分一段寬度散開、晚一點點出發、左右晃）
+  startAmbient(kind, secs) {
+    if (kind !== 'balloons') return;   // 不認得的種類不播
+    const W = CONFIG.WORLD_W, H = CONFIG.WORLD_H;
+    const dur = secs > 0 ? secs : 3.5;
+    const COLORS = ['#f87171', '#fbbf24', '#34d399', '#60a5fa', '#a78bfa', '#f472b6', '#fb923c'];
+    const n = 14;
+    const sprites = [];
+    for (let i = 0; i < n; i++) {
+      const r = 13 + Math.random() * 7;
+      const delay = Math.random() * dur * 0.3;
+      const y0 = H + r + Math.random() * 40;   // 從畫面下緣底下出發
+      const y1 = -r - 3 * r;                   // 連繩子一起飄出畫面上緣
+      sprites.push({
+        x: W * (i + 0.15 + Math.random() * 0.7) / n, y0, delay, r, rise: (y0 - y1) / (dur - delay),
+        color: COLORS[i % COLORS.length], phase: Math.random() * Math.PI * 2, sway: 6 + Math.random() * 10,
+      });
+    }
+    this.ambient.push({ kind, t: 0, dur, sprites });
   }
 
   render() {

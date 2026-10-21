@@ -32,10 +32,26 @@ function drawWaterCannonHeld(ctx) {
   ctx.fillRect(20, -5.5, 5, 11);
 }
 
+// 西洋刺劍：細長的劍身（尖端收細）、碗狀的護手、深色的握柄與柄頭
+function drawRapierHeld(ctx) {
+  ctx.fillStyle = '#3f2a14';
+  ctx.fillRect(-5, -1.5, 8, 3);                       // 握柄
+  ctx.fillStyle = '#a8a29e';
+  ctx.beginPath(); ctx.arc(-6, 0, 2, 0, Math.PI * 2); ctx.fill();   // 柄頭
+  ctx.fillStyle = '#e5e7eb';
+  ctx.beginPath(); ctx.moveTo(5, -1.2); ctx.lineTo(36, -0.3); ctx.lineTo(38, 0); ctx.lineTo(36, 0.3); ctx.lineTo(5, 1.2); ctx.closePath(); ctx.fill();   // 劍身
+  ctx.fillStyle = '#d4a017';
+  ctx.beginPath(); ctx.ellipse(4, 0, 2.5, 5, 0, 0, Math.PI * 2); ctx.fill();   // 護手
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = 0.6;
+  ctx.beginPath(); ctx.moveTo(7, -0.4); ctx.lineTo(33, -0.1); ctx.stroke();   // 劍身的反光
+}
+
 // 武器 id → 拿在手上的畫法（沒有 prototype：HELD_ART[id] 查不到 constructor 之類繼承來的東西）
 export const HELD_ART = Object.freeze({
   __proto__: null,
   treeSpear: drawSpearHeld,
   darts: drawDartsHeld,
   waterCannon: drawWaterCannonHeld,
+  rapier: drawRapierHeld,
 });

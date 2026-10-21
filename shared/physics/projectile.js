@@ -5,10 +5,12 @@ export function makeProjectile(owner, weapon, x, y, vx, vy) {
   return {
     owner, weapon, x, y, vx, vy,
     gravity: weapon.gravity, hitRadius: weapon.hitRadius, age: 0,
+    wind: 0,                        // 風給的水平加速度（px/s²）：開火結算 / 預覽 / AI 試射的地方照那時候的風設（見 physics/wind.js）
     // 不會再撞到的角色（已經穿透過的、轟炸的持有者；迴力鏢與 passOwner 的武器（獨眼巨人的巨石）一開始就有丟的人：打不到自己）
     ignore: new Set((weapon.boomerang || weapon.passOwner) && owner ? [owner] : []),
     bouncesLeft: 0,                 // 還能在地形上彈射幾次（哈哈子彈、蹦蹦炸彈）
     pierce: !!weapon.pierce,        // 穿透角色（高倍率望遠鏡、古樹的攻擊）
+    stopAt: null,                   // 穿透的飛行物撞到這個角色就停下、不穿過去（大樹守衛衝鋒的目標）
     passTerrain: !!weapon.passTerrain,  // 穿過地形（古樹的攻擊）
     passAllies: !!weapon.passAllies,    // 穿過射手的隊友（古樹與樹妖的攻擊不會打到自己人；迴力鏢）
     boomerang: !!weapon.boomerang,  // 飛到最長路徑（或撞到地形 / 落水 / 飛出場外）就沿原路飛回來

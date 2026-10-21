@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { CONFIG } from '../shared/core/config.js';
 import { Run } from '../shared/game/run.js';
+import { difficultyOf } from '../shared/game/stage-rules.js';
 import { validateCards } from '../shared/cards/cards.js';
 import { isSticker, allowSticker } from '../shared/social/stickers.js';
 import { CHAT_MAX, cleanChat, allowChat } from '../shared/social/chat.js';
@@ -61,7 +62,7 @@ export class RoomManager {
   // 等人中的排前面、再照建立順序
   roomsPayload() {
     const rooms = [...this.rooms.values()].filter(r => !r.isPrivate && r.hostId && !r.over).map(r => ({
-      code: r.code, host: r.members.get(r.hostId).name, players: r.members.size, max: CONFIG.MAX_PLAYERS, started: r.started,
+      code: r.code, host: r.members.get(r.hostId).name, players: r.members.size, max: CONFIG.MAX_PLAYERS, started: r.started, difficulty: r.difficulty,
     }));
     rooms.sort((x, y) => x.started - y.started);
     return { t: 'rooms', rooms };
@@ -171,9 +172,10 @@ export class RoomManager {
         if (!client.id) return ignored('noHello');
         if (client.room) return ignored('alreadyInRoom');
         if (msg.name !== undefined) client.name = sanitizeName(msg.name);   // 連上大廳後才改的暱稱
-        const room = new Room(this, this.makeCode(), !!msg.private);
+        // difficulty：建房時選的難度（不認得的當一般，見 difficultyOf）
+        const room = new Room(this, this.makeCode(), !!msg.private, difficultyOf(msg.difficulty));
         this.rooms.set(room.code, room);
-        this.record('room.create', { pid: client.id, name: client.name, private: room.isPrivate }, room);
+        this.record('room.create', { pid: client.id, name: client.name, private: room.isPrivate, difficulty: room.difficulty }, room);
         this.browsers.delete(client);
         room.add(client);
         break;
@@ -225,10 +227,12 @@ export class RoomManager {
 
 class Room {
   // isPrivate：私人房間不會出現在大廳列表，只能輸入房號加入（房主在房間裡可以切換）
-  constructor(manager, code, isPrivate = false) {
+  // difficulty：這間房間的冒險用哪個難度（建房時選，config.DIFFICULTY 的 key）
+  constructor(manager, code, isPrivate = false, difficulty = 'normal') {
     this.manager = manager;
     this.code = code;
     this.isPrivate = isPrivate;
+    this.difficulty = difficulty;
     this.members = new Map();   // playerId → { id, name, ready, client|null }
     this.hostId = null;
     this.started = false;
@@ -279,7 +283,7 @@ class Room {
 
   lobbyPayload() {
     return {
-      t: 'lobby', code: this.code, hostId: this.hostId, max: CONFIG.MAX_PLAYERS, private: this.isPrivate,
+      t: 'lobby', code: this.code, hostId: this.hostId, max: CONFIG.MAX_PLAYERS, private: this.isPrivate, difficulty: this.difficulty,
       players: [...this.members.values()].map(m => ({ id: m.id, name: m.name, ready: m.ready, connected: !!m.client })),
     };
   }
@@ -387,10 +391,10 @@ class Room {
     };
     const cards = loadCards();
     this.record('room.start', {
-      pid: this.hostId, name: this.members.get(this.hostId).name, seed, cards: cards.length,
+      pid: this.hostId, name: this.members.get(this.hostId).name, seed, cards: cards.length, difficulty: this.difficulty,
       players: players.map(p => ({ pid: p.id, name: p.name })),
     });
-    this.run = new Run({ players, seed, io, cards });
+    this.run = new Run({ players, seed, io, cards, difficulty: this.difficulty });
     this.run.start();
     this.manager.notifyBrowsers();   // 列表上改標「遊戲中」
   }

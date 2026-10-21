@@ -9,6 +9,8 @@ import { STAGE_LOOK } from './stage-look.js';
 // 要指定隊友的牌（效果的 target，例如攜手之伴）：要先選一位隊友當對象（同一個面板），也可以取消改選別張；文字由效果給（pickText）
 const isLinkCard = (card) => !!teammateEffect(card);
 const textOf = (card) => teammateEffect(card).pickText;
+// 武器牌的武器命中時會附加流血（武器的 bleed）
+const appliesBleed = (card) => !!card.weapon && !!CONFIG.WEAPONS[card.weapon] && CONFIG.WEAPONS[card.weapon].bleed > 0;
 
 export class CardsUi {
   constructor(root, onPick) {
@@ -185,6 +187,9 @@ export class CardsUi {
     }
     if (offers.some(appliesBurn)) {
       notes.push(`＊燃燒：自己的回合結束時，每層扣最大血量 ${B.pctPerStack}%；在自己的回合移動可以甩掉層數（每 ${B.pxPerStack}px 一層，每回合最多 ${B.maxReducePerTurn} 層）`);
+    }
+    if (offers.some(appliesBleed)) {
+      notes.push(`＊流血：流血的角色自己移動時，每移動 1px、每層扣最大血量 ${CONFIG.BLEED.pctPerPx}%；層數會一直疊，到他自己的回合結束時止血（全部清掉）`);
     }
     this.$('#cards-note').textContent = notes.join('\n');
   }

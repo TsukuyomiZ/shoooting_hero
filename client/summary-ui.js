@@ -1,5 +1,6 @@
 import { CONFIG } from '../shared/core/config.js';
-import { STAGE_LOOK } from './stage-look.js';
+import { STAGE_LOOK, difficultyName } from './stage-look.js';
+import { difficultyOf } from '../shared/game/stage-rules.js';
 
 // 結算畫面（DOM）：整場冒險結束（通關或全滅）時顯示每位玩家的
 // 總傷害、命中率、承受傷害，以及拿到的所有牌（能力）
@@ -10,16 +11,17 @@ export class SummaryUi {
     this.$('#summary-back').addEventListener('click', () => location.reload());
   }
 
-  // runOver 訊息：{ result, stage, stageCount, type, summary: [{ id, name, dealt, taken, shots, hits, cards: [...] }] }；
-  // type = 倒在哪一種關卡（'normal' | 'elite' | 'boss'）
+  // runOver 訊息：{ result, stage, stageCount, type, difficulty, summary: [{ id, name, dealt, taken, shots, hits, cards: [...] }] }；
+  // type = 倒在哪一種關卡（'normal' | 'elite' | 'boss'）；difficulty = 這場的難度（一般的不特別寫）
   show(msg, { myId, type = 'normal' }) {
     const where = STAGE_LOOK[type] && STAGE_LOOK[type].name;
     const win = msg.result === 'win';
     this.root.classList.toggle('win', win);
     this.$('#summary-title').textContent = win ? '通關！' : '冒險結束';
-    this.$('#summary-sub').textContent = win
+    const hard = difficultyOf(msg.difficulty) !== 'normal' ? `　·　${difficultyName(msg.difficulty)}` : '';
+    this.$('#summary-sub').textContent = (win
       ? `打倒了全部 ${msg.stageCount} 關`
-      : `倒在第 ${msg.stage} / ${msg.stageCount} 關${where ? `（${where}）` : ''}`;
+      : `倒在第 ${msg.stage} / ${msg.stageCount} 關${where ? `（${where}）` : ''}`) + hard;
     const list = this.$('#summary-list');
     list.innerHTML = '';
     const rows = msg.summary || [];

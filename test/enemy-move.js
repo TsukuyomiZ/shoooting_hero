@@ -10,7 +10,7 @@ import { CONFIG } from '../shared/core/config.js';
 import { LEVELS } from '../shared/maps/level.js';
 import { Match } from '../shared/game/match.js';
 import { Referee } from '../shared/game/referee.js';
-import { glideAt } from '../shared/ai/ai-move.js';
+import { glideAt, glideDist } from '../shared/ai/ai-move.js';
 import { spawnTreant } from '../shared/maps/tree-boss.js';
 import { PLATFORM } from '../shared/physics/terrain.js';
 
@@ -230,15 +230,15 @@ test('蝙蝠在出生點周圍的框框裡飄：每回合都換位置，路上�
   return { far: `${far}/${turns}` };
 }));
 
-test('獨眼巨人每回合先沿著自己那根岩柱走一段再出招：腳一直踩在岩柱頂上、不走進站在上面的玩家，招式從走到的地方出', () => base(() => {
+test('獨眼巨人每回合先沿著自己那根岩柱走一段再出招：腳一直踩在岩柱頂上、不走進站在上面的玩家，招式從走到的地方出', () => base(() => withConfig({ CYCLOPS: { ...CONFIG.CYCLOPS, sealEvery: 0 } }, () => {   // 只看走動：不丟超巨石（高台上的人才不會被壓死）
   let turns = 0, far = 0;
-  const ledge = { x0: 784, x1: 1024, y: LEVELS.depths.mechanic.cyclops.y };   // 岩柱平的頂面
+  const ledge = { x0: 712, x1: 1024, y: LEVELS.depths.mechanic.cyclops.y };   // 岩柱平的頂面
   for (let seed = 1; seed <= 15; seed++) {
     const m = make('depths', 2, { seed });
     const cy = m.byId('cyclops');
     const p1 = m.byId('p1');
     if (seed % 3 === 0) {   // 有人站上他的岩柱
-      p1.x = 860; p1.y = 400; p1.onGround = false;
+      p1.x = 860; p1.y = 350; p1.onGround = false;
       m.settle(300);
     }
     const xs = new Set();
@@ -268,23 +268,28 @@ test('獨眼巨人每回合先沿著自己那根岩柱走一段再出招：腳�
   }
   assert(far >= turns * 0.8, `walks at least minDist: ${far}/${turns}`);
   return { far: `${far}/${turns}` };
-}));
+})));
 
 // ---------------- 裁判、重播 ----------------
 
-// 跑一場（玩家都斷線、AI 代打），每次 AI 規劃前記下快照、規劃完記下行動者的位置；回傳 aiTurn 訊息與這些記錄
-function refereeRun(levelId, seed, maxTurns = 14) {
+// 跑一場（玩家都斷線、AI 代打），每次 AI 規劃前記下快照、規劃完記下行動者的位置與血量；回傳 aiTurn 訊息與這些記錄。
+// bleed = 每個角色輪到自己時先帶著幾層流血（在裁判拍快照之前：aiTurn 帶的狀態就有；走路 / 飄移途中會扣血、可能倒下）
+function refereeRun(levelId, seed, maxTurns = 14, { bleed = 0, hp = 3000 } = {}) {
   const players = mkPlayers(2);
   const m = new Match({ levelId, players, seed });
-  for (const p of m.players) { p.hp = p.maxHp = 3000; }
+  for (const p of m.players) { p.hp = p.maxHp = hp; }
   const caps = [];
   const plan = m.planAiTurn.bind(m);
   m.planAiTurn = (actor, w) => {
     const snap = JSON.parse(J(m.snapshot()));
     const r = plan(actor, w);
-    caps.push({ actorId: actor.id, snap, x: actor.x, y: actor.y, vy: actor.vy, onGround: actor.onGround });
+    caps.push({ actorId: actor.id, snap, x: actor.x, y: actor.y, vy: actor.vy, onGround: actor.onGround, hp: actor.hp, alive: actor.alive, bled: actor.bledThisTurn });
     return r;
   };
+  if (bleed) {
+    const begin = m.beginTurn.bind(m);
+    m.beginTurn = (e) => { begin(e); e.bleed = bleed; };
+  }
   const io = new FakeIo();
   const ref = new Referee({ match: m, humans: players, io });
   ref.start();
@@ -312,9 +317,10 @@ function clientAiTurn(levelId, players, seed, cap, msg, aim = false, stopAt = In
     e.moveDir = 0;
     if (stopAt < Infinity) return e;
   }
-  if (msg.glide) {
+  if (msg.glide && e.alive) {
     const x0 = e.x, y0 = e.y;
     for (let f = 1; f <= msg.glide.frames; f++) { const p = glideAt(x0, y0, msg.glide, f); e.x = p.x; e.y = p.y; }
+    e.bleedFor(glideDist(msg.glide));   // 流血：飄完照直線距離扣一次（同 GameView.glideScript）
   }
   if (aim && msg.shot) for (let f = 0; f < Math.round(CONFIG.TIMING.aiAim * 60); f++) c.step();
   return e;
@@ -335,6 +341,7 @@ test('客戶端照 aiTurn 的 walk / glide 重播（先 aiThink 那段物理、�
       if (msg.walk) walks++;
       if (msg.glide) glides++;
       assert(e.x === cap.x && e.y === cap.y, `${levelId} #${i} ${msg.actorId}: client (${e.x}, ${e.y}) vs server (${cap.x}, ${cap.y}) ${J({ walk: msg.walk, glide: msg.glide })}`);
+      assert(e.hp === cap.hp && e.alive === cap.alive, `${levelId} #${i} ${msg.actorId}: client hp ${e.hp} alive ${e.alive} vs server ${cap.hp} ${cap.alive}`);
       // 裁判等的時間 ≥ 客戶端播這一段要的幀數（aiThink + 走 / 飄 + 瞄準 + 一波，或 Boss 的每一招）
       const next = io.log.slice(io.log.indexOf(msg) + 1).find(x => x.at > msg.at);   // 這一回合播完、裁判接著送的下一則
       const T = CONFIG.TIMING;
@@ -354,6 +361,43 @@ test('客戶端照 aiTurn 的 walk / glide 重播（先 aiThink 那段物理、�
   }
   return out;
 }));
+
+test('流血（2026-10-14）：帶著流血走路 / 飄移的角色，客戶端照 aiTurn 重播扣的血跟伺服器一模一樣（hp、alive、這回合流血扣的）；' +
+  '走到一半倒下的不開火、不出招（shot: null、ai.turn 帶 died: bleed），裁判等的時間照走動算', () => base(() => withConfig({ BLEED: { pctPerPx: 0.01 } }, () => {
+  const out = { lost: 0, died: 0, glideLost: 0, glideDied: 0, turns: 0 };
+  for (const bleed of [60, 200]) {
+    for (const [levelId, seed] of [['flanked', 2], ['grove', 3], ['brawl', 4], ['cave', 5], ['depths', 6], ['level2', 7]]) {
+      const { io, caps, players } = refereeRun(levelId, seed, 14, { bleed });
+      const ai = io.log.filter(x => x.t === 'aiTurn');
+      const recs = io.records.filter(r => r.ev === 'ai.turn');
+      assert(ai.length === caps.length && recs.length === ai.length, `${levelId}/${bleed}: ${ai.length} aiTurn vs ${caps.length} plans, ${recs.length} logs`);
+      ai.forEach((msg, i) => {
+        const cap = caps[i], rec = recs[i];
+        const at = `${levelId}/${bleed} #${i} ${msg.actorId} ${J({ walk: msg.walk, glide: msg.glide })}`;
+        const st = msg.entities.find(s => s.id === msg.actorId);
+        assert(st.bl === bleed, `${at}: aiTurn carries the stacks (bl ${st.bl})`);
+        const e = clientAiTurn(levelId, players, seed, cap, msg);
+        assert(e.x === cap.x && e.y === cap.y && e.hp === cap.hp && e.alive === cap.alive && e.bledThisTurn === cap.bled,
+          `${at}: client (${e.x}, ${e.y}) hp ${e.hp} ${e.alive} bled ${e.bledThisTurn} vs server (${cap.x}, ${cap.y}) hp ${cap.hp} ${cap.alive} bled ${cap.bled}`);
+        out.turns++;
+        if (cap.bled > 0 && cap.alive) { out.lost++; if (msg.glide) out.glideLost++; }
+        if (!cap.alive) {
+          // 走動途中流血倒下：死因 bleed、不開火也不出招，紀錄帶 died 與 changes 裡的 died
+          out.died++;
+          if (msg.glide) out.glideDied++;
+          assert(e.deathCause === 'bleed' && !msg.shot && !msg.boss, `${at}: died walking → no shot / boss move`);
+          assert(rec.died === 'bleed' && rec.noShot && rec.changes.some(c => c.id === msg.actorId && c.died === 'bleed'), `${at}: ai.turn log ${J(rec)}`);
+          const next = io.log.slice(io.log.indexOf(msg) + 1).find(x => x.at > msg.at);
+          const move = (msg.walk ? msg.walk.frames + msg.walk.fall : 0) + (msg.glide ? msg.glide.frames : 0);
+          if (next) assert((next.at - msg.at) * 60 / 1000 >= CONFIG.TIMING.aiThink * 60 + move - 1, `${at}: referee waited ${next.at - msg.at} ms`);
+        }
+      });
+    }
+  }
+  // 沒有扣血 / 倒下的話，上面什麼都沒證明
+  assert(out.lost >= 5 && out.died >= 3 && out.glideLost >= 1 && out.glideDied >= 1, 'not enough bleeding walks: ' + J(out));
+  return out;
+})));
 
 test('走完還在半空中（走下小台階、前面不安全或體力用完的那一刻腳還沒著地）就放開方向鍵落到站穩（walk.fall）：玩家都斷線、每張小地圖很多個 seed，' +
   '客戶端照 aiThink → 走 frames 幀 → 落 fall 幀 → 瞄準那段（aiAim）也跑物理，跟伺服器開火的位置（shot.actor；沒開火就比規劃完的位置）一模一樣，而且站在地上', () => base(() => {

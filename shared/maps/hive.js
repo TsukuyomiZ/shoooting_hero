@@ -7,7 +7,7 @@ import { nearestPlayerAt, bossProjectile, bossShot, stillResult } from './mechan
 // Match 什麼時候呼叫這些，見地圖機制 shared/maps/mechanics/hive.js。這一場的狀態在 match.mechState（buildHive 建的那一份）。
 //
 // - 蜂巢：掛在樹枝最左邊下面，固定不動、不會輪到它（noTurn）。打不打都可以：狙擊手全倒就過關（蜂巢與蜜蜂是 optional）。
-//   被玩家方攻擊到（直擊或爆炸波及；一顆飛行物算一次，等離子三發都打到 = 三次）就只扣 1，不管用什麼武器、傷害多高；
+//   被玩家方攻擊到（直擊或爆炸波及；一顆飛行物算一次，等離子兩發都打到 = 兩次）就只扣 1，不管用什麼武器、傷害多高；
 //   每被打到一次就飛出一隻蜜蜂（打掉蜂巢的那一下也會飛出來，所以最多 HIVE.hp 隻）。打掉蜂巢不算擊殺（noKill）。
 //   不會燃燒、中毒、被擊退；敵人自己的子彈會穿過它（allyPass），不會讓它扣血、放蜜蜂。見 mechanics/hive.js 的 absorbHit
 // - 蜜蜂：從蜂巢飛出來，停在 level.mechanic.beeSpots（找沒有蜜蜂停著的）。飛在空中（fixed：不受重力、不會被擊退、不會落水），

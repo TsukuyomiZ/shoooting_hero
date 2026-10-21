@@ -1,7 +1,7 @@
 import { CONFIG } from '../shared/core/config.js';
 import { displayAngle, clamp } from '../shared/core/utils.js';
 import { aimPreview } from '../shared/physics/weapons.js';
-import { effectChips, STATUS_CHIP_ORDER } from '../shared/cards/effects/index.js';
+import { effectChips, auraOf, STATUS_CHIP_ORDER } from '../shared/cards/effects/index.js';
 import { VINE_HAND } from '../shared/physics/entities.js';
 import { roundRect, text, drawBar, drawHpBar, FONT } from './draw.js';
 import { buildDecor } from './decor.js';
@@ -10,6 +10,9 @@ import { HELD_ART } from './weapon-art.js';
 import { STAGE_LOOK, stageLook } from './stage-look.js';
 
 const NO_BAR = Object.freeze({});   // 地圖畫面沒有特別交代的血條（hpBar 回傳 null）
+// 右上名單框（寬 250、離右邊 12）裡字最多多寬：名字從 W-232 寫到血條（W-92）前面留 6 px；底下幾行從 W-250 寫到跟血條的右端（W-22）對齊
+const ROSTER_NAME_W = 134;
+const ROSTER_LINE_W = 228;
 
 // 畫面與 HUD。某一張地圖特有的畫法（Boss、場景、名單底下的提示…）由地圖畫面負責（view.mapView，見 client/map-views/index.js），
 // 這裡只在固定的位置呼叫它的掛勾
@@ -55,7 +58,12 @@ export class Renderer {
     const mv = view.mapView, c = view.mapCtx;
     mv.drawScene(ctx, c);   // 地圖畫面的場景（例如古樹之庭的樹冠與撞擊警示帶、叢林巨蟒的藤蔓與蛇血）
     const shaded = mv.shaded(c);   // 有遮光的地圖（例如洞穴）：瞄準線畫在遮光上面
-    if (!shaded) this.drawAim();
+    // 整個畫面的演出（效果給的，見 drawAmbient）、效果的範圍圈（drawAura）：在角色後面；有遮光的地圖畫在遮光上面（跟瞄準線一樣），才不會被蓋暗
+    if (!shaded) {
+      this.drawAmbient();
+      this.drawAura();
+      this.drawAim();
+    }
     // 地圖畫面要先畫的角色先畫（例如巨蟒的頭：被甩到嘴前的人要畫在牠前面，不會像是鑽進牠的頭裡）
     const first = [], rest = [];
     for (const e of view.match.entities) (mv.drawEntityFirst(c, e) ? first : rest).push(e);
@@ -63,6 +71,8 @@ export class Renderer {
     for (const e of rest) this.drawEntity(e);
     if (shaded) {
       mv.drawShade(ctx, c);
+      this.drawAmbient();
+      this.drawAura();
       this.drawAim();
     }
     this.drawProjectiles();
@@ -74,6 +84,57 @@ export class Renderer {
     this.drawHint();
     if (view.runOver) this.drawRunOverlay();
     else if (view.result) this.drawOverlay();
+  }
+
+  // 整個畫面的演出（GameView.ambient，見 startAmbient）：只照每一筆的 t 算位置（左右晃用 sin），不改任何東西。
+  // balloons = 半透明的氣球帶著繩子往上飄，最後 0.4 秒淡掉
+  drawAmbient() {
+    const { ctx, view } = this;
+    for (const a of view.ambient || []) {
+      if (a.kind !== 'balloons') continue;
+      const fade = clamp((a.dur - a.t) / 0.4, 0, 1);
+      for (const b of a.sprites) {
+        const tt = a.t - b.delay;
+        if (tt <= 0) continue;
+        const y = b.y0 - b.rise * tt;
+        const x = b.x + Math.sin(a.t * 2.2 + b.phase) * b.sway;
+        const tilt = Math.cos(a.t * 2.2 + b.phase) * 0.12;
+        ctx.save();
+        ctx.globalAlpha = 0.6 * fade;
+        ctx.translate(x, y);
+        ctx.rotate(tilt);
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';   // 繩子：往下彎彎曲曲的一條
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, b.r + 3);
+        ctx.quadraticCurveTo(b.r * 0.5, b.r * 2, 0, b.r * 2.6);
+        ctx.quadraticCurveTo(-b.r * 0.5, b.r * 3.1, 0, b.r * 3.6);
+        ctx.stroke();
+        ctx.fillStyle = b.color;
+        ctx.beginPath(); ctx.moveTo(-3, b.r + 4); ctx.lineTo(3, b.r + 4); ctx.lineTo(0, b.r - 1); ctx.closePath(); ctx.fill();   // 綁口
+        ctx.beginPath(); ctx.ellipse(0, 0, b.r * 0.85, b.r, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';   // 反光
+        ctx.beginPath(); ctx.ellipse(-b.r * 0.35, -b.r * 0.4, b.r * 0.18, b.r * 0.3, -0.5, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+
+  // 效果的範圍圈（例如威嚇的距離，見 effects 的 aura）：只在現在輪到的那位玩家身上、他自己的回合畫，很淡的虛線。
+  // 跟瞄準線一起畫（見 draw）：有遮光的地圖畫在遮光上面，才不會被蓋暗；只讀，不改任何東西
+  drawAura() {
+    const { ctx, view } = this;
+    const e = view.currentId != null ? view.match.byId(view.currentId) : null;
+    if (!e || !e.alive || !e.isPlayer || view.result) return;
+    const aura = auraOf(e, { match: view.match });
+    if (!aura) return;
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.strokeStyle = aura.color || '#e2e8f0';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 8]);
+    ctx.beginPath(); ctx.arc(e.x, e.cy, aura.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
   }
 
   // 慢動作：畫面四周罩一圈淡淡的暗藍色（越慢越深），中間的戰場不蓋
@@ -164,7 +225,7 @@ export class Renderer {
       const a = Math.max(0, 1 - e.deathTimer / 1.2);
       if (a <= 0) { ctx.restore(); return; }
       ctx.globalAlpha = a;
-      if (e.deathCause === 'hit') ctx.translate(0, e.deathTimer * 40);
+      if (e.deathCause === 'hit' || e.deathCause === 'bleed') ctx.translate(0, e.deathTimer * 40);
     }
     const x = e.x, y = e.y;
     const hurt = e.hurtTimer > 0;
@@ -240,9 +301,9 @@ export class Renderer {
       size: 12, bold: true, align: 'center',
       color: e.isPlayer ? '#e8f4ff' : '#ffd54f', outline: 'rgba(0,0,0,0.9)',
     });
-    if (e.alive && e.burn > 0) this.drawBurn(x + bw / 2 + 7, by + 3, e.burn);
-    if (e.alive && e.poison > 0) this.drawPoisonMark(x + bw / 2 + 7 + (e.burn > 0 ? 26 : 0), by + 3, e.poison);   // 中毒層數（每個自己的回合開始都會結算，喝蛇血才解除）
-    if (e.alive && view.match.linkPartners(e).length) this.drawLinkMark(x - bw / 2 - 9, by + 3);   // 攜手之伴：連結生效中
+    const linked = e.alive && view.match.linkPartners(e).length > 0;
+    if (e.alive) this.drawStatusMarks(e, x, bw, by + 3, linked);   // 燃燒、中毒、流血的層數（見 drawStatusMarks）
+    if (linked) this.drawLinkMark(x - bw / 2 - 9, by + 3);   // 攜手之伴：連結生效中
     if (e.alive && e.shield > 0) {   // 神佑之石的無敵護罩
       const r = Math.max(e.h, e.hw * 2) * 0.72 + 4;
       ctx.fillStyle = 'rgba(253,230,138,0.12)';
@@ -262,7 +323,6 @@ export class Renderer {
         ctx.beginPath(); ctx.arc(x, e.cy, r + 4, a0, a0 + 0.45); ctx.stroke();
       }
     }
-
     // 目前行動者標記（跳動的倒三角）
     if (view.currentId === e.id && e.alive && !view.result) {
       const ty = by - 22 + Math.sin(view.time * 6) * 3;
@@ -382,6 +442,23 @@ export class Renderer {
     ctx.restore();
   }
 
+  // 血條旁的狀態標記排成一排：燃燒 → 中毒（每個自己的回合開始都會結算，喝蛇血才解除）→ 流血（自己移動就扣血，自己的回合結束時止血），
+  // 有的才畫，一格 26 px，層數寫在圖示右邊（從圖示中心 +6 開始，11 px 粗體的數字一個抓 7 px 寬）。
+  // 平常從血條右邊往右排；排到畫面右邊外面（站在最右邊的角色，例如出生在最右邊的菁英）就整排改放到血條左邊，
+  // 有攜手之伴的連結標記就再往外排到它左邊，順序一樣
+  drawStatusMarks(e, x, bw, y, linked) {
+    const marks = [];
+    if (e.burn > 0) marks.push([this.drawBurn, e.burn]);
+    if (e.poison > 0) marks.push([this.drawPoisonMark, e.poison]);
+    if (e.bleed > 0) marks.push([this.drawBleedMark, e.bleed]);
+    if (!marks.length) return;
+    const GAP = 26;
+    const tail = 6 + 7 * String(marks[marks.length - 1][1]).length;   // 最後一個圖示的中心到它的層數的右端
+    let x0 = x + bw / 2 + 7;
+    if (x0 + GAP * (marks.length - 1) + tail > CONFIG.WORLD_W - 2) x0 = x - bw / 2 - (linked ? 20 : 3) - tail - GAP * (marks.length - 1);
+    marks.forEach(([draw, stacks], i) => draw.call(this, x0 + GAP * i, y, stacks));
+  }
+
   // 血條旁的燃燒標記：小火焰 + 層數
   drawBurn(fx, fy, stacks) {
     const ctx = this.ctx;
@@ -416,6 +493,29 @@ export class Renderer {
     ctx.beginPath(); ctx.arc(x - 1.5, y + 1, 1.2, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
     text(ctx, String(stacks), x + 6, y + 5, { size: 11, bold: true, color: '#e9d5ff', outline: 'rgba(0,0,0,0.9)' });
+  }
+
+  // 血條旁的流血標記：兩滴紅色的血（一大一小）+ 層數（層數可能到兩位數，數字照中毒的位置排）
+  drawBleedMark(x, y, stacks) {
+    const ctx = this.ctx;
+    const drop = (cx, cy, s) => {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 6 * s);
+      ctx.quadraticCurveTo(cx + 4.5 * s, cy - 0.5 * s, cx + 3.4 * s, cy + 2.4 * s);
+      ctx.arc(cx, cy + 1.6 * s, 3.6 * s, 0.2, Math.PI - 0.2);
+      ctx.quadraticCurveTo(cx - 4.5 * s, cy - 0.5 * s, cx, cy - 6 * s);
+      ctx.fill(); ctx.stroke();
+    };
+    ctx.save();
+    ctx.fillStyle = '#dc2626';
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 1.2;
+    drop(x - 4.2, y + 3, 0.55);   // 小的那滴在左下
+    drop(x + 0.5, y, 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    ctx.beginPath(); ctx.arc(x - 0.8, y + 1, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    text(ctx, String(stacks), x + 6, y + 5, { size: 11, bold: true, color: '#fecaca', outline: 'rgba(0,0,0,0.9)' });
   }
 
   // 抓著藤蔓的人：兩隻手往上握住藤蔓（在角色座標裡，跟身體一起縮放）
@@ -500,8 +600,8 @@ export class Renderer {
         for (const pt of tr.pierced) {               // 穿透點
           ctx.beginPath(); ctx.moveTo(pt.x - 5, pt.y - 5); ctx.lineTo(pt.x + 5, pt.y + 5); ctx.moveTo(pt.x + 5, pt.y - 5); ctx.lineTo(pt.x - 5, pt.y + 5); ctx.stroke();
         }
-        if (tr.hit.type === 'range') {               // 射程到這裡（高壓水炮）：打不到東西，畫一圈虛線表示水柱在這裡散掉
-          ctx.strokeStyle = 'rgba(125,211,252,0.95)';
+        if (tr.hit.type === 'range') {               // 射程到這裡（高壓水炮、西洋刺劍）：打不到東西，畫一圈虛線（武器的顏色）表示到這裡為止
+          ctx.strokeStyle = weapon.color;
           ctx.setLineDash([3, 3]);
           ctx.beginPath(); ctx.arc(end.x, end.y, 8, 0, Math.PI * 2); ctx.stroke();
           ctx.setLineDash([]);
@@ -618,6 +718,20 @@ export class Renderer {
         ctx.fillStyle = '#e0f2fe';
         ctx.beginPath(); ctx.arc(p.x, p.y, w.shellRadius + 1, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
+      } else if (w.id === 'rapier') {   // 西洋刺劍：朝前方一道細細的鋼色劍光（外面一層淡淡的光暈），劍尖亮一點
+        const sp = Math.hypot(p.vx, p.vy) || 1;
+        const ux = p.vx / sp, uy = p.vy / sp;
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(229,231,235,0.3)';
+        ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(p.x - ux * 30, p.y - uy * 30); ctx.lineTo(p.x, p.y); ctx.stroke();
+        ctx.strokeStyle = w.color;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.moveTo(p.x - ux * 22, p.y - uy * 22); ctx.lineTo(p.x, p.y); ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.arc(p.x, p.y, 1.6, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
       } else {
         const len = 40;
         const sp = Math.hypot(p.vx, p.vy) || 1;
@@ -723,6 +837,9 @@ export class Renderer {
       ctx.globalAlpha = 1;
     }
 
+    // 上中（武器選擇的下面）：風向（有風的關卡才有，見 shared/physics/wind.js）
+    if (match.windMax > 0) this.drawWind(W / 2, 62, match.wind, match.windMax);
+
     // 右上：隊伍名單（含手牌數）+ 敵人
     const players = match.players;
     // 打不打都可以的敵人（例如蜂巢、蜜蜂）不算在「敵人剩餘」裡；名單底下的幾行由地圖畫面決定（例如 Boss 的血量）
@@ -743,11 +860,13 @@ export class Renderer {
       if (!p.alive) name += ' ✕';
       const cardCount = si && si.cards && si.cards[p.id] ? si.cards[p.id].length : 0;
       if (cardCount) name += `　牌×${cardCount}`;
-      text(ctx, name, W - 232, y, { size: 13, color: p.alive ? '#fff' : '#888' });
+      // 名字太長就縮小 / 截掉（不蓋到右邊的血條）
+      text(ctx, name, W - 232, y, { size: 13, color: p.alive ? '#fff' : '#888', maxWidth: ROSTER_NAME_W });
       drawHpBar(ctx, W - 92, y - 12, 70, 10, p, p.color, '#222');   // 被中毒鎖住的上限是灰色
     });
     const ey = 56 + players.length * 22 + 2;
-    lines.forEach(([str, color], i) => text(ctx, str, W - 250, ey + i * 22, { size: 13, bold: true, color }));
+    // 地圖畫面給的幾行（例如 Boss 的血量、下一招）：太長也縮小 / 截掉，不超出名單框（右邊跟血條對齊）
+    lines.forEach(([str, color], i) => text(ctx, str, W - 250, ey + i * 22, { size: 13, bold: true, color, maxWidth: ROSTER_LINE_W }));
 
     // 底部：自己的狀態
     const py = H - 96;
@@ -792,14 +911,39 @@ export class Renderer {
     hints.forEach((h, i) => text(ctx, h, W - 20, py + (hints.length > 3 ? 22 : 28) + i * gap, { size: 11, align: 'right', color: '#ccc' }));
   }
 
+  // 風向：一條圓角框，左邊「風」、中間箭頭（朝風吹的方向，越強越長、顏色從綠到紅）、右邊級數；0 級寫「無風」
+  drawWind(cx, y, wind, max) {
+    const { ctx } = this;
+    const w = 190, h = 22;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    roundRect(ctx, cx - w / 2, y, w, h, 11); ctx.fill();
+    const k = Math.min(1, Math.abs(wind) / Math.max(1, max));
+    const color = wind === 0 ? '#cbd5e1' : k < 0.4 ? '#86efac' : k < 0.75 ? '#fde047' : '#f87171';
+    text(ctx, '風', cx - w / 2 + 16, y + 16, { size: 13, bold: true, align: 'center', color: '#e2e8f0' });
+    if (!wind) { text(ctx, '無風', cx + 4, y + 16, { size: 13, bold: true, align: 'center', color }); return; }
+    const dir = Math.sign(wind);
+    const len = 14 + 74 * k;
+    const my = y + h / 2, x0 = cx + 2 - dir * len / 2, x1 = cx + 2 + dir * len / 2;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x0, my); ctx.lineTo(x1 - dir * 6, my); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x1, my); ctx.lineTo(x1 - dir * 9, my - 6); ctx.lineTo(x1 - dir * 9, my + 6); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    text(ctx, String(Math.abs(wind)), cx + w / 2 - 16, y + 16, { size: 13, bold: true, align: 'center', color });
+  }
+
   // 底部狀態列上方：自己身上正在生效的效果與狀態。效果的那幾格（文字、顏色、位置）由各效果給（shared/cards/effects/ 的 chip），
-  // 這裡只畫；狀態（無敵、燃燒、中毒、生命鎖）排在 STATUS_CHIP_ORDER 的位置
+  // 這裡只畫；狀態（無敵、燃燒、中毒、流血、生命鎖）排在 STATUS_CHIP_ORDER 的位置
   drawBuffs(me, x, y) {
     const ctx = this.ctx;
     const status = [];
     if (me.shield > 0) status.push([`無敵 ×${me.shield}`, '#fde68a']);
     if (me.burn > 0) status.push([`燃燒 ${me.burn} 層`, '#fb923c']);
     if (me.poison > 0) status.push([`中毒 ${me.poison} 層`, '#c084fc']);
+    if (me.bleed > 0) status.push([`流血 ${me.bleed} 層`, '#ef4444']);
     if (me.poisonLock > 0) status.push([`生命鎖 -${me.poisonLock}`, '#9ca3af']);
     const effects = effectChips(me, { match: this.view.match });
     const chips = [

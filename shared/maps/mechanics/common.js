@@ -26,6 +26,17 @@ export function nearestPlayerAt(match, x, y) {
   return target;
 }
 
+// 離 (x, y) 最遠的活著的玩家（一樣遠時排前面的先）；一個都沒有回傳 null
+export function farthestPlayerAt(match, x, y) {
+  let target = null, best = -1;
+  for (const e of match.players) {
+    if (!e.alive) continue;
+    const d = (e.cx - x) * (e.cx - x) + (e.cy - y) * (e.cy - y);
+    if (d > best) { best = d; target = e; }
+  }
+  return target;
+}
+
 // 招式的飛行物：第 1 幀就出發（owner 的招式帶 passAllies 的話會穿過自己人）
 export function bossProjectile(owner, weapon, x, y, vx, vy) {
   const p = makeProjectile(owner, weapon, x, y, vx, vy);

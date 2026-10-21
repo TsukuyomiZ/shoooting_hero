@@ -34,6 +34,11 @@ export class Entity {
     this.noKill = !!o.noKill;   // 打倒它不算擊殺（蜂巢）
     // 碰不到：子彈穿過去、爆炸波及不到、AI 不瞄它（躲在洞穴深處的洞穴巨蠍）。由地圖機制照它的狀態設定（兩邊各自推，不同步）
     this.intangible = !!o.intangible;
+    // 被關住：走不動、跳不起來、不會被擊退（處刑監獄的囚籠），照樣可以開火（打在籠子上、自己的攻擊傷不到自己）。由地圖機制照它的狀態設定（兩邊各自推，不同步）
+    this.held = false;
+    this.heldId = o.heldId || null;   // 這個角色關著誰（囚籠）：被關的人開火，一出砲口就打在籠子上（往哪裡射都一樣）
+    // 血量扣不到這個值以下（處刑官：到門檻先停住，等他跳上處刑台、打開牢房）。只有伺服器在用（客戶端照伺服器的結果套血量）
+    this.hpFloor = o.hpFloor || 0;
     this.waitTurns = o.waitTurns | 0;   // 蜜蜂：還要待機幾個自己的回合才開始衝（見 hive.js）
     // 判定形狀：預設是矩形；'ellipse' = 內切在矩形裡的橢圓（叢林巨蟒的頭），子彈命中與爆炸距離都照橢圓算
     this.shape = o.shape || null;
@@ -101,7 +106,8 @@ export class Entity {
     this.safeX = o.x;
     this.safeY = o.y;
     this.waterFalls = 0;         // 這一關掉進水裡幾次
-    this.splash = null;          // 最近一次落水 { n, x, y, dmg, died, sx, sy }：給畫面播水花 / 飄字，玩家回報給伺服器
+    // 最近一次落水 { n, x, y, dmg, died, sx, sy, hp }：給畫面播水花 / 飄字，玩家回報給伺服器（hp = 落水扣血之前的血量，見 fallInWater）
+    this.splash = null;
     // 結算畫面的統計（這一關；Run 打完一關加進整場總計）：造成傷害（打敵方）、承受傷害（含落水）、開槍次數、命中次數
     this.dealt = 0;
     this.taken = 0;
@@ -113,6 +119,10 @@ export class Entity {
     this.burnSource = null;      // 最後一個讓他燃燒的人（燒死算他的擊殺）
     this.poison = 0;             // 中毒層數（還沒結算的，自己的回合開始時結算，見下面的 poisonTick）
     this.poisonLock = 0;         // 被中毒鎖住的最大血量（maxHp 已經扣掉了；原本的上限 = maxHp + poisonLock）
+    this.bleed = 0;              // 流血層數（自己移動就扣血，見下面的 bleedFor；自己的回合結束時止血，見 Match.endTurn）
+    this.bleedSource = null;     // 最後一個讓他流血的人（流血扣的血算他造成的、流血倒下算他的擊殺；只有伺服器有，不同步）
+    this.bleedFrac = 0;          // 流血不足 1 點的小數先存著（不同步：套快照時歸零，伺服器與客戶端從同一個起點重播 AI 走路）
+    this.bledThisTurn = 0;       // 這回合流血扣了幾點（Match.beginTurn 歸零；回合結束止血的 fx、算流血來源的傷害用）
     this.shield = 0;             // 無敵次數（神佑之石給的）
     this.turnCount = 0;          // 這一關輪到自己幾次了（狂戰之斧、神佑之石用）
     this.movedThisTurn = 0;      // 這回合移動的距離（甩掉燃燒層數用）
@@ -269,16 +279,25 @@ export class Entity {
     // 冷卻照「固定步長的幀數」算：平常 dt = FIXED_DT 每次剛好減 1；慢動作時 dt 比較小、減得比較少，冷卻在遊戲時間裡一樣長
     if (this.vineRegrab > 0) this.vineRegrab = Math.max(0, this.vineRegrab - dt / CONFIG.FIXED_DT);
     if (this.onVine < 0 && this.vineDir !== 0) this.grabVine(terrain);
-    if (this.onVine >= 0 && this.updateVine(dt, terrain)) return;
+    if (this.onVine >= 0) {
+      const y0 = this.y;
+      const hanging = this.updateVine(dt, terrain);
+      this.bleedFor(Math.abs(this.y - y0));   // 流血：爬藤蔓的上下距離也算（抓上去那一下的對齊、跳開不算）
+      if (!this.alive) return;   // 流血倒下：這一幀到此為止（跟其他倒下一樣停在原地）
+      if (hanging) return;
+    }
 
-    // 主動移動（消耗耐力；耐力歸零就動不了）
-    if (this.moveDir !== 0 && this.stamina > 0) {
+    // 主動移動（消耗耐力；耐力歸零就動不了）。流血照這一步實際走了多少水平距離扣（跳在空中按方向也算；爬坡往上那一點不算）
+    if (this.moveDir !== 0 && this.stamina > 0 && !this.held) {
       this.stamina = Math.max(0, this.stamina - this.moveCost * dt);
+      const x0 = this.x;
       this.tryMove(terrain, this.moveDir, this.moveSpeed * dt);
       if (!this.aiming) this.facing = this.moveDir;
+      this.bleedFor(Math.abs(this.x - x0));
+      if (!this.alive) return;
     }
     if (this.wantJump) {
-      this.jump(terrain);
+      if (!this.held) this.jump(terrain);
       this.wantJump = false;
     }
 
@@ -464,7 +483,8 @@ export class Entity {
     const dmg = drown ? this.hp : Math.min(this.hp, Math.round(this.maxHp * CONFIG.WATER.damagePct / 100));
     const spot = this.hp > dmg ? this.respawnSpot(terrain) : null;
     this.waterFalls++;
-    this.splash = { n: this.waterFalls, x: this.x, y: this.y, dmg, died: !spot, sx: this.safeX, sy: this.safeY };
+    // hp = 落水扣血之前的血量（行動玩家回報落水時帶這個：伺服器先照它對齊流血扣的血，再扣同樣的落水傷害）
+    this.splash = { n: this.waterFalls, x: this.x, y: this.y, dmg, died: !spot, sx: this.safeX, sy: this.safeY, hp: this.hp };
     this.taken += spot ? dmg : this.hp;   // 淹死：剩下的血全算
     if (!spot) { this.die('water'); return; }
     this.hp -= dmg;
@@ -482,9 +502,33 @@ export class Entity {
     this.onVine = -1;
   }
 
+  // 流血：自己移動了 px（走路的水平距離、爬藤蔓的上下距離、飄移的直線距離）就扣血——每層每 px 扣最大血量 BLEED.pctPerPx%，
+  // 不足 1 點的小數先存著（bleedFrac）。只用加減乘除：伺服器重播 AI 走路、客戶端照 aiTurn 重播，每一幀扣的一模一樣。
+  // 不吃減傷、狂熱、無敵。回傳這次扣了幾點
+  bleedFor(px) {
+    if (!(this.bleed > 0) || !this.alive || !(px > 0)) return 0;
+    this.bleedFrac += this.bleed * CONFIG.BLEED.pctPerPx / 100 * this.maxHp * px;
+    const whole = Math.floor(this.bleedFrac);
+    if (whole <= 0) return 0;
+    this.bleedFrac -= whole;
+    return this.loseBlood(whole);
+  }
+
+  // 流血扣血（bleedFor 算好的整數點數，或伺服器照行動玩家回報的血量扣的，見 Match.applyPositionReport）：
+  // 不經過 takeDamage（不會每一幀閃白、死因是 'bleed'），算進承受傷害與這回合流血扣的血。回傳實際扣了幾點
+  loseBlood(n) {
+    if (!this.alive || !(n > 0)) return 0;
+    const real = Math.min(Math.max(0, this.hp - this.hpFloor), n);
+    this.hp -= real;
+    this.taken += real;
+    this.bledThisTurn += real;
+    if (this.hp <= 0) this.die('bleed');
+    return real;
+  }
+
   takeDamage(dmg) {
     if (!this.alive) return 0;
-    const real = Math.min(this.hp, Math.round(dmg));
+    const real = Math.min(Math.max(0, this.hp - this.hpFloor), Math.round(dmg));
     this.hp -= real;
     this.taken += real;
     this.hurtTimer = 0.35;
@@ -504,7 +548,7 @@ export class Entity {
   }
 
   // ---- 同步用 ----
-  // ps = 中毒層數、lk = 被中毒鎖住的上限、vn = 抓著第幾條藤蔓（-1 = 沒有；不帶的話客戶端會以為他在半空中、自己掉下去）、
+  // ps = 中毒層數、lk = 被中毒鎖住的上限、bl = 流血層數、vn = 抓著第幾條藤蔓（-1 = 沒有；不帶的話客戶端會以為他在半空中、自己掉下去）、
   // wt = 蜜蜂還要待機幾個回合。效果自己的狀態（soul、xcd、rd、hu…）由 writeState 照各效果宣告的位置插進去
   toState() {
     return writeState(this, this.baseState());
@@ -515,7 +559,7 @@ export class Entity {
       id: this.id, x: this.x, y: this.y, hp: this.hp, mhp: this.maxHp, stamina: this.stamina,
       alive: this.alive, cause: this.deathCause, facing: this.facing, weapon: this.weapon,
       burn: this.burn, shield: this.shield, turns: this.turnCount,
-      sx: this.safeX, sy: this.safeY, wf: this.waterFalls, ps: this.poison, lk: this.poisonLock, vn: this.onVine,
+      sx: this.safeX, sy: this.safeY, wf: this.waterFalls, ps: this.poison, lk: this.poisonLock, bl: this.bleed, vn: this.onVine,
     };
     if (this.closeOnHit) s.closed = this.closedTurns;
     if (this.kind === 'bee') s.wt = this.waitTurns;
@@ -527,7 +571,7 @@ export class Entity {
     const s = {
       id: this.id, x: this.x, y: this.y, vx: this.vx, vy: this.vy, og: this.onGround,
       hp: this.hp, alive: this.alive, cause: this.deathCause, burn: this.burn, shield: this.shield,
-      sx: this.safeX, sy: this.safeY, ps: this.poison, vn: this.onVine, rg: this.vineRegrab,
+      sx: this.safeX, sy: this.safeY, ps: this.poison, bl: this.bleed, vn: this.onVine, rg: this.vineRegrab,
     };
     if (this.closeOnHit) s.closed = this.closedTurns;
     return s;
@@ -545,6 +589,7 @@ export class Entity {
     this.shield = s.shield;
     if (s.sx !== undefined) { this.safeX = s.sx; this.safeY = s.sy; }
     if (s.ps !== undefined) this.poison = s.ps;
+    if (s.bl !== undefined) this.bleed = s.bl;
     if (s.vn !== undefined) { this.onVine = s.vn; this.vineRegrab = s.rg || 0; }   // 被打下藤蔓
     if (s.closed !== undefined) this.closedTurns = s.closed;
     if (this.alive && !s.alive) this.die(s.cause || 'hit');
@@ -567,8 +612,11 @@ export class Entity {
     if (s.wf !== undefined) this.waterFalls = s.wf;   // 落水次數跟伺服器對齊（客戶端用它判斷 skip 帶來的水花自己播過了沒）
     if (s.ps !== undefined) this.poison = s.ps;
     if (s.lk !== undefined) this.poisonLock = s.lk;
+    if (s.bl !== undefined) this.bleed = s.bl;
     if (s.vn !== undefined) this.onVine = s.vn;
     if (s.wt !== undefined) this.waitTurns = s.wt;
+    // 流血的小數不同步：套快照就從 0 開始（伺服器的 AI 回合也先套同一份快照再走，客戶端重播走路時扣的血才一樣）
+    this.bleedFrac = 0;
     this.vineRegrab = 0;
     this.vx = 0;
     this.vy = 0;

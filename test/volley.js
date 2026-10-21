@@ -68,11 +68,11 @@ const sameResults = (cm, shot, label) => {
 
 // ---------- 貼臉開火：出發那一幀就撞到 ----------
 
-test('貼臉開火：出發那一幀的事件（f === spawn）照樣套上（大砲 / 狙擊 / 等離子三發 / 迴力鏢 / 飛鏢 / 高壓水炮），drift 是空的、結果一致', () => {
+test('貼臉開火：出發那一幀的事件（f === spawn）照樣套上（大砲 / 狙擊 / 等離子兩發 / 迴力鏢 / 飛鏢 / 高壓水炮 / 西洋刺劍），drift 是空的、結果一致', () => {
   const out = {};
   // 敵人貼在砲口前面（腳底同一高度、往右開）
   const enemyAhead = (m) => { const p = m.players[0], e = m.enemies[0]; e.x = p.x + 20; e.y = p.y; e.vx = e.vy = 0; m.settle(120); p.facing = 1; };
-  for (const w of ['cannon', 'sniper', 'plasma', 'boomerang', 'darts', 'waterCannon']) {
+  for (const w of ['cannon', 'sniper', 'plasma', 'boomerang', 'darts', 'waterCannon', 'rapier']) {
     // 腹背受敵、3 人：往前下方打，砲口前面不到一幀的飛行距離就是隊友 / 地面。
     // 迴力鏢穿過隊友、出發那一幀也碰不到地面：改成敵人貼在砲口前面，第一幀就穿過他（之後照樣飛出去、回來）
     const tries = w === 'boomerang' ? [[0, { setup: enemyAhead }]]
@@ -239,7 +239,8 @@ test('不改 shot（JSON 前後一樣）；每個 tick 是新物件、step() 重
     const s0 = steps;
     if (n++ % 2 === 0) { t.step(); t.step(); t.step(); assert(steps === s0 + 1, 'idempotent'); }
   }
-  assert(steps === shot.flightFrames + shot.settleFrames && run.live === live && live.length === 0 && maxLive === 3, `steps ${steps}, maxLive ${maxLive}`);
+  // 等離子一次幾發（2026-10-14 起兩發）：同一個時間最多就是這麼多顆在飛
+  assert(steps === shot.flightFrames + shot.settleFrames && run.live === live && live.length === 0 && maxLive === CONFIG.WEAPONS.plasma.volley, `steps ${steps}, maxLive ${maxLive}`);
   assert(JSON.stringify(shot) === j0, 'shot mutated');
   return { steps, maxLive };
 });

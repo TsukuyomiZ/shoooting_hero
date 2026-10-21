@@ -42,7 +42,7 @@ const TYPES = [...new Set(jsFiles('client').flatMap(f => [...fs.readFileSync(f, 
 const TEMPLATE = {
   hello: () => ({ name: '甲', token: 'x' }),
   browse: () => ({ on: true }),
-  create: () => ({ private: true, name: '乙' }),
+  create: () => ({ private: true, name: '乙', difficulty: 'elite' }),
   join: (c) => ({ code: c.code || 'ZZZZ', via: 'list', name: '丙' }),
   ready: () => ({ ready: true }),
   privacy: () => ({ private: true }),
@@ -51,10 +51,11 @@ const TEMPLATE = {
   sticker: () => ({ id: STICKERS[0].id }),
   chat: () => ({ text: '加油' }),
   pick: (c) => ({ cardId: c.offer ? c.offer.id : 'nope', discard: 'cannon', link: 'p2' }),
-  move: (c) => ({ x: c.me ? c.me.x + 3 : 1, y: c.me ? c.me.y : 1, vy: 0, facing: 1, stamina: c.me ? c.me.stamina - 1 : 0, vine: -1, safe: { x: 1, y: 1 } }),
+  // hp = 自己畫面上的血量（流血時走路扣的；runAt 讓行動玩家帶著流血，這個欄位才真的被收、被記）
+  move: (c) => ({ x: c.me ? c.me.x + 3 : 1, y: c.me ? c.me.y : 1, vy: 0, facing: 1, stamina: c.me ? c.me.stamina - 1 : 0, vine: -1, safe: { x: 1, y: 1 }, hp: c.me ? c.me.hp - 2 : 1 }),
   slow: () => ({ on: true, why: 'land' }),
   weapon: () => ({ weapon: 'sniper' }),
-  fire: (c) => ({ weapon: 'cannon', angle: 45, power: 50, x: c.me ? c.me.x : 1, y: c.me ? c.me.y : 1, vy: 0, facing: 1, stamina: 0, vine: -1 }),
+  fire: (c) => ({ weapon: 'cannon', angle: 45, power: 50, x: c.me ? c.me.x : 1, y: c.me ? c.me.y : 1, vy: 0, facing: 1, stamina: 0, vine: -1, hp: c.me ? c.me.hp - 1 : 1 }),
 };
 const messageOf = (t, c) => ({ t, ...(TEMPLATE[t] ? TEMPLATE[t](c) : {}) });
 
@@ -145,6 +146,7 @@ function runAt(phase) {
   run.start();
   assert(until(io, () => run.referee && run.referee.phase === 'turn' && run.referee.currentId === 'p1'), 'p1 turn');
   for (const e of run.match.entities) e.hp = e.maxHp = 5000;
+  for (const e of run.match.players) e.bleed = 2;   // 帶著流血：move / fire 的 hp 會被收、記進紀錄（亂送的值照樣不能寫進去）
   const me = run.match.byId('p1');
   if (phase === 'resolving') run.handle('p1', { t: 'fire', weapon: 'cannon', angle: 45, power: 50, x: me.x, y: me.y, facing: 1, stamina: 0 });
   if (phase === 'betweenDarts') {

@@ -6,6 +6,9 @@ import { cave } from './cave.js';
 import { cyclops } from './cyclops.js';
 import { guardian } from './guardian.js';
 import { scorpion } from './scorpion.js';
+import { prison } from './prison.js';
+import { swordsman } from './swordsman.js';
+import { tengu } from './tengu.js';
 
 // 地圖畫面（見 GLOSSARY.md）：某一張地圖特有的畫面與演出——Boss 出招的動畫、王與招式的畫法、場景、HUD 上的提示、選曲、死亡特效。
 // 跟地圖機制（shared/maps/mechanics/）成對：機制決定發生什麼，畫面決定怎麼演出來。照 match.mechanic.type 選（一般小關 = plain，什麼都沒有）。
@@ -17,6 +20,8 @@ import { scorpion } from './scorpion.js';
 //   c.time          畫面時間（秒，固定步長推進）
 //   c.currentId     現在輪到誰（眼睛看著他）
 //   c.projectiles   正在重播的飛行物（shotScript 期間 = 重播模組原地更新的那個陣列，其他時候是空的）
+//   c.clock()       真實時間（秒）：畫面時間在卡頓、慢動作時會比真實時間慢，要跟伺服器的時鐘一起動的東西照這個（例如回合裡飛的劍氣）
+//   c.rangeHints    這場的難度畫不畫菁英怪招式的提示範圍（false = 不畫，例如菁英之路：大樹守衛的躍擊警示、衝鋒的路線與準星、流浪劍士一閃的預警線；見 showsRangeHints）
 //   c.shotScript(shot, extra)   重播一波（yield*）；extra.frame(live) = 每個飛行幀結束時呼叫
 //   c.layer()       跟畫面一樣大的暫存畫布 { canvas, ctx }（每次都是同一張，用之前自己清掉）：先畫好再整張疊上去（例如洞穴的遮光）
 //   c.state         這個地圖畫面自己的狀態（create(match) 建的，每次 setup 重建）：出招的預兆、王的畫面位移、
@@ -43,6 +48,12 @@ import { scorpion } from './scorpion.js';
 //   update(c, dt)                         每一個固定步長（GameView.update 最後、事件腳本推進之後；dt = 這一步的遊戲時間）：
 //                                         畫面自己的動畫 / 特效照遊戲時間推進（例如預兆的計時、嘴巴開闔、碎屑）。
 //                                         畫圖的掛勾只讀狀態、不改狀態——畫幾次（高更新率螢幕、背景分頁不畫）結果都一樣
+//   turnVolley(c, shot) → { banner(name), color } | null   不是開火、也不是效果的一波攻擊開始重播（例如回合收尾時流浪劍士的劍氣一口氣掃完剩下那段，見 hazardFinish）：
+//                                         照 shot 更新畫面 / 機制的狀態，回傳橫幅（name = 出手的人的名字；跟效果的 volley 同格式）；不是這張地圖的 = null
+//   hazard(c, msg, early)                 回合中的危險物（地圖機制的 hazard*，例如流浪劍士的劍氣、天狗的羽毛）：msg.start = 這回合開始（turn 訊息的 hazard），
+//                                         不然就是伺服器的 hazard 訊息（打到人 / 飛完）。msg.recvAt = 收到的時刻（c.clock()）。
+//                                         同一則 hazard 會叫兩次：early = true 是收到的那一刻（佇列前面可能還在播這個回合的動畫；只演畫面、不碰血量），
+//                                         early = false 是照順序套用的時候（扣血與飄字 GameView 剛處理完）。演過的畫面自己記得別演兩次（同一個 msg 物件）
 //   showEvent(c, ev, made)                重播一個飛行事件、一般特效之後：這張地圖的東西冒出來（made = 重播模組建出來的道具 / 角色）
 //   showDamage(c, e, d) → boolean         ※ 事件裡的一筆傷害（無敵之後、分擔之前）：true = 處理過了，不播一般的扣血
 //                                         （古樹之口被打到閉上原本就在這個迴圈的這個位置，跟其他人的飄字照順序排）
@@ -76,6 +87,8 @@ const HOOKS = {
   turnScript: function* () {},
   abortScript: NOOP,
   update: NOOP,
+  turnVolley: () => null,
+  hazard: NOOP,
   showEvent: NOOP,
   showDamage: () => false,
   turnFx: () => false,
@@ -105,7 +118,7 @@ export function defineMapView(adapter) {
   return Object.freeze(v);
 }
 
-const VIEWS = Object.fromEntries([plain, tree, snake, hive, cave, cyclops, guardian, scorpion].map(a => [a.type, defineMapView(a)]));
+const VIEWS = Object.fromEntries([plain, tree, snake, hive, cave, cyclops, guardian, scorpion, prison, swordsman, tengu].map(a => [a.type, defineMapView(a)]));
 
 /** 這場（match.mechanic.type）的地圖畫面。沒有對應的畫面 → 丟錯（新的地圖機制要配一個，沒有演出就寫一個空的） */
 export function mapViewFor(match) {

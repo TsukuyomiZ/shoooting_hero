@@ -37,17 +37,18 @@ const summaryUi = new SummaryUi(document.getElementById('summary'));   // 冒險
 new ChangelogUi(document.getElementById('lobby'));   // 大廳下方的版本號與版本履歷
 
 const lobby = new Lobby(document.getElementById('lobby'), {
-  onSolo(name) {
+  // difficulty = 大廳選的難度（單人練習、建立房間都照它）
+  onSolo(name, difficulty) {
     if (transport) transport.close();   // 看大廳列表用的連線用不到了
     transport = new LocalTransport();
     attach(transport);
-    transport.start(name);
+    transport.start(name, difficulty);
     lobby.hide();
   },
   // 暱稱跟著送：連上大廳之後才改的名字也要算數
-  async onCreate(name, isPrivate) {
+  async onCreate(name, isPrivate, difficulty) {
     await connect(name);
-    transport.send({ t: 'create', name, private: isPrivate });
+    transport.send({ t: 'create', name, private: isPrivate, difficulty });
   },
   // via：code = 輸入房號、list = 從大廳列表點的（只用來記錄）
   async onJoin(name, code, via) {

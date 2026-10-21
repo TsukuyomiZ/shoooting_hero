@@ -647,9 +647,9 @@ await test('裁判流程：玩家都斷線（AI 代打）時一直打到結束�
 
 // ---------------- 冒險 ----------------
 
-await test('一場冒險：Boss 池有三隻王，第 5、10 關抽兩隻不一樣的；巨蠍巢穴抽得到', () => base(() => {
+await test('一場冒險：Boss 池有四隻王（2026-10-19 加了處刑監獄），第 5、10 關抽兩隻不一樣的；巨蠍巢穴抽得到', () => base(() => {
   const pool = levelsInPool('boss');
-  assert(J(pool) === '["treeGarden","jungleSerpent","scorpionDen"]', 'pool ' + pool);
+  assert(J(pool) === '["treeGarden","jungleSerpent","scorpionDen","prisonYard"]', 'pool ' + pool);
   const seen = new Set();
   for (let seed = 1; seed <= 30; seed++) {
     const run = new Run({ players: mkPlayers(1), seed, io: new FakeIo(), cards: CARDS.cards });

@@ -1,18 +1,32 @@
 import { CONFIG } from '../core/config.js';
 import { clamp, logValue } from '../core/utils.js';
-import { effectSum, grantsAgain, shotLogOf } from '../cards/effects/index.js';
+import { effectSum, grantsAgain, shotLogOf, writeState } from '../cards/effects/index.js';
 
 // 一發（或一波轟炸）結算完要等多久：飛行 + 落地 + 緩衝。客戶端的播放時間比這短，不會被下一個事件追上
 const shotSeconds = (shot) => (shot.flightFrames + shot.settleFrames) / 60 + CONFIG.TIMING.afterShotPad;
 // 一次落水給客戶端播的資料（水花在哪、扣了多少、有沒有淹死；n = 這一關第幾次落水，客戶端用來判斷自己是不是已經播過）
 const splashOf = (e) => ({ id: e.id, n: e.splash.n, x: e.splash.x, dmg: e.splash.dmg, died: e.splash.died });
+// 回合中的危險物（地圖機制的 hazard*）多久推進、判定一次（ms）
+const HAZARD_TICK = 50;
+// 地圖機制給的資料只記純量欄位、純量的陣列與（一層一層往下的）物件（數字取到小數一位），給紀錄用
+// 陣列裡的物件也照樣轉（例如天狗這回合射出去的每一根羽毛 feathers: [{ id, x0, y0, … }]）
+function plainFields(o) {
+  const out = {};
+  for (const [k, v] of Object.entries(o)) out[k] = plainValue(v);
+  return out;
+}
+function plainValue(v) {
+  if (v === null || typeof v !== 'object') return typeof v === 'number' ? r1(v) : v;
+  if (Array.isArray(v)) return v.map(plainValue);
+  return plainFields(v);
+}
 
 // ---- 紀錄（LOG）用的小工具：結算前後各拍一張血量快照，一比就知道誰扣 / 回了多少血、誰倒下、誰是新召喚的 ----
 const r1 = (n) => (Number.isFinite(n) ? Math.round(n * 10) / 10 : n);
 // 一發改到的地形與場景（地圖機制附在事件上的）：掉下來的鐘乳石 falls、點燃的火把 lights（第幾根 / 第幾支），沒有就不帶
 function sceneChanges(shot) {
   const out = {};
-  for (const key of ['falls', 'lights']) {
+  for (const key of ['falls', 'lights', 'stuns']) {   // stuns = 掉下來的吊燈砸暈的敵人（處刑監獄）
     const list = shot ? shot.events.flatMap(ev => ev[key] || []) : [];
     if (list.length) out[key] = list;
   }
@@ -32,8 +46,27 @@ function hpChanges(match, before) {
 }
 // 回合類紀錄的主角：actor = 誰的回合（玩家或敵人的 id）；是玩家的話再帶 pid，用 pid 找一個人的紀錄才找得到他的回合
 const actorOf = (e) => ({ actor: e.id, ...(e.team === 'players' ? { pid: e.id } : {}), name: e.name });
+// 流血扣到倒下算到的擊殺（Match.creditBleed 的 kill：AI 走路 / 飄移途中、行動玩家回報的血量）：killedBy = 拿到擊殺的人（流血來源）、
+// fx = 擊殺的效果另外記的（例如噬魂者，同燒死的 turn.end）。ai.turn / turn.skip 照這個記；fx 也跟著 aiTurn / skip 給客戶端飄字
+const killOf = (kill) => (kill ? { killedBy: kill.by, ...(kill.fx.length ? { fx: kill.fx } : {}) } : {});
+const killFxOf = (kill) => (kill && kill.fx.length ? { fx: kill.fx } : {});
+// 預定的下一招（Boss / 菁英的 next；只記純量）：next = 招式；nextLedge = 預定打哪個平台（獨眼巨人的猛捶，玩家回合的警示帶畫在那根上）；
+// nextSeal = 一般招式之後還要丟超巨石、封哪個平台（獨眼巨人，玩家回合的警示畫在那裡）；
+// nextTarget = 鎖定了某個人（例如大樹守衛的衝鋒標記、躍擊鎖定）的 id。ai.turn（出完招再排的）與 battle.start（開場就排好的第一招）都照這個記
+const nextOf = (next) => ({
+  next: next && next.action,
+  ...(next && Number.isInteger(next.ledge) ? { nextLedge: next.ledge } : {}),
+  ...(next && Number.isInteger(next.seal) ? { nextSeal: next.seal } : {}),
+  ...(next && typeof next.targetId === 'string' ? { nextTarget: next.targetId } : {}),
+  ...(next && Array.isArray(next.targetIds) ? { nextTargets: next.targetIds.slice() } : {}),
+});
+// 開場就抽好的第一招：地圖機制的快照裡預定的下一招（名字以 Next 結尾、帶 action 的欄位，例如 guardianNext、cyclopsNext）；沒有 = null
+function openingPlan(snapshot) {
+  for (const [k, v] of Object.entries(snapshot)) if (/Next$/.test(k) && v && typeof v.action === 'string') return v;
+  return null;
+}
 // 慢動作關掉的原因（客戶端送的，認得的才記）：fire 放開左鍵開火、land 落地 / 抓到藤蔓 / 掉進水裡、stamina 體力用完、release 沒開火就放開、
-// reconnect 回合中重新連線（新的頁面沒有開著慢動作）。回合結束時還開著的，裁判自己補記（closeSlow：fire / timeout / water / disconnected / takeover）
+// reconnect 回合中重新連線（新的頁面沒有開著慢動作）。回合結束時還開著的，裁判自己補記（closeSlow：fire / timeout / water / bleed / disconnected / takeover）
 const SLOW_WHY = ['fire', 'land', 'stamina', 'release', 'reconnect'];
 
 // 裁判：一場遊戲的流程（誰的回合、計時、AI 回合、開火結算、裝備的回合效果、勝負）。
@@ -62,17 +95,22 @@ export class Referee {
     this.phase = 'idle';   // idle | starting | turn | resolving | over
     this.timer = null;
     this.deadline = null;
+    this.hazardTimer = null;   // 回合中的危險物下一次推進的計時（見 hazardTick）
+    this.turnSeq = 0;          // 第幾個回合（回合開始就加一；危險物的 turn / hazard 訊息帶著，客戶端用來對上是哪一個回合的）
   }
 
   // ---- 對外 ----
   start() {
     this.phase = 'starting';
+    // 開場就抽好的第一招（Boss / 菁英；玩家第一個回合就看得到標記）照 ai.turn 的 next / nextLedge / nextSeal / nextTarget 記
+    const plan = openingPlan(this.match.snapshot());
     this.record('battle.start', {
       level: this.match.levelId, seed: this.match.seed,
       entities: this.match.entities.map(e => ({
         id: e.id, name: e.name, team: e.team, ...(e.kind ? { kind: e.kind } : {}), ...(e.part ? { part: e.part } : {}),
         hp: r1(e.hp), maxHp: r1(e.maxHp), x: r1(e.x), y: r1(e.y),
       })),
+      ...(plan ? nextOf(plan) : {}),
     });
     this.io.broadcast({ t: 'start', ...this.startPayload() });
     this.schedule(() => this.nextTurn(), CONFIG.TIMING.startDelay);
@@ -80,6 +118,7 @@ export class Referee {
 
   stop() {
     this.cancelTimer();
+    this.stopHazard();
     this.phase = 'over';
   }
 
@@ -118,21 +157,32 @@ export class Referee {
 
     switch (msg.t) {
       case 'move': {
-        // 位置回報（Match 收下、檢查、結算撿道具與落水；vine = 抓著第幾條藤蔓，超時 / 斷線時伺服器才知道他是掛著）
+        // 位置回報（Match 收下、檢查、結算撿道具與落水；vine = 抓著第幾條藤蔓，超時 / 斷線時伺服器才知道他是掛著；
+        // hp = 他畫面上的血量：流血時走路扣的，伺服器照收，見 Match.applyPositionReport）
+        const before = hpOf(this.match);   // 流血倒下時 turn.skip 的血量變化從這次回報之前算起
         const report = this.match.applyPositionReport(actor, msg);
+        // 這次回報流血扣了幾點、扣完剩多少（同一次回報又掉進水裡的話，是落水扣血之前的：落水的另外記在 water）
+        const bled = report.bled ? { hp: r1(report.bledHp), bled: report.bled } : {};
+        const bledOut = !actor.alive && !report.water;   // 流血扣到倒下（淹死的另外走 actorFellInWater）
         if (!report.ok) {
-          // 位置不合理（瞬移、出界、卡進地形）被擋下
-          this.record('move.reject', { pid: actor.id, name: actor.name, x: logValue(msg.x), y: logValue(msg.y), from: [r1(actor.x), r1(actor.y)] });
+          // 位置不合理（瞬移、出界、卡進地形）被擋下（血量照收：流血扣到倒下一樣結束這回合）
+          this.record('move.reject', { pid: actor.id, name: actor.name, x: logValue(msg.x), y: logValue(msg.y), from: [r1(actor.x), r1(actor.y)], ...bled });
+          if (bledOut) this.skipTurn('bleed', [], before, report.kill);
           break;
         }
         // 每一次都記（LOG.moves 關掉時由寫檔的地方不寫，見 logWanted）
         this.record('move', {
           pid: actor.id, name: actor.name, x: r1(msg.x), y: r1(msg.y), facing: actor.facing, stamina: r1(actor.stamina),
-          ...(actor.onVine >= 0 ? { vine: actor.onVine } : {}),
+          ...(actor.onVine >= 0 ? { vine: actor.onVine } : {}), ...bled,
         });
+        if (bledOut) { this.skipTurn('bleed', [], before, report.kill); break; }   // 走路流血扣到倒下：這回合結束（跟淹死一樣）
         this.announcePickup(report.pickup);
         if (report.water) { this.actorFellInWater(actor); break; }   // 自己走 / 跳進水裡
-        this.io.broadcast({ t: 'move', id: actor.id, x: actor.x, y: actor.y, facing: actor.facing, stamina: actor.stamina, vine: actor.onVine }, playerId);
+        // 轉給其他人；他在流血的話帶 hp（他的血量只有他自己的畫面在扣，別人照這個顯示）
+        this.io.broadcast({
+          t: 'move', id: actor.id, x: actor.x, y: actor.y, facing: actor.facing, stamina: actor.stamina, vine: actor.onVine,
+          ...(actor.bleed > 0 ? { hp: actor.hp } : {}),
+        }, playerId);
         break;
       }
       case 'slow': {
@@ -167,17 +217,22 @@ export class Referee {
         // 位置回報之前就擋掉：被擋下的開火不能移動他
         if (this.lockWeapon && msg.weapon !== this.lockWeapon) return this.ignored(playerId, msg, 'weaponLocked');
         // 空中也能開火：就在回報的位置出手，並接著他當下的垂直速度往下飛 / 落地（開火的回報不收 safe：重生點只認走路掉水那次回報的）
+        const pre = hpOf(this.match);   // 流血倒下時 turn.skip 的血量變化從這次回報之前算起
         const report = this.match.applyPositionReport(actor, { ...msg, safe: null });
         this.announcePickup(report.pickup);
         const power = clamp(msg.power, 0, 100);
-        this.closeSlow(actor, 'fire');   // 客戶端開火前沒送關的話，這裡補記
+        const bledOut = !actor.alive && !report.water;   // 走到出手的地方就流血倒下了（淹死的照舊，後面的 actorFellInWater）
+        if (!bledOut) this.closeSlow(actor, 'fire');   // 客戶端開火前沒送關的話，這裡補記（流血倒下的由 skipTurn 補記 bleed）
         // 先記開火（玩家的操作：他回報的出手位置），結算的結果另記一筆 shot：結算途中出錯的話，至少知道他是怎麼開的。
-        // 出手的位置在水裡的話，後面接著是 water（與淹死的 turn.skip）；posRejected = 回報的位置不合理，從伺服器記得的位置出手
+        // 出手的位置在水裡的話，後面接著是 water（與淹死的 turn.skip）；posRejected = 回報的位置不合理，從伺服器記得的位置出手；
+        // hp / bled = 回報的血量流血扣了幾點（同 move：落水扣血之前的；扣到倒下的話後面接著 turn.skip bleed）
         this.record('fire', {
           pid: actor.id, name: actor.name, weapon: msg.weapon, angle: r1(msg.angle), power: r1(power),
           x: logValue(msg.x), y: logValue(msg.y), ...(Number.isFinite(msg.vy) && msg.vy ? { vy: r1(msg.vy) } : {}),
           ...(actor.onVine >= 0 ? { vine: actor.onVine } : {}), ...(report.ok ? {} : { posRejected: true }),
+          ...(report.bled ? { hp: r1(report.bledHp), bled: report.bled } : {}),
         });
+        if (bledOut) return this.skipTurn('bleed', [], pre, report.kill);   // 這一發沒射出去
         // 出手的位置已經在水裡：淹死就結束，撐住了就從重生點出手
         if (report.water && this.actorFellInWater(actor)) return;
         // 一回合可以射好幾次的武器（飛鏢）：第一發起鎖定這把、扣次數；計時暫停（飛行與結算不算），還有次數就照開火這一刻剩下的秒數接著算
@@ -215,12 +270,15 @@ export class Referee {
   }
 
   // 一發（或一波轟炸）的結果：打到什麼、誰扣了多少血、誰倒下；效果要記的欄位（例如磨刀霍霍 / 越戰越強的層數 stacks）。
-  // extra = 另外要記的（一回合射好幾次的武器：這一發之後還能射幾次 shotsLeft）
+  // extra = 另外要記的（一回合射好幾次的武器：這一發之後還能射幾次 shotsLeft）。
+  // 地圖機制在玩家回合開始出的一波（例如流浪劍士的劍氣）：出手的是敵人，記 actor（不是 pid）、turn = 輪到的玩家、row = 打哪一排
   recordShot(shot, before, extra = {}) {
     const a = this.match.byId(shot.actorId);
+    const who = a && a.team !== 'players' ? { actor: shot.actorId } : { pid: shot.actorId };
     this.record('shot', {
       ...(shot.hitEnemy !== undefined ? { hitEnemy: shot.hitEnemy } : {}), ...shotLogOf(a),
-      kind: shot.kind, pid: shot.actorId, name: (this.match.byId(shot.actorId) || {}).name, weapon: shot.weapon,
+      kind: shot.kind, ...who, name: (this.match.byId(shot.actorId) || {}).name, weapon: shot.weapon,
+      ...(shot.turnId ? { turn: shot.turnId } : {}), ...(Number.isInteger(shot.row) ? { row: shot.row } : {}),
       hit: shot.hit && shot.hit.type, frames: shot.flightFrames, kills: shot.kills, changes: hpChanges(this.match, before),
       ...sceneChanges(shot), ...extra,
     });
@@ -358,6 +416,7 @@ export class Referee {
     this.lockWeapon = null;   // 新的回合（含額外回合）：飛鏢的次數重算
     this.shotsLeft = null;
     this.match.beginTurn(actor);
+    this.match.rollWind();   // 有風的關卡：每個回合重抽（玩家、敵人的回合都抽；回合開始的轟炸直直落下、不吃風；見 shared/physics/wind.js）
 
     const volley = this.match.turnBeginVolley(actor);
     if (volley) {
@@ -373,6 +432,42 @@ export class Referee {
     this.startTurn(actor);
   }
 
+  // ---- 回合中即時移動 / 倒數的危險物（地圖機制的 hazard*，例如流浪劍士的劍氣在玩家回合裡慢慢飛過整排）----
+  // 玩家的回合開始時出發（startTurn），之後每 HAZARD_TICK ms 推進一次、打碰到的人（照伺服器知道的位置：行動玩家照他的位置回報，
+  // 開火結算 / AI 代打之後照結算完的位置）；打到人、有事要演（notify）或全部結束才廣播 hazard、記一筆。
+  // flush = 回合要收尾了（finishTurn）：還沒到時間的現在就結算、不再排下一次；還在動的剩下那段由 finishTurn 一口氣結算。
+  // 打到行動玩家把他打倒 → 這回合結束（skip 'hazard'）；勝負（全隊倒下、劍士倒下）交給回合收尾（finishTurn → closeTurn → nextTurn）
+  hazardTick(flush = false) {
+    this.hazardTimer = null;
+    if (this.phase === 'over') return;
+    const before = hpOf(this.match);
+    const step = this.match.hazardStep(this.io.now(), flush);
+    if (!step) return;
+    const { damages = [], done = false, notify = false, ...info } = step;
+    if (damages.length || done || notify) {
+      const ids = new Set(damages.map(d => d.id));
+      this.record('hazard', {
+        ...plainFields(info), turn: this.currentId, ...(done ? { done: true } : {}),
+        ...(damages.length ? { changes: hpChanges(this.match, before) } : {}),
+      });
+      // hp = 被打到的人（含分到傷害的連結對象）扣完的狀態：血量、無敵、效果自己的狀態（例如被虐體質的層數）；
+      // 不帶位置（行動玩家的位置在他自己的畫面上）。seq = 這是第幾個回合的危險物（客戶端判斷能不能收到就先演）
+      const hp = this.match.entities.filter(e => ids.has(e.id)).map(e => ({ id: e.id, hp: e.hp, alive: e.alive, cause: e.deathCause, shield: e.shield, ...writeState(e, {}) }));
+      this.io.broadcast({ t: 'hazard', ...info, seq: this.turnSeq, damages, done, hp });
+    }
+    // 勝負不在這裡判：開火結算、AI 代打播放的時候也在推進，分出勝負交給已經排好的 finishTurn → closeTurn → nextTurn（跟其他地圖一樣等動畫播完）。
+    // 行動玩家在自己操作的時候被打倒：這回合結束
+    const actor = this.match.byId(this.currentId);
+    if (this.phase === 'turn' && actor && !actor.alive) this.skipTurn('hazard');
+    if (!done && !flush) this.hazardTimer = this.io.schedule(() => this.hazardTick(), HAZARD_TICK);
+  }
+
+  stopHazard() {
+    if (!this.hazardTimer) return;
+    this.io.cancel(this.hazardTimer);
+    this.hazardTimer = null;
+  }
+
   startTurn(actor) {
     this.timer = null;
     if (this.phase === 'over') return;
@@ -384,7 +479,13 @@ export class Referee {
     const human = this.humans.get(actor.id);
     const isHuman = actor.team === 'players' && !!human && human.connected;
     const { entities, items } = this.match.snapshot();
-    // ai = 敵人或斷線玩家的代打（takeover）；fx = 回合開始的效果（中毒、喝蛇血、回血）；diedAtStart = 被毒倒，這回合不開始
+    // 這個回合裡即時移動的危險物（例如流浪劍士的劍氣）：現在出發，跟著 turn 的 hazard 給客戶端畫
+    this.turnSeq++;
+    const started = actor.alive ? this.match.hazardStart(actor, this.io.now()) : null;
+    const hazard = started ? { ...started, seq: this.turnSeq } : null;
+    const withHazard = hazard ? { hazard } : {};
+    const windy = this.match.windMax ? { wind: this.match.wind } : {};   // 有風的關卡：這個回合的風（客戶端的預覽、HUD 照它）
+    // ai = 敵人或斷線玩家的代打（takeover）；fx = 回合開始的效果（中毒、喝蛇血、回血）；diedAtStart = 被毒倒，這回合不開始；hazard = 這回合出發的危險物
     this.record('turn.start', {
       ...actorOf(actor), team: actor.team, ai: !isHuman,
       ...(actor.team === 'players' && !isHuman ? { takeover: true } : {}),
@@ -392,12 +493,17 @@ export class Referee {
       hp: r1(actor.hp), maxHp: r1(actor.maxHp), ...(this.match.fever ? { fever: this.match.fever } : {}),
       ...(isHuman ? { turnTime: this.turnTimeFor(actor) } : {}),
       ...(fx.length ? { fx } : {}), ...(actor.alive ? {} : { diedAtStart: true }),
+      ...(hazard ? { hazard: plainFields(hazard) } : {}), ...windy,
     });
+    if (hazard) {
+      this.stopHazard();
+      this.hazardTimer = this.io.schedule(() => this.hazardTick(), HAZARD_TICK);
+    }
     if (!actor.alive) {   // 回合開始的中毒結算把他毒倒了：這回合不開始，播完效果就換下一位（全隊倒下就在 nextTurn 判輸）
       this.phase = 'resolving';
       this.deadline = null;
       // atStart：客戶端把「現在輪到誰」換成他（像轟炸那樣），HUD 才不會還停在上一位
-      this.io.broadcast({ t: 'turnFx', actorId: actor.id, atStart: true, round: this.round, fx, entities, items });
+      this.io.broadcast({ t: 'turnFx', actorId: actor.id, atStart: true, round: this.round, fx, entities, items, ...windy });
       this.schedule(() => this.finishTurn(), CONFIG.TIMING.fxDelay);
       return;
     }
@@ -406,16 +512,35 @@ export class Referee {
       this.phase = 'turn';
       this.slowOn = false;
       this.deadline = this.io.now() + secs * 1000;
-      this.io.broadcast({ t: 'turn', actorId: actor.id, round: this.round, ai: false, turnTime: secs, entities, items, fx, extra: this.extraTurn });
+      this.io.broadcast({ t: 'turn', actorId: actor.id, round: this.round, ai: false, turnTime: secs, entities, items, fx, extra: this.extraTurn, ...withHazard, ...windy });
       this.schedule(() => this.skipTurn('timeout'), secs);
     } else {
-      this.io.broadcast({ t: 'turn', actorId: actor.id, round: this.round, ai: true, turnTime: null, entities, items, fx, extra: this.extraTurn });
+      this.io.broadcast({ t: 'turn', actorId: actor.id, round: this.round, ai: true, turnTime: null, entities, items, fx, extra: this.extraTurn, ...withHazard, ...windy });
       this.runAiTurn(actor);
     }
   }
 
-  // 目前這位的回合做完了（開火結算完 / 時間到 / AI 播完）：結算回合結束的裝備效果，再輪下一位
+  // 目前這位的回合做完了（開火結算完 / 時間到 / AI 播完）：回合中的危險物還沒到時間的現在就結算（hazardTick(true)），
+  // 還在動的剩下那段一口氣結算完（例如流浪劍士的劍氣，照現在大家的位置），再收尾（closeTurn）
   finishTurn() {
+    this.timer = null;
+    if (this.phase === 'over') return;
+    this.stopHazard();
+    this.hazardTick(true);
+    if (this.phase === 'over') return;
+    const rest = this.match.hazardFinish();
+    if (!rest) return this.closeTurn();
+    this.phase = 'resolving';
+    this.deadline = null;
+    const before = hpOf(this.match);
+    const shot = rest();
+    this.recordShot(shot, before);
+    this.io.broadcast({ t: 'shot', ...shot, round: this.round });
+    this.schedule(() => this.closeTurn(), shotSeconds(shot));
+  }
+
+  // 回合收尾：結算回合結束的裝備效果，再輪下一位
+  closeTurn() {
     this.timer = null;
     if (this.phase === 'over') return;
     const actor = this.match.byId(this.currentId);
@@ -450,7 +575,7 @@ export class Referee {
     // 會留下落地前的 vy，不歸零的話走路 / 落地的模擬跟客戶端差一點，瞄準完重播開火時又被拉回去
     this.match.applyEntities(entities);
     // 已經射過飛鏢的回合被接手：AI 只能用鎖定的那把，射這一支就結束（不會再回到他手上：剩下的次數歸零，重連的狀態也照這個）
-    const { walk, glide, plan, boss } = this.match.planAiTurn(actor, this.lockWeapon ? [this.lockWeapon] : null);
+    const { walk, glide, plan, boss, kill = null } = this.match.planAiTurn(actor, this.lockWeapon ? [this.lockWeapon] : null);
     if (this.shotsLeft !== null) this.shotsLeft = 0;
     const T = CONFIG.TIMING;
     const who = { ...actorOf(actor), ...(actor.team === 'players' ? { takeover: true } : {}) };
@@ -459,17 +584,21 @@ export class Referee {
     const glideSecs = glide ? glide.frames / 60 : 0;
     let secs;
     if (boss) {
-      // Boss 的招式：每一招只記純量欄位（招式、平面、目標、回血…），召喚的樹妖記 id；next = 預定的下一招
+      // Boss 的招式：每一招只記純量欄位（招式、平面、目標、回血…）與純量的陣列（例如獨眼巨人巨石投擲的 targetIds = 每個人各一顆、照出手的順序；
+      // 超巨石壓死的 killed、壓碎的鐘乳石 rocks；震盪獅吼擊碎的 shattered），召喚的樹妖記 id；next = 預定的下一招
       const steps = boss.steps.map(st => {
         const o = {};
-        for (const [k, v] of Object.entries(st)) if (v === null || typeof v !== 'object') o[k] = v;
+        for (const [k, v] of Object.entries(st)) {
+          if (v === null || typeof v !== 'object') o[k] = v;
+          else if (Array.isArray(v) && v.every(x => x === null || typeof x !== 'object')) o[k] = v.slice();
+        }
         if (Array.isArray(st.spawns)) o.spawns = st.spawns.map(s => s.id);
-        if (st.shot) Object.assign(o, sceneChanges(st.shot));   // 這一招改到的場景（例如獨眼巨人猛捶震下來的鐘乳石 falls）
+        if (st.shot) Object.assign(o, sceneChanges(st.shot));   // 這一招改到的場景（例如獨眼巨人猛捶震下來的鐘乳石 falls、點燃的火把 lights）
         return o;
       });
-      // 預定的下一招是獨眼巨人的猛捶：nextLedge = 預定打哪個平台（玩家回合的警示帶畫在那根上）
-      const nextLedge = boss.next && Number.isInteger(boss.next.ledge) ? { nextLedge: boss.next.ledge } : {};
-      this.record('ai.turn', { ...who, ...moved, boss: steps, next: boss.next && boss.next.action, ...nextLedge, changes: hpChanges(this.match, before) });
+      // 預定的下一招（nextOf）：獨眼巨人的猛捶帶 nextLedge（預定打哪個平台）、下一回合要丟超巨石的帶 nextSeal（要封哪個平台）、鎖定了某個人的（大樹守衛的衝鋒標記、躍擊鎖定）帶 nextTarget、
+      // 鎖定了好幾個人的（流浪劍士一閃的預警線，每一道對準誰）帶 nextTargets
+      this.record('ai.turn', { ...who, ...moved, boss: steps, ...nextOf(boss.next), changes: hpChanges(this.match, before) });
       this.io.broadcast({ t: 'aiTurn', actorId: actor.id, entities, walk: null, ...moved, shot: null, boss });
       // 每一招的預兆動畫：招式自己帶 cast（秒，例如洞穴巨蠍一回合好幾招、每招短一點）就照它，不然 bossCast
       const stepSecs = boss.steps.reduce((s, st) => s + (st.cast ?? T.bossCast)
@@ -478,7 +607,9 @@ export class Referee {
     } else {
       // 走路（見 ai-move.js）：客戶端照 { dir, frames, fall } 重播（fall = 走完還在半空中、放開方向鍵落到站穩的幀數）。
       // 斷線代打的玩家路上撿到的道具（點燃火把、喝到蛇血）跟著 aiTurn 的 pickups（f = 走到第幾幀撿到的，客戶端播到那一幀才套），
-      // 也跟自己走過去一樣各記一筆 pickup（takeover；hp = 撿到那一刻的血量，在開火之前）
+      // 也跟自己走過去一樣各記一筆 pickup（takeover；hp = 撿到那一刻的血量，在開火之前）。
+      // 走路 / 飄移途中流血倒下（Match.planAiTurn 不給 plan）：照樣廣播走動、不開火（shot: null），紀錄帶 died（changes 裡也有）；
+      // 算到流血來源的擊殺另外帶 killedBy / fx（見 killOf），fx 跟著 aiTurn 給客戶端走完再飄字（例如噬魂者，同燒死）
       const pickups = (walk && walk.pickups) || [];
       const walked = walk ? { dir: walk.dir, frames: walk.frames, fall: walk.fall } : null;
       for (const { id, f, hp, mhp, lk, ...info } of pickups) this.record('pickup', { pid: id, name: actor.name, ...info, hp: r1(hp), maxHp: r1(mhp), takeover: true, f });
@@ -486,9 +617,10 @@ export class Referee {
       this.record('ai.turn', {
         ...who, walk: walked, ...moved,
         ...(plan ? { weapon: plan.weapon, angle: r1(plan.angle), power: r1(plan.power), hit: shot.hit && shot.hit.type, kills: shot.kills } : { noShot: true }),
+        ...(!plan && !actor.alive ? { died: actor.deathCause, ...killOf(kill) } : {}),
         changes: hpChanges(this.match, before), ...sceneChanges(shot),
       });
-      this.io.broadcast({ t: 'aiTurn', actorId: actor.id, entities, walk: walked, ...moved, ...(pickups.length ? { pickups } : {}), shot, splashes });
+      this.io.broadcast({ t: 'aiTurn', actorId: actor.id, entities, walk: walked, ...moved, ...(pickups.length ? { pickups } : {}), shot, splashes, ...killFxOf(kill) });
       secs = T.aiThink
         + (walk ? (walk.frames + walk.fall) / 60 : 0) + glideSecs
         + (shot ? T.aiAim + (shot.flightFrames + shot.settleFrames) / 60 : 0)
@@ -497,10 +629,11 @@ export class Referee {
     this.schedule(() => this.finishTurn(), secs);
   }
 
-  // 跳過這回合（timeout / disconnected / water = 自己掉進水裡淹死）。客戶端只套最後的狀態、不重播落地過程，
+  // 跳過這回合（timeout / disconnected / water = 自己掉進水裡淹死 / bleed = 自己走路流血扣到倒下）。客戶端只套最後的狀態、不重播落地過程，
   // 所以落水的水花要寫進訊息：splashes = 已經發生的那一次，加上落地途中（例如超時那一刻人在水面上空）掉下去的。
-  // before = 紀錄用的血量快照（代打前先落地就淹死的，從那次落地之前算起；平常就是現在）
-  skipTurn(reason, splashes = [], before = hpOf(this.match)) {
+  // before = 紀錄用的血量快照（代打前先落地就淹死的，從那次落地之前算起；平常就是現在）；
+  // kill = 流血倒下算到的擊殺（Match.applyPositionReport 的 kill，見 killOf；紀錄帶 killedBy / fx，fx 也跟著 skip 給客戶端飄字）
+  skipTurn(reason, splashes = [], before = hpOf(this.match), kill = null) {
     this.phase = 'resolving';
     this.deadline = null;
     const actor = this.match.byId(this.currentId);
@@ -509,9 +642,9 @@ export class Referee {
     // changes = 跳過時大家落地途中的血量變化（例如超時那一刻人在水面上空、掉下去）
     this.record('turn.skip', {
       ...(actor ? actorOf(actor) : { actor: this.currentId }), reason,
-      ...(splashes.length ? { splashes } : {}), changes: hpChanges(this.match, before),
+      ...(splashes.length ? { splashes } : {}), changes: hpChanges(this.match, before), ...killOf(kill),
     });
-    this.io.broadcast({ t: 'skip', actorId: this.currentId, reason, entities: this.match.snapshot().entities, splashes });
+    this.io.broadcast({ t: 'skip', actorId: this.currentId, reason, entities: this.match.snapshot().entities, splashes, ...killFxOf(kill) });
     this.schedule(() => this.finishTurn(), CONFIG.TIMING.skipDelay);
   }
 
@@ -524,6 +657,7 @@ export class Referee {
 
   gameOver(result) {
     this.cancelTimer();
+    this.stopHazard();
     this.phase = 'over';
     this.deadline = null;
     // players = 這一關打完每位玩家的血量與擊殺數

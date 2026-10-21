@@ -37,12 +37,18 @@ import { fullArc } from './full-arc.js';
 import { ready } from './ready.js';
 import { hunt } from './hunt.js';
 import { link } from './link.js';
+import { party } from './party.js';
+import { masochist } from './masochist.js';
+import { intimidate } from './intimidate.js';
+import { exert } from './exert.js';
+import { immune } from './immune.js';
+import { stoneMask } from './stone-mask.js';
 
 // 效果（見 GLOSSARY.md）：一種規則連同它的說明與顯示，由 cards.json 裡的一個或幾個 key 帶數值啟用。
 // 這個資料夾每個檔案是一個效果，這裡是登記表：新增「用現有效果的牌」只改 cards.json；改一個效果 = 改它自己的檔案。
 // 效果檔案裡有它的一切：key 與說明、數值、選牌當下 / 下一關的行為、戰鬥規則、自己的角色狀態與同步欄位、開火紀錄的欄位，
 // 以及畫面要的資料（狀態列、飄字、橫幅；畫法在 client/ 照資料畫）。
-// 狀態（中毒、燃燒、無敵）不屬於效果：效果可以給角色狀態（火焰彈 → 燃燒、神佑之石 → 無敵），狀態本身照樣在 Entity / Match。
+// 狀態（中毒、燃燒、流血、無敵）不屬於效果：效果可以給角色狀態（火焰彈 → 燃燒、神佑之石 → 無敵），狀態本身照樣在 Entity / Match。
 //
 // 新增一個效果（不用改測試、match.js、畫面）：
 //   1. 這個資料夾加一個檔案（例如 last-stand.js），export 一個物件：id、keys，加上它要的掛勾（見下面；只 import config、projectile、同資料夾）
@@ -74,9 +80,9 @@ import { link } from './link.js';
 //   state: { 欄位: { wire, after, carry, shot } }   這個效果自己的角色狀態（掛在角色上、每關從 0 開始；entities.js 不寫這些欄位）：
 //       wire = 同步（toState / applyState）的欄位名（短的英文，例如 rd、hu；effects/ 以外的程式碼不准寫 .wire、'wire'、wire:，
 //       測試會掃，跟別的東西的屬性撞名就換一個）；after = toState 裡排在哪個欄位後面（同步格式的順序不變；不寫 = 最後）。
-//       after 可以用的（entities.js baseState）：id x y hp mhp stamina alive cause facing weapon burn shield turns sx sy wf ps lk vn，
+//       after 可以用的（entities.js baseState）：id x y hp mhp stamina alive cause facing weapon burn shield turns sx sy wf ps lk bl vn，
 //       以及只有某些角色才有的 closed（嘴巴會閉的首領）、wt（蜜蜂）（沒有那個欄位的角色排最後）；同一個 after 照 LIST 的順序
-//       （目前 shield 後面是 soul、turns 後面是 xcd、vn 後面是 rd、hu，沒寫 after 的 bcd 在最後）；
+//       （目前 shield 後面是 soul、turns 後面是 xcd、vn 後面是 rd、hu、hs，沒寫 after 的 bcd 在最後）；
 //       carry: true = 整場冒險帶著走（肉鴿流程的玩家 → carry → Match 建角色 → 打完帶回）；shot: true = 開火結果的最上層另外再帶一份 wire 欄位
 //       （results 的 toState 本來就帶，一般不用；噬魂的 soul 用它，是因為客戶端要拿「開火後的值」算飄字）
 //       欄位不能是角色本來就有的（建角色時檢查）、wire 不能跟 toState 本來的欄位撞名、after 要是 toState 本來的欄位
@@ -99,15 +105,22 @@ import { link } from './link.js';
 //   stageStart(p)              一關開始：倒下的人復活之後、算 carry 之前
 //   carry(p, d)                算這一關的 carry：改 derivePlayerStats 的結果 d（上限、mods）
 //   stageOver(p)               一關打完：血量與帶走的狀態都收回之後
+//   feverFrom(e) → 輪數 | 0     狂熱提早從第幾輪開始（狂歡派對）：Match 開場問場上每個玩家，取最小的非 0（見下面的 feverFrom），
+//                              連同人數交給關卡規則（shared/game/stage-rules.js）；0 = 照關卡規則原本的輪數。客戶端照 carry 建的 Match 算出來一樣
 // 戰鬥的槽（(e, c) → 數字；c = { match, weaponId, allies }；從 0 開始依 LIST 的順序相加，Match 決定各槽怎麼組合）
 //   damage / damageSituation / damageState   武器傷害 +%：Match.damageMult = 1 + (damage + damageSituation + damageState) / 100，轟炸也吃。
 //                              三個槽算法一樣，分開只是為了保住以前小數相加的順序（各槽照 LIST 先加完，三個再相加）。現在的成員：
 //                              damage = 一直有的加成：damage（damagePct）、cannonDamage、sniperDamage、ramp（每回合成長）、soul（擊殺累積）
 //                              damageSituation = 這一關給的、或看隊友人數：adrenaline（stageDamagePct）、lone（孤狼）、unity（團結）
-//                              damageState = 看某個條件現在成不成立：fever（狂熱開了沒；雖然是全場的條件也放這裡）、ready / hunt（自己的層數）
+//                              damageState = 看某個條件現在成不成立：fever（狂熱開了沒；雖然是全場的條件也放這裡）、ready / hunt / masochist（自己的層數）、
+//                              exert（自己剩下的體力）
 //                              新的效果放最像的那一槽；看自己的血量、層數這種條件 → damageState。沒有這張牌的人貢獻 0，不改別人的結果
 //   damageBoss                 對首領傷害 +%（另外乘，轟炸也吃）
-//   armor                      受到的傷害 -%（c.allies = 這一下之前活著的隊友數）
+//   damageTarget               對這個目標的傷害 +%（c.target = 被打的那個人，例如威嚇：離自己近的敵人；首領加成之後另外乘，轟炸也吃）
+//   armor                      受到的傷害 -%（c.allies = 這一下之前活著的隊友數；c.attacker = 這一下的攻擊者，沒有 = null，
+//                              例如威嚇：離自己近的敵人打的才算。狀態列的「減傷」不帶攻擊者，看攻擊者的那幾個貢獻 0）
+//                              damageTarget、armor 的 c.at：用身體撞人的招式（武器的 bodyHit）撞上那一下攻擊者的身體在哪
+//                              （{ x, y, r }：飛行物的中心與判定半徑；攻擊者的角色還在出發點，看距離的效果量這個），其他 = null
 //   friendlyArmor              受到的隊友誤傷再 -%
 //   lifesteal                  傷害吸血 %（c.allies = 打中之前活著的隊友數）
 //   knockback                  擊退 +%
@@ -116,6 +129,7 @@ import { link } from './link.js';
 //   bounces / pierce           飛行物在地形上彈射幾次 / 穿透角色（weapons.js shotTraits：伺服器、預覽、AI 共用；pierce 任一個 true 就是）
 //   previewFull                瞄準預覽畫完整拋物線（任一個 true 就是）
 //   turnSecs                   每回合秒數 +N（裁判的 turnTimeFor；目前沒有效果用它）
+//   immune(e, c) → boolean     免疫異常狀態（任一個 true 就是，例如金剛不壞）：被打中時不上燃燒、中毒、流血（Match.immuneTo；擋下的那一筆記 immune）
 // 戰鬥的時間點
 //   turnBegin(match, e) → (() → shot) | null   輪到 e（beginTurn 之後、開始計時之前，裁判呼叫）：這個效果要出手的話，
 //                              回傳結算那一波攻擊的函式（無差別轟炸；裁判先切換狀態、拍血量快照才呼叫它）。
@@ -125,19 +139,26 @@ import { link } from './link.js';
 //   again(fx) → boolean        回合結束的這一筆 fx 代表同一位再來一回合（裁判）
 //   afterShot(match, e, hit)   自己開的一槍結算完（轟炸、Boss 招式不算）：hit = 有沒有打中敵人（直擊或波及到敵方，傷害 0 也算）
 //   onKill(match, e, killed, fx)     e 打倒了 killed（已經算進 kills）；fx = 燒死時回合結束的 fx 清單（開火結算時是 null）
+//   onHurt(match, e, dmg)      e 受到一次攻擊、真的扣了 dmg 點血（爆炸 / 命中扣完血之後：自己被打到、攜手之伴分到的那份各算一次；
+//                              中毒、流血、燃燒、落水、效果自己扣的血不算），例如被虐體質疊層數
 //   share(match, hit, c)       爆炸算好 hit.e 要扣多少之後、還沒扣：分給別人（hit = { e, entry, own, shares, factor }，
 //                              c = { alive0, shielded, block, friendly, damages }）
 //   shotLog: { group, field, value(e), on(e) }   開火紀錄（LOG 的 shot）附的欄位：同一群組任一個 on 就整組記 { group: { field: value } }
 // 畫面（客戶端；只給資料，畫法在 render.js / game-view.js / cards-ui.js）
 //   chip(e, c) → [文字, 顏色] | null   自己的狀態列一格（c = { match }；第幾輪、狂熱看 match.round / match.fever；
 //                              一個槽的總數用 Match 結算的同一個算法，例如「吸血」「減傷」那兩格看 match.lifestealOf / armorOf）；chipOrder 決定位置（小的在前，一樣的照 LIST 的順序），
-//                              狀態（無敵、燃燒、中毒、生命鎖）排在 STATUS_CHIP_ORDER = 150。目前用到的（最準的是 grep chipOrder shared/cards/effects/）：
+//                              狀態（無敵、燃燒、中毒、流血、生命鎖）排在 STATUS_CHIP_ORDER = 150。目前用到的（最準的是 grep chipOrder shared/cards/effects/）：
 //                              ramp 10、soul 20、bossDamage 30、lifesteal 40、armor 50、regen 60、extraJumps 70、extraTurn 80、bombard 90、
-//                              teamShield 100、〔狀態 150〕、fever 200、fullArc 210、ready 220、hunt 230、adrenaline 240、lone 250、unity 260、link 270
+//                              teamShield 100、〔狀態 150〕、fever 200、fullArc 210、ready 220、hunt 230、adrenaline 240、lone 250、unity 260、link 270、
+//                              party 280、masochist 290、intimidate 300、exert 310、immune 320、stoneMask 330
 //   shotFloat(e, before) → [[文字, 顏色]]   自己開的一槍套上伺服器結果之後的飄字（before = 套之前這些效果狀態的值，見 stateOf）
 //   killFloat(e, shot) → [[文字, 顏色]]     這一發有擊殺時的飄字（shotFloat 之後）
 //   turnFx(fx, e) → 動作 | null  回合開始 / 結束的 fx 是這個效果的：['banner', 文字, 顏色] / ['float', id, 文字, 顏色, 大小?] /
-//                              ['particles', id, 數量, 參數]（照順序做；橫幅跟同一次的其他橫幅合成一行）
+//                              ['particles', id, 數量, 參數] / ['ambient', 種類, 秒數]（整個畫面的演出，不在哪個角色身上；目前有 'balloons'）
+//                              （照順序做；橫幅跟同一次的其他橫幅合成一行）
+//   feverFx(e) → 動作 | null     狂熱疊上新的一層時（客戶端第一次看到這一層）的畫面動作，格式同 turnFx（例如狂歡派對的 ambient）；
+//                              場上的玩家裡第一個給的算（見 feverOps）
+//   aura(e, c) → { r, color } | null   自己的回合在身上畫一圈淡淡的範圍（半徑 r px，從身體中心；例如威嚇的距離）；第一個給的算（見 auraOf）
 //   volley: { kind, banner(name), color }   這個效果的一波攻擊（shot.kind）開始時的橫幅
 //   pickText: { need, none, title(card), button(name), hint(others) }   target 的效果：選牌畫面要選對象時的文字
 
@@ -145,6 +166,7 @@ const LIST = [
   maxHp, heal, healPct, teamHeal, damage, cannonDamage, sniperDamage, bossDamage, ramp, soul, lifesteal, radius, knockback,
   sniperBounce, sniperPierce, cannonBounce, burnHit, cannonBurn, armor, friendlyArmor, regen, stamina, moveSpeed, jumpSpeed, size,
   bombard, teamShield, extraJumps, extraTurn, allyHeal, adrenaline, lone, unity, fever, fullArc, ready, hunt, link,
+  party, masochist, intimidate, exert, immune, stoneMask,
 ];
 
 const NOOP = () => {};
@@ -153,12 +175,13 @@ const NONE = () => [];
 const HOOKS = {
   id: null, keys: null, extraMods: null, state: null, target: null, actions: null,
   stat: null, applied: NOOP, picked: NOOP, healNow: ZERO, healFromTeammates: ZERO, healForTeam: ZERO,
-  runInit: NOOP, stageStart: NOOP, carry: NOOP, stageOver: NOOP,
-  damage: ZERO, damageSituation: ZERO, damageState: ZERO, damageBoss: ZERO,
+  runInit: NOOP, stageStart: NOOP, carry: NOOP, stageOver: NOOP, feverFrom: ZERO,
+  damage: ZERO, damageSituation: ZERO, damageState: ZERO, damageBoss: ZERO, damageTarget: ZERO,
   armor: ZERO, friendlyArmor: ZERO, lifesteal: ZERO, knockback: ZERO, radius: ZERO, burnOnHit: ZERO,
-  bounces: ZERO, pierce: () => false, previewFull: () => false, turnSecs: ZERO,
-  turnBegin: () => null, turnStart: NOOP, turnEnd: NOOP, again: () => false, afterShot: NOOP, onKill: NOOP, share: NOOP, shotLog: null,
-  chipOrder: 0, chip: () => null, shotFloat: NONE, killFloat: NONE, turnFx: () => null, volley: null, pickText: null,
+  bounces: ZERO, pierce: () => false, previewFull: () => false, turnSecs: ZERO, immune: () => false,
+  turnBegin: () => null, turnStart: NOOP, turnEnd: NOOP, again: () => false, afterShot: NOOP, onKill: NOOP, onHurt: NOOP, share: NOOP, shotLog: null,
+  chipOrder: 0, chip: () => null, shotFloat: NONE, killFloat: NONE, turnFx: () => null, feverFx: () => null, aura: () => null,
+  volley: null, pickText: null,
 };
 
 // 效果沒寫的掛勾補上預設；寫錯名字的掛勾、壞掉的 key 直接丟錯。weapon = 所有 key 都是同一把武器時的那把（戰鬥的槽照它過濾）
@@ -305,6 +328,18 @@ export function takeBack(p, e) {
 export function endStage(p) {
   for (const m of IMPL.stageOver) m.stageOver(p);
 }
+/** 狂熱提早從第幾輪開始（feverFrom 槽）：entities（Match 開場的玩家）每個人給的輪數裡最小的那個；都沒有 = 0（照關卡規則原本的輪數） */
+export function feverFrom(entities) {
+  let first = 0;
+  for (const e of entities) {
+    if (!e.mods) continue;
+    for (const m of IMPL.feverFrom) {
+      const v = m.feverFrom(e);
+      if (v > 0 && (!first || v < first)) first = v;
+    }
+  }
+  return first;
+}
 
 // ---- 角色身上效果自己的狀態（entities.js 經這裡建立與同步，不寫死欄位）----
 
@@ -394,6 +429,10 @@ export function afterShot(match, e, hit) {
 export function onKill(match, e, killed, fx) {
   for (const m of IMPL.onKill) m.onKill(match, e, killed, fx);
 }
+/** e 受到一次攻擊、真的扣了 dmg 點血（Match.applyExplosion 扣完血之後） */
+export function onHurt(match, e, dmg) {
+  for (const m of IMPL.onHurt) m.onHurt(match, e, dmg);
+}
 export function share(match, hit, c) {
   for (const m of IMPL.share) m.share(match, hit, c);
 }
@@ -443,6 +482,26 @@ export function turnFxOps(fx, e) {
   for (const m of IMPL.turnFx) {
     const ops = m.turnFx(fx, e);
     if (ops) return ops;
+  }
+  return null;
+}
+/** 狂熱疊上新的一層時的畫面動作（見上面 feverFx）：場上的玩家裡第一個給的；都沒有 = null */
+export function feverOps(match) {
+  for (const e of match.players) {
+    if (!e.mods) continue;
+    for (const m of IMPL.feverFx) {
+      const ops = m.feverFx(e);
+      if (ops) return ops;
+    }
+  }
+  return null;
+}
+/** 自己的回合在 e 身上畫的範圍圈（見上面 aura）：{ r, color }，第一個給的；沒有 = null */
+export function auraOf(e, c) {
+  if (!e || !e.mods) return null;
+  for (const m of IMPL.aura) {
+    const a = m.aura(e, c);
+    if (a) return a;
   }
   return null;
 }

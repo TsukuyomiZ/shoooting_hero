@@ -5,6 +5,7 @@ import { Terrain } from '../physics/terrain.js';
 import { Entity, poisonTick } from '../physics/entities.js';
 import { launchVelocity, makeProjectile, hitAction, bounceProjectile, shotTraits, blastRadius, shotRange, applyRecoil } from '../physics/weapons.js';
 import { runVolley } from '../physics/volley.js';
+import { windMaxOf, rollWind, windAccel } from '../physics/wind.js';
 import { planShot } from '../ai/ai.js';
 import { canStep, planWalk, planGlide, roamAround, LAND_FRAMES, FALL_FRAMES } from '../ai/ai-move.js';
 import { clamp } from '../core/utils.js';
@@ -41,9 +42,11 @@ export class Match {
     // 地圖機制的狀態（每場一份，含場上的道具）：機制的 build 建好回傳（見下面），之後由機制讀寫；Match 只存著不碰。
     // 一般小關 = null（見 shared/maps/mechanics/index.js）
     this.mechState = null;
-    // 關卡規則（見 shared/game/stage-rules.js）：這一關的血量倍率、敵人傷害倍率、狂熱。人數 = 開場的玩家人數（含之後倒下的隊友）
-    this.rules = stageRules({ stage, players: players.length, pool: this.level.pool }, config);
     this.round = 0;     // 第幾輪：裁判在新的一輪開始時加一，客戶端照伺服器的訊息設；狂熱層數照這個算（見 fever）
+    // 風（共用機制，見 shared/physics/wind.js）：這一關最大幾級（關卡沒寫 wind = 0，沒有風）、現在的風（每個回合開始由裁判 rollWind 重抽，
+    // 客戶端照 turn 訊息 / 快照設）。這個回合射出去的飛行物照它偏（resolveVolley 設在飛行物上；預覽、AI 試射照 world.wind）
+    this.windMax = windMaxOf(this.level);
+    this.wind = 0;
 
     players.forEach((p, i) => {
       const spawn = this.level.playerSpawns[i % this.level.playerSpawns.length];
@@ -61,6 +64,10 @@ export class Match {
     });
     // 攜手之伴的連結只認這一關真的有的隊友
     for (const e of this.entities) e.links = e.links.filter(id => id !== e.id && this.entities.some(f => f.id === id && f.team === e.team));
+
+    // 關卡規則（見 shared/game/stage-rules.js）：這一關的血量倍率、敵人傷害倍率、狂熱。人數 = 開場的玩家人數（含之後倒下的隊友）；
+    // feverFrom = 玩家的效果讓狂熱提早從第幾輪開始（例如狂歡派對；0 = 照原本的）。要在建好玩家之後（看他們的效果）、建敵人之前（敵人血量照這個）
+    this.rules = stageRules({ stage, players: players.length, pool: this.level.pool, feverFrom: Effects.feverFrom(this.players) }, config);
 
     // 敵人血量照關卡規則放大：一般敵人 enemyHp（人數 × 關數）；王與地圖機制的角色 bossHp（人數 × 第幾個王關），交給機制的 build
     const { enemyHp: hpScale, bossHp: bossScale } = this.rules;
@@ -93,7 +100,7 @@ export class Match {
   }
 
   get world() {
-    return { terrain: this.terrain, entities: this.entities, w: CONFIG.WORLD_W, h: CONFIG.WORLD_H };
+    return { terrain: this.terrain, entities: this.entities, w: CONFIG.WORLD_W, h: CONFIG.WORLD_H, wind: this.wind };
   }
   get players() { return this.entities.filter(e => e.team === 'players'); }
   get enemies() { return this.entities.filter(e => e.team === 'enemies'); }
@@ -152,7 +159,7 @@ export class Match {
       const px = e.x, py = e.y, falls = e.waterFalls;
       if (dry) e.update(CONFIG.FIXED_DT, this.world); else this.step();
       e.movedThisTurn += Math.hypot(e.x - px, e.y - py);
-      if (dry || e.team !== 'players') return;
+      if (dry || e.team !== 'players' || !e.alive) return;   // 這一幀流血倒下的不撿（走路也就此停下：die 放開了方向鍵）
       const s = e.waterFalls !== falls ? e.splash : null;   // 這一幀掉進水裡（已經被放回岸上）：線段只算到落水的那一點
       const fx = this.mechanic.moved(this, e, px, py, s ? s.x : e.x, s ? s.y : e.y);
       if (fx) pickups.push({ f: n + fall, ...fx, hp: e.hp, mhp: e.maxHp, lk: e.poisonLock });
@@ -172,18 +179,23 @@ export class Match {
 
   // 位置回報（見 GLOSSARY.md）：行動玩家的客戶端說自己現在在哪（走路、跳、掉水、開火那一刻）。
   // 客戶端對自己的移動有主導權，伺服器只做合理性檢查，並結算路上撿到的道具與落水。
-  // report = 客戶端送來的 { x, y, facing, stamina, vy, vine, safe }：
+  // report = 客戶端送來的 { x, y, facing, stamina, vy, vine, safe, hp }：
+  //   hp = 他畫面上的血量（流血：走路時他自己的畫面已經扣過了，見 Entity.bleedFor）：他在流血才收、只能減不能加（見 acceptBleed），
+  //   在位置的檢查之前（位置被擋下也照收）、撿道具與落水之前（喝不喝蛇血、淹不淹死照跟他畫面上一樣的血量算；落水那次帶的是落水扣血之前的）；
+  //   扣到倒下的話人就倒在回報的地方，不抓藤蔓、不撿道具、不落水；
   //   facing 1 / -1 才採用；stamina 只能減不能加；
   //   vine = 抓著第幾條藤蔓（-1 = 沒有）：位置真的掛得上去才算，不然當成在半空中（超時就會掉下去）；
   //   safe = 客戶端記的最後站穩的地方（落水那次回報才帶）：站得住、離得不遠就採用，重生點才會跟他畫面上的一樣；
   //   vy = 當下的垂直速度：收下而且沒掉水才接著用（掛在藤蔓上 = 0），超時 / 斷線時伺服器才接得上他原本的軌跡。
   // 站得住的位置記成「最後站穩的地方」；回報在水裡 = 自己走 / 跳進水裡 → 落水（扣血、回到岸上，或淹死）。
-  // 回傳 { ok, water, pickup }：ok = 收下了（false = 瞬移 / 出界 / 卡進地形，什麼都沒改）；
+  // 回傳 { ok, water, pickup, bled, bledHp, kill }：ok = 收下了（false = 瞬移 / 出界 / 卡進地形，位置什麼都沒改）；
   // water = 這次掉進水裡的那一次（e.splash），沒掉是 null；pickup = 從上一個位置走到這裡的路上撿到的道具
-  // （地圖機制的 moved 給的 fx，例如巨蟒關的蛇血），沒有是 null
+  // （地圖機制的 moved 給的 fx，例如巨蟒關的蛇血），沒有是 null；bled = 照回報的血量流血扣了幾點（沒扣是 0；倒下了看 e.alive）；
+  // bledHp = 扣完流血的血量（落水扣血之前，紀錄用）；kill = 流血扣到倒下算到的擊殺（見 creditBleed），沒有是 null
   applyPositionReport(e, report) {
-    const { x, y, facing, stamina, vy, vine = -1, safe = null } = report;
-    const rejected = { ok: false, water: null, pickup: null };
+    const { x, y, facing, stamina, vy, vine = -1, safe = null, hp } = report;
+    const bleed = this.acceptBleed(e, hp);
+    const rejected = { ok: false, water: null, pickup: null, ...bleed };
     if (!Number.isFinite(x) || !Number.isFinite(y)) return rejected;
     if (x < e.hw || x > this.terrain.maxX - e.hw || y < 0 || y > CONFIG.WORLD_H) return rejected;
     if (Math.hypot(x - e.x, y - e.y) > 400) return rejected;   // 不准瞬移
@@ -204,6 +216,7 @@ export class Match {
     e.vy = 0;
     if (facing === 1 || facing === -1) e.facing = facing;
     if (Number.isFinite(stamina)) e.stamina = clamp(stamina, 0, e.stamina);   // 只能減不能加
+    if (!e.alive) return { ok: true, water: null, pickup: null, ...bleed };   // 流血倒下（上面）：倒在這裡，不抓藤蔓、不撿道具、不落水
     e.onVine = Number.isInteger(vine) && vine >= 0 && ny <= CONFIG.WATER_LEVEL && e.canHangAt(this.terrain, vine, x, ny) ? vine : -1;
     const pickup = this.mechanic.moved(this, e, x0, y0, x, ny) || null;   // 在落水檢查之前：走進水裡的那一段也撿得到
     if (ny > CONFIG.WATER_LEVEL) {
@@ -213,14 +226,35 @@ export class Match {
         e.safeY = safe.y;
       }
       e.fallInWater(this.terrain);
-      return { ok: true, water: e.splash, pickup };
+      return { ok: true, water: e.splash, pickup, ...bleed };
     }
     if (e.canStandAt(this.terrain, x, ny)) {
       e.safeX = x;
       e.safeY = ny;
     }
     if (Number.isFinite(vy)) e.vy = e.onVine >= 0 ? 0 : clamp(vy, -e.jumpSpeed, 1400);
-    return { ok: true, water: null, pickup };
+    return { ok: true, water: null, pickup, ...bleed };
+  }
+
+  // 行動玩家回報的血量（位置回報的 hp）：只有他在流血時才收（他畫面上走路扣的流血）、只能減不能加（跟體力一樣：伺服器擋得住加血，擋不住少扣）。
+  // 扣的照流血算（Entity.loseBlood：死因 bleed，算流血來源造成的傷害 / 擊殺）。
+  // 回傳 { bled: 扣了幾點, bledHp: 扣完的血量, kill: 扣到倒下算到的擊殺（見 creditBleed），沒有是 null }
+  acceptBleed(e, hp) {
+    if (!(e.bleed > 0) || !e.alive || !Number.isFinite(hp)) return { bled: 0, bledHp: e.hp, kill: null };
+    const n = e.loseBlood(e.hp - clamp(Math.round(hp), 0, e.hp));
+    return { bled: n, bledHp: e.hp, kill: this.creditBleed(e, n) };
+  }
+
+  // 流血扣的血（dmg 點）算流血來源造成的傷害（打敵方才算，同燃燒）；扣到倒下算他的擊殺（擊殺的效果照常，例如噬魂者）。
+  // 回傳算到的擊殺 { by: 拿到擊殺的人, fx: 擊殺的效果另外記的（例如噬魂者，同燒死；給紀錄與客戶端飄字） }，沒有擊殺是 null
+  creditBleed(e, dmg) {
+    if (!(dmg > 0)) return null;
+    const src = this.byId(e.bleedSource);
+    if (!src) return null;
+    if (src.team !== e.team) src.dealt += dmg;
+    if (e.alive) return null;
+    const fx = [];
+    return this.creditKills(src, [e], fx).length ? { by: src.id, fx } : null;
   }
 
   // ---- 回合開始 / 結束（裁判呼叫） ----
@@ -233,12 +267,27 @@ export class Match {
     e.aiming = false;
     e.turnCount++;
     e.movedThisTurn = 0;
+    e.bledThisTurn = 0;
   }
 
   // 輪到 e 之後、開始計時之前（裁判呼叫）：有效果要出手（例如無差別轟炸）就回傳一個函式，
   // 呼叫它才結算那一波、回傳跟開火同樣格式的結果；沒有 = null
   turnBeginVolley(e) {
     return Effects.turnBegin(this, e);
+  }
+
+  // 回合中即時移動 / 倒數、碰到人就打的東西（地圖機制的 hazard*，例如流浪劍士的劍氣在玩家回合裡慢慢飛過整排）。
+  // 裁判呼叫，now = 裁判的時鐘（ms）：hazardStart = 玩家的回合開始時（回傳給客戶端的資料或 null）、
+  // hazardStep = 回合中每隔一小段時間（推進、打碰到的人；flush = 回合要收尾了，還沒到時間的現在就結算）、
+  // hazardFinish = 回合收尾時還在動的話，一口氣結算剩下那段的函式
+  hazardStart(e, now) {
+    return this.mechanic.hazardStart(this, e, now);
+  }
+  hazardStep(now, flush = false) {
+    return this.mechanic.hazardStep(this, now, flush);
+  }
+  hazardFinish() {
+    return this.mechanic.hazardFinish(this);
   }
 
   // 無差別轟炸一次（不看有沒有這張牌）：舊的進入點，留給測試與工具直接呼叫；規則在 shared/cards/effects/bombard.js
@@ -259,6 +308,7 @@ export class Match {
 
   // 自己的回合結束時：
   // - 燃燒：先用這回合移動的距離甩掉層數（每回合最多 maxReducePerTurn 層），剩下的每層扣最大血量 pctPerStack%
+  // - 流血：止血（層數歸零）
   // - 地圖機制的回合結束效果（例如巨蟒被燒到跨過門檻掉蛇血、古樹的嘴巴張開）
   // - 效果的回合結束（照 shared/cards/effects/ 登記的順序：神佑之石給全隊無敵 → 時間扭曲給額外回合）。
   //   isExtra = 這是時間扭曲給的額外回合
@@ -266,6 +316,7 @@ export class Match {
     const fx = [];
     if (!e.alive) return fx;
     this.burnTick(e, fx);
+    this.stopBleeding(e, fx);
     this.mechanic.turnEnd(this, e, fx);
     Effects.turnEnd(this, e, fx, isExtra);
     return fx;
@@ -289,6 +340,14 @@ export class Match {
     if (src) this.creditKills(src, [e], fx);
   }
 
+  // 流血在自己的回合結束時止血（層數全部清掉）：還活著才記一筆 fx 給客戶端飄字（stacks = 止住了幾層、dmg = 這回合流血扣了幾點）
+  stopBleeding(e, fx) {
+    if (!(e.bleed > 0)) return;
+    if (e.alive) fx.push({ type: 'bleed', id: e.id, stacks: e.bleed, dmg: e.bledThisTurn });
+    e.bleed = 0;
+    e.bleedFrac = 0;
+  }
+
   // ---- 傷害規則 ----
 
   // 回血（吸血、恩賜之杖）：不足 1 點的小數先存著，長期下來剛好是設定的比例。回傳實際回了幾點
@@ -304,6 +363,12 @@ export class Match {
 
   // 新的一輪開始（裁判在回合順序繞回前面時呼叫）：輪數 +1（狂熱跟著輪數走），再問地圖機制這一輪的變化（roundStart，
   // 例如岩穴的火把變暗 / 熄滅），回傳 fx 清單給紀錄。客戶端不呼叫這個（輪數照伺服器的訊息設）
+  // 新的回合抽風（裁判的 nextTurn 呼叫；沒有風的關卡不抽亂數、一直是 0）。回傳現在的風
+  rollWind() {
+    if (this.windMax > 0) this.wind = rollWind(this.rng, this.windMax);
+    return this.wind;
+  }
+
   beginRound() {
     this.round++;
     const fx = [];
@@ -333,9 +398,16 @@ export class Match {
     return events.some(ev => ev.damages && ev.damages.some(d => !d.friendly));
   }
 
-  // 受到的傷害 -N%（效果的 armor 槽，例如健壯藥丸類、團結力量大）；allies = 活著的隊友數
-  armorOf(e, allies = this.alliesAlive(e)) {
-    return Effects.effectSum('armor', e, { match: this, allies });
+  // 受到的傷害 -N%（效果的 armor 槽，例如健壯藥丸類、團結力量大、威嚇）；allies = 活著的隊友數；
+  // attacker = 這一下的攻擊者（看攻擊者的效果用，例如威嚇：離自己近的敵人打的才減）。狀態列的「減傷」不給 = null；
+  // at = 用身體撞人的招式撞上那一下的位置（見 applyExplosion），其他 = null
+  armorOf(e, allies = this.alliesAlive(e), attacker = null, at = null) {
+    return Effects.effectSum('armor', e, { match: this, allies, attacker, at });
+  }
+
+  // 免疫異常狀態（效果的 immune 槽，例如金剛不壞）：被打中時不上燃燒、中毒、流血
+  immuneTo(e) {
+    return Effects.effectAny('immune', e, { match: this });
   }
 
   // 傷害吸血 %（效果的 lifesteal 槽，例如血之爪類、孤狼傳說）；allies = 活著的隊友數
@@ -372,12 +444,16 @@ export class Match {
 
   // 爆炸 / 命中：傷害（同隊含自己 ×FRIENDLY_FIRE，再吃雙方的效果加成與狂熱）、燃燒、擊退。回傳傷害清單。
   // radius 0 的武器（迴力鏢）與 opts.directOnly（穿透）只打 directHit；opts.exclude 裡的角色不受影響。
-  // 一個人要扣的傷害：武器傷害 × 距離 × 攻擊者的倍率與狂熱（× 誤傷）→ × 對首領 → × 減傷 → × 地圖機制的受傷倍率 → × 誤傷減傷 → 效果的 share（攜手之伴：
-  // 先減再跟活著的連結對象平分，清單裡多一筆 shared = 被打的人）。
+  // 一個人要扣的傷害：武器傷害 × 距離 × 攻擊者的倍率與狂熱（× 誤傷）→ × 對首領 → × 對這個目標（效果的 damageTarget，例如威嚇）
+  // → × 減傷（含看攻擊者的，例如威嚇）→ × 地圖機制的受傷倍率 → × 誤傷減傷 → 效果的 share（攜手之伴：
+  // 先減再跟活著的連結對象平分，清單裡多一筆 shared = 被打的人）。扣完血，真的扣到的人（含分到的）交給效果的 onHurt（例如被虐體質）。
   // 先照這一下之前的場面算好每個人要扣多少（誰活著、誰有無敵、隊友幾個），再一起扣：
-  // 同一發炸到好幾個人時，結果不會因為角色的排列順序（誰先加入房間）而不同
+  // 同一發炸到好幾個人時，結果不會因為角色的排列順序（誰先加入房間）而不同。
+  // 用身體撞人的招式（武器的 bodyHit：飛行物就是攻擊者的身體）結算時攻擊者還在出發點（撞完才搬過去）：
+  // 看距離的效果（damageTarget、armor 的 c.at，例如威嚇）改量撞上那一下的位置 at = 飛行物的中心 (x, y)、r = 它的判定半徑（= 身體的大小）
   applyExplosion(x, y, weapon, attacker, directHit, opts = {}) {
     const damages = [];
+    const at = weapon.bodyHit ? { x, y, r: weapon.hitRadius || 0 } : null;
     const radius = this.explosionRadius(attacker, weapon);
     const R = radius + 6;
     const splash = radius > 0 && !opts.directOnly;
@@ -412,7 +488,8 @@ export class Match {
       }
       let dmg = weapon.damage * factor * atk * (friendly ? CONFIG.FRIENDLY_FIRE : 1);
       if (e.boss && attacker) dmg *= Math.max(0, 1 + Effects.effectSum('damageBoss', attacker, { match: this, weaponId: weapon.id }) / 100);
-      dmg *= Math.max(0, 1 - this.armorOf(e, alliesBefore(e)) / 100);
+      if (attacker) dmg *= Math.max(0, 1 + Effects.effectSum('damageTarget', attacker, { match: this, weaponId: weapon.id, target: e, at }) / 100);
+      dmg *= Math.max(0, 1 - this.armorOf(e, alliesBefore(e), attacker, at) / 100);
       dmg *= this.mechanic.defenseMult(this, e);   // 地圖機制的受傷倍率（例如大樹守衛舉盾）
       if (friendly) dmg *= Math.max(0, 1 - Effects.effectSum('friendlyArmor', e, { match: this }) / 100);
       const entry = { id: e.id, dmg: 0, friendly };
@@ -427,24 +504,42 @@ export class Match {
       h.entry.dmg = h.e.takeDamage(h.own);
       for (const s of h.shares) s.entry.dmg = s.q.takeDamage(s.amount);
     }
+    // 真的扣到血的人（自己被打到、分到的那份各算一次）：效果的 onHurt（例如被虐體質疊層數）。大家都扣完才叫，跟角色順序無關。
+    // 自己被打到的那份另外告訴地圖機制（hurt，例如流浪劍士的格擋架勢數被打中幾次）
+    for (const h of hits) {
+      if (h.entry.dmg > 0) {
+        Effects.onHurt(this, h.e, h.entry.dmg);
+        this.mechanic.hurt(this, h.e, h.entry.dmg, attacker);
+      }
+      for (const s of h.shares) if (s.entry.dmg > 0) Effects.onHurt(this, s.q, s.entry.dmg);
+    }
     for (const f of later) f();   // 這時候才出現的角色（蜜蜂）不會被這一下打到
     // 結算統計：打在敵方身上的傷害（含分給連結對象的份、地圖機制寫的那幾筆）算攻擊者造成的；誤傷不算
     if (attacker) for (const d of damages) if (!d.friendly) attacker.dealt += d.dmg;
-    // 3. 燃燒、中毒、擊退（分到的份不會擊退、不會中毒）
+    // 3. 燃燒、中毒、流血、擊退（分到的份不會擊退、不會中毒、不會流血）。
+    // 免疫異常狀態的人（immuneTo，例如金剛不壞）這三種都不上：這一下本來會上的話記 immune（客戶端飄「免疫」）
     const poison = weapon.poison || 0;
+    const bleed = weapon.bleed || 0;
     for (const { e, entry, factor } of hits) {
-      if (burn > 0 && attacker && !entry.friendly && e.alive) {
+      const immune = (burn > 0 || poison > 0 || bleed > 0) && !!attacker && !entry.friendly && e.alive && this.immuneTo(e);
+      if (immune) entry.immune = true;
+      if (burn > 0 && attacker && !entry.friendly && e.alive && !immune) {
         e.burn += burn;
         e.burnSource = attacker.id;
         entry.burn = burn;
       }
-      if (poison > 0 && attacker && !entry.friendly && e.alive) {   // 有毒的攻擊（巨蟒、蜜蜂）：傷害 0 也照樣上毒
+      if (poison > 0 && attacker && !entry.friendly && e.alive && !immune) {   // 有毒的攻擊（巨蟒、蜜蜂）：傷害 0 也照樣上毒
         e.poison += poison;
         entry.poison = poison;
       }
+      if (bleed > 0 && attacker && !entry.friendly && e.alive && !immune) {   // 會流血的攻擊（武器的 bleed）：同上，傷害 0 也照樣上；層數一直疊
+        e.bleed += bleed;
+        e.bleedSource = attacker.id;
+        entry.bleed = bleed;
+      }
       // 擊退：只用開根號，避免三角函數在不同引擎上有微小差異。knockDir = 固定方向（大地震擊往巨蟒那邊甩）
       const kb = weapon.knockback * factor * kbMult * (e.boss ? 0.3 : 1);
-      if (kb <= 0 || e.fixed) continue;   // 古樹的部位長在樹上、巨蟒的頭不會動，不會被擊退
+      if (kb <= 0 || e.fixed || e.held) continue;   // 古樹的部位長在樹上、巨蟒的頭不會動、關在囚籠裡的人，不會被擊退
       let ux, uy;
       if (weapon.knockDir) {
         ux = weapon.knockDir.x;
@@ -518,7 +613,9 @@ export class Match {
   // isShot = 自己開的一槍（效果的攻擊（轟炸）、Boss 招式不算）：結算完交給效果的 afterShot（例如磨刀霍霍 / 越戰越強的層數），
   // results 帶的是更新後的。結果另外帶效果要給客戶端的狀態（例如噬魂者的 soul）
   resolveVolley(owner, weapon, projs, burn, isShot = false) {
-    const specs = projs.map(p => ({ spawn: p.spawn, x: p.x, y: p.y, vx: p.vx, vy: p.vy, ...(p.follow ? { follow: true } : {}) }));
+    // 風：這一波的飛行物照這個回合的風偏（吃不吃風看武器，見 physics/wind.js）；重播照 projectiles 帶的 wind 飛
+    for (const p of projs) if (!p.wind) p.wind = windAccel(this.wind, p.weapon);
+    const specs = projs.map(p => ({ spawn: p.spawn, x: p.x, y: p.y, vx: p.vx, vy: p.vy, ...(p.follow ? { follow: true } : {}), ...(p.wind ? { wind: p.wind } : {}) }));
     const before = this.entities.filter(e => e.alive);
     const n0 = this.entities.length;
     // 飛行 → 沉降（shared/physics/volley.js：跟客戶端重播同一個幀迴圈；撞到東西時呼叫下面的 resolveHit）
@@ -595,8 +692,9 @@ export class Match {
       const ids = new Set(damages.map(d => d.id));
       if (heal > 0) ids.add(owner.id);
       ev.ents = this.entities.filter(e => ids.has(e.id)).map(e => e.toEventState());
-      // 地圖機制附在事件上的（例如巨蟒掉的蛇血 drops、蜂巢飛出來的蜜蜂 bees）：客戶端在這一幀照著播（重播見 replayEvent）
-      Object.assign(ev, this.mechanic.eventExtras(this));
+      // 地圖機制附在事件上的（例如巨蟒掉的蛇血 drops、蜂巢飛出來的蜜蜂 bees、處刑監獄的吊燈砸暈 stuns）：客戶端在這一幀照著播（重播見 replayEvent）。
+      // 第二個參數 = 這一下是什麼武器（半路掉下來的吊燈是它自己的武器）、打到誰
+      Object.assign(ev, this.mechanic.eventExtras(this, { weapon: weapon.id, damages }));
     }
     return ev;
   }
@@ -611,12 +709,20 @@ export class Match {
   // AI 回合：先走動（站在地上的走路 walk = { dir, frames, fall }，代打的玩家路上撿到道具再帶 pickups；
   // 有活動範圍 roam 的飄移 glide = { dx, dy, frames }，見 ai-move.js），再從走到（落地）的地方規劃一發。回傳 { walk, glide, plan }；
   // 由地圖機制出招的角色（Boss、蜜蜂）不走也不開火，而是出招並直接結算好：回傳 { boss: { steps, next } }（見 mechanics/ 的 aiTurn）；
-  // 有活動範圍的（獨眼巨人）先飄移再出招。weapons = 這一發只能用哪些武器（射過飛鏢的回合被代打：只能用飛鏢）；不給 = 武器欄全部
+  // 有活動範圍的（獨眼巨人）先飄移再出招。weapons = 這一發只能用哪些武器（射過飛鏢的回合被代打：只能用飛鏢）；不給 = 武器欄全部。
+  // 流血的角色飄移 / 走路途中會扣血（見 Entity.bleedFor）：扣的算流血來源的，扣到倒下就不出招、不開火（plan、boss 都是 null；
+  // 客戶端照樣播完走動，在同一幀倒下）。算到流血來源的擊殺時另外回傳 kill = { by, fx }（見 creditBleed；裁判記進 ai.turn、跟著 aiTurn 給客戶端飄字）
   planAiTurn(actor, weapons = null) {
+    let bled = actor.bledThisTurn;
     const glide = planGlide(this, actor);
+    let kill = this.creditBleed(actor, actor.bledThisTurn - bled);
+    if (!actor.alive) return { walk: null, glide, plan: null, boss: null, kill };
     const boss = this.mechanic.aiTurn(this, actor);
     if (boss) return { walk: null, glide, plan: null, boss };
+    bled = actor.bledThisTurn;
     const walk = actor.roam ? null : planWalk(this, actor);
+    kill = this.creditBleed(actor, actor.bledThisTurn - bled);
+    if (!actor.alive) return { walk, glide, plan: null, boss: null, kill };
     const plan = planShot(this.world, actor, this.rng, weapons || actor.weapons);
     return { walk, glide, plan };
   }
@@ -626,6 +732,7 @@ export class Match {
     return {
       entities: this.entities.map(e => e.toState()),
       holes: this.terrain.holes.map(h => ({ x: h.x, y: h.y, r: h.r })),
+      ...(this.windMax ? { wind: this.wind } : {}),   // 有風的關卡：現在的風（重連、開場）
       ...snapshotOf(this),   // 地圖機制的欄位（含場上的道具；每張地圖都帶、順序固定，見 mechanics/index.js）
     };
   }
@@ -639,6 +746,7 @@ export class Match {
 
   applySnapshot(s) {
     if (s.holes) this.terrain.reset(s.holes);
+    if (Number.isFinite(s.wind)) this.wind = s.wind;
     // 地圖機制的欄位（含場上的道具）：先建出快照裡有、這邊還沒有的角色（召喚 / 放出來的），角色狀態才套得上
     this.mechanic.restore(this, s);
     this.applyEntities(s.entities);

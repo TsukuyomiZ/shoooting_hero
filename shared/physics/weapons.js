@@ -1,5 +1,6 @@
 import { CONFIG } from '../core/config.js';
 import { makeProjectile } from './projectile.js';
+import { windAccel } from './wind.js';
 import { effectSum, effectAny } from '../cards/effects/index.js';
 
 // 飛行物的形狀在 projectile.js（效果也要建飛行物，放這裡會變成循環 import），這裡照樣匯出
@@ -73,6 +74,7 @@ export function advanceProjectile(world, p, dt) {
   for (let i = 0; i < sub; i++) {
     const px = p.x, py = p.y;
     p.vy += p.gravity * h;
+    if (p.wind) p.vx += p.wind * h;   // 風（見 physics/wind.js；沒有風就不碰，跟以前一模一樣）
     p.x += p.vx * h;
     p.y += p.vy * h;
     p.age += h;
@@ -107,11 +109,11 @@ export function advanceProjectile(world, p, dt) {
 
 // 撞到東西之後怎麼辦（伺服器結算與瞄準預覽共用同一套規則）：
 //   end = 落水 / 飛出場外 / 飛到最長路徑（高壓水炮消散）；return = 迴力鏢折返（到了最長路徑，或先撞到地形 / 落水 / 飛出場外）；
-//   pierce = 穿過角色繼續飛（迴力鏢一律穿過）；bounce = 在地形上彈射；explode = 爆炸
+//   pierce = 穿過角色繼續飛（迴力鏢一律穿過；撞到 p.stopAt 那個角色就不穿過去、停在他身上）；bounce = 在地形上彈射；explode = 爆炸
 export function hitAction(p, hit) {
   if (p.boomerang) return hit.type === 'entity' ? 'pierce' : 'return';
   if (hit.type === 'water' || hit.type === 'out' || hit.type === 'range') return 'end';
-  if (hit.type === 'entity') return p.pierce ? 'pierce' : 'explode';
+  if (hit.type === 'entity') return p.pierce && hit.entity !== p.stopAt ? 'pierce' : 'explode';
   return p.bouncesLeft > 0 ? 'bounce' : 'explode';
 }
 
@@ -199,6 +201,7 @@ export function simulateShot(world, owner, weapon, angleDeg, power, maxTime = 6,
   const m = owner.muzzle();
   const v = launchVelocity(weapon, angleDeg, power);
   const p = makeProjectile(owner, weapon, m.x, m.y, v.vx, v.vy);
+  p.wind = windAccel(world && world.wind, weapon);   // 這個回合的風（AI 試射、拋物線的預覽都照它彎）
   p.bouncesLeft = bounces;
   p.range = shotRange(weapon, power);
   const points = [];
@@ -222,6 +225,7 @@ export function traceShot(world, owner, weapon, angleDeg, power, { bounces = 0, 
   const m = owner.muzzle();
   const v = launchVelocity(weapon, angleDeg, power);
   const p = makeProjectile(owner, weapon, m.x, m.y, v.vx, v.vy);
+  p.wind = windAccel(world && world.wind, weapon);   // 這個回合的風（有一點重力的飛鏢會跟著偏）
   p.bouncesLeft = bounces;
   p.pierce = pierce;
   p.range = shotRange(weapon, power);

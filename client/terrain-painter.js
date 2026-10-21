@@ -1,13 +1,15 @@
-import { HARD, PLATFORM, STALACTITE } from '../shared/physics/terrain.js';
+import { SOIL, HARD, PLATFORM, STALACTITE, BOULDER } from '../shared/physics/terrain.js';
 
-// 把地形遮罩畫成圖：草皮、土壤、坑洞焦黑邊、樹皮（古樹）、平台、鐘乳石。只在地形改變時重繪（爆炸時只重繪局部）。
+// 把地形遮罩畫成圖：草皮、土壤、坑洞焦黑邊、樹皮（古樹）、平台、鐘乳石、巨石。只在地形改變時重繪（爆炸時只重繪局部）。
 export class TerrainPainter {
-  // opts.platformStyle：平台的畫法（預設 = 長青苔的石頭；'wood' = 樹枝、'vine' = 藤蔓橋、'rock' = 岩台）
-  // opts.style：土與實心地形的畫法（預設 = 草皮 + 土、樹皮；'cave' = 洞穴的岩土、岩石天花板）
+  // opts.platformStyle：平台的畫法（預設 = 長青苔的石頭；'wood' = 樹枝、'vine' = 藤蔓橋、'rock' = 岩台、'plank' = 木板（處刑台））
+  // opts.style：土與實心地形的畫法（預設 = 草皮 + 土、樹皮；'cave' = 洞穴的岩土、岩石天花板；'prison' = 監獄的石板地、石頭天花板，吊燈不畫）
+  // opts.hardLook：不可破壞的地形的畫法（預設 = 樹皮 / 岩石；'ground' = 跟土一樣畫草皮與土，只是不會有焦痕：炸不出坑）
   constructor(terrain, opts = {}) {
     this.terrain = terrain;
     this.platformStyle = opts.platformStyle || 'stone';
     this.style = opts.style || null;
+    this.hardLook = opts.hardLook || null;
     this.withered = false;   // 古樹倒下：樹皮變成枯灰色
     this.canvas = document.createElement('canvas');
     this.canvas.width = terrain.w;
@@ -51,17 +53,19 @@ export class TerrainPainter {
         const o = i * 4;
         if (!mask[i]) { d[o + 3] = 0; continue; }
         const n = hash(px, py);
-        if (mask[i] === HARD) {
+        if (this.style === 'prison') { this.paintPrison(d, o, px, py, i, n, near); continue; }
+        const hard = mask[i] === HARD || mask[i] === BOULDER;   // 巨石（對戰中放上去的，例如超巨石）照炸不壞的岩石畫，地圖畫面再畫上它自己的樣子
+        if (hard && this.hardLook !== 'ground') {
           if (this.style === 'cave') this.paintRock(d, o, px, py, i, n);
           else this.paintBark(d, o, px, py, i, near);
           continue;
         }
         if (mask[i] === PLATFORM) { this.paintPlatform(d, o, px, py, i, n); continue; }
         if (mask[i] === STALACTITE) { this.paintStalactite(d, o, px, py, i, n); continue; }
-        if (this.style === 'cave') { this.paintCaveFloor(d, o, px, py, i, n, near); continue; }
+        if (this.style === 'cave') { this.paintCaveFloor(d, o, px, py, i, n, hard ? [] : near); continue; }
 
         let scorched = false;
-        for (const hh of near) {
+        if (!hard) for (const hh of near) {
           const dx = px + 0.5 - hh.x, dy = py + 0.5 - hh.y;
           if (dx * dx + dy * dy <= (hh.r + 8) * (hh.r + 8)) { scorched = true; break; }
         }
@@ -96,6 +100,7 @@ export class TerrainPainter {
     if (this.platformStyle === 'wood') { this.paintBranch(d, o, px, py, i, n); return; }
     if (this.platformStyle === 'vine') { this.paintVineBridge(d, o, px, py, i, n); return; }
     if (this.platformStyle === 'rock') { this.paintLedge(d, o, px, py, i, n); return; }
+    if (this.platformStyle === 'plank') { this.paintPlank(d, o, px, py, i, n); return; }
     const { w, h, mask } = this.terrain;
     let top = 0;
     while (top < 6 && py - top - 1 >= 0 && mask[i - (top + 1) * w] === PLATFORM) top++;
@@ -207,6 +212,70 @@ export class TerrainPainter {
     if (top < 2) k = 1.35 + 0.1 * n;
     else if (bottom) k *= 0.55;
     d[o] = 92 * k; d[o + 1] = 84 * k; d[o + 2] = 78 * k; d[o + 3] = 255;
+  }
+
+  // 監獄（style 'prison'，處刑監獄）：地面 = 頂面一層磨亮的石板、下面一層層錯開的石磚；天花板 = 大塊的暗石；
+  // 平台照 platformStyle（處刑台的木板）；吊燈（STALACTITE）不畫——地圖畫面照它的形狀畫鏈子與燭台。可破壞的土（沒有用到）照石磚畫、被炸過的地方焦黑
+  paintPrison(d, o, px, py, i, n, near) {
+    const { w, h, mask } = this.terrain;
+    const m = mask[i];
+    if (m === STALACTITE) { d[o + 3] = 0; return; }
+    if (m === PLATFORM) { this.paintPlatform(d, o, px, py, i, n); return; }
+    let rgb;
+    if (py < 200) {   // 天花板：大塊的石頭，靠近空氣的那一面加深
+      const row = Math.floor(py / 16), off = row % 2 ? 26 : 0;
+      if (py % 16 < 2 || (px + off) % 52 < 2) rgb = [18, 17, 22];
+      else {
+        let k = (0.8 + 0.3 * hash(Math.floor((px + off) / 52), row + 99)) * (0.92 + 0.16 * n);
+        for (let s = 1; s <= 3; s++) if (py + s < h && !mask[i + s * w]) { k *= 0.6; break; }
+        rgb = [54 * k, 52 * k, 62 * k];
+      }
+    } else {
+      let top = 0;
+      while (top < 6 && py - top - 1 >= 0 && mask[i - (top + 1) * w]) top++;
+      let edge = false;
+      for (let k = 1; k <= 2 && !edge; k++) {
+        if (px - k < 0 || !mask[i - k] || px + k >= w || !mask[i + k] || py + k >= h || !mask[(py + k) * w + px]) edge = true;
+      }
+      if (top < 3) rgb = [128 + n * 14, 126 + n * 14, 136 + n * 14];   // 磨亮的石板面
+      else if (top < 5) rgb = [40, 38, 46];                           // 石板底下的縫
+      else {
+        const row = Math.floor(py / 14), off = row % 2 ? 18 : 0;
+        const yy = py % 14, xx = (px + off) % 36;
+        if (yy < 2 || xx < 2) rgb = [30, 28, 34];                     // 灰泥
+        else {
+          let k = (0.8 + 0.32 * hash(Math.floor((px + off) / 36), row)) * (0.94 + 0.12 * n) * Math.max(0.5, 1 - (py - 590) / 320);
+          if (yy < 4) k *= 1.12;                                      // 每塊磚的上緣亮一點
+          if (edge) k *= 0.62;
+          rgb = hash(px >> 2, py >> 2) > 0.93 ? [60 * k, 84 * k, 58 * k] : [76 * k, 74 * k, 86 * k];   // 偶爾一點青苔
+        }
+      }
+      if (m === SOIL) {
+        for (const hh of near) {
+          const dx = px + 0.5 - hh.x, dy = py + 0.5 - hh.y;
+          if (dx * dx + dy * dy <= (hh.r + 8) * (hh.r + 8)) { rgb = [34 + n * 14, 30 + n * 10, 30 + n * 8]; break; }
+        }
+      }
+    }
+    d[o] = rgb[0]; d[o + 1] = rgb[1]; d[o + 2] = rgb[2]; d[o + 3] = 255;
+  }
+
+  // 木板平台（platformStyle: 'plank'，處刑台）：一片片直立的木板（板縫、木紋），頂面那根橫木被踩亮、下緣加深，上下各一排鐵釘
+  paintPlank(d, o, px, py, i, n) {
+    const { w, h, mask } = this.terrain;
+    let top = 0;
+    while (top < 30 && py - top - 1 >= 0 && mask[i - (top + 1) * w] === PLATFORM) top++;
+    let below = 0;
+    while (below < 30 && py + below + 1 < h && mask[i + (below + 1) * w] === PLATFORM) below++;
+    const bx = Math.floor(px / 14);
+    let k = (0.84 + 0.26 * hash(bx, 7)) * (0.92 + 0.16 * n);
+    if ((py + bx * 3) % 6 === 0) k *= 0.86;   // 木紋
+    if (px % 14 === 0) k *= 0.5;              // 板縫
+    if (top < 2) k = 1.32 + 0.1 * n;          // 頂面被踩亮
+    else if (top < 4) k *= 0.7;               // 頂面那根橫木的下緣
+    else if (below < 2) k *= 0.5;
+    if (px % 14 === 7 && (top === 6 || below === 3)) { d[o] = 150; d[o + 1] = 148; d[o + 2] = 156; d[o + 3] = 255; return; }   // 鐵釘
+    d[o] = 120 * k; d[o + 1] = 82 * k; d[o + 2] = 48 * k; d[o + 3] = 255;
   }
 
   // 樹皮：順著樹幹往右上斜的溝紋 + 細長的木紋，表面邊緣加深；被炸過的地方留下焦痕

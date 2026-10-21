@@ -31,9 +31,22 @@ export function archPath(ctx, h) {
   ctx.closePath();
 }
 
+// o.maxWidth：寬度放不下就把字一點一點縮小（最小 o.minSize，預設 10 px），還是放不下就從後面截掉、補「…」（例如右上的名單：很長的名字、Boss 的下一招）
 export function text(ctx, str, x, y, o = {}) {
   ctx.save();
-  ctx.font = `${o.bold ? 'bold ' : ''}${o.size || 14}px ${FONT}`;
+  const fontOf = (size) => `${o.bold ? 'bold ' : ''}${size}px ${FONT}`;
+  let size = o.size || 14;
+  ctx.font = fontOf(size);
+  if (o.maxWidth > 0 && ctx.measureText(str).width > o.maxWidth) {
+    const min = Math.min(size, o.minSize || 10);
+    while (size > min && ctx.measureText(str).width > o.maxWidth) ctx.font = fontOf(--size);
+    if (ctx.measureText(str).width > o.maxWidth) {
+      const chars = Array.from(str);   // 照字截（不會切開表情符號之類兩個字碼的字）
+      let n = chars.length;
+      while (n > 0 && ctx.measureText(chars.slice(0, n).join('') + '…').width > o.maxWidth) n--;
+      str = chars.slice(0, n).join('') + '…';
+    }
+  }
   ctx.textAlign = o.align || 'left';
   ctx.textBaseline = o.baseline || 'alphabetic';
   if (o.outline) {

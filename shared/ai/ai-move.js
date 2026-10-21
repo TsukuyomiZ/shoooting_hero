@@ -10,7 +10,7 @@ import { canFire } from './ai.js';
 //   開火前一定站在地上。斷線代打的玩家路上碰到的道具（火把、蛇血）照地圖機制的 moved 撿，跟自己走過去一樣（見 Match.simulateWalk）。
 //   每一幀走之前先看前面（canStep），不安全就停：前方那一行要有地面 / 平台、往下最多 maxDrop px、而且在水面上方
 //   （不會走進水裡、走下懸崖、走出樹枝 / 石柱）；同一層的同伴（蜂巢、蜜蜂不算）中心要隔 allyGap px 以上；不會走進別人身體裡。
-// - 飄移（fixed 的角色沒有物理：蝙蝠、獨眼巨人）：角色身上有 roam（活動範圍，見 roamAround / groundRoam）才會動。
+// - 飄移（fixed 的角色沒有物理：蝙蝠、獨眼巨人、天狗）：角色身上有 roam（活動範圍，見 roamAround / groundRoam）才會動。
 //   直線挪到附近一點，廣播 glide = { dx, dy, frames }（dx、dy 是整數 px），伺服器直接放到終點，客戶端照 glideAt 逐幀內插、最後一幀剛好到終點。
 //   路上每 2 px 檢查一次：身體（含 pad）不碰任何地形（含平台、鐘乳石）、不碰別的角色、在活動範圍裡；
 //   走在地上的（巨人，roam.ground）只左右走，腳下兩邊一直都要踩著實心地形（走不出自己那根岩柱）。終點離同伴也要 allyGap 以上。
@@ -21,6 +21,7 @@ import { canFire } from './ai.js';
 //   2. 同上但半路被擋下來、或回到附近（還是走得到 minDist）；3. 開得了火、走不到 minDist（窄的樹枝上走多少算多少）；
 //   4. 會擋住同伴的射線（自己開得了火）：還是走（同伴自己的回合會再挪開）；
 //   5. 每個停點自己都開不了火：原地開得了火就這回合不動，不然照樣走。
+//   斷線代打的玩家在流血時：試走會流血扣到倒下（或只剩 1 點）的停點不算，每個都這樣就不走；敵人照走（途中倒下由 Match.planAiTurn 收尾）。
 // 方向：走路與巨人多半沿著上一回合的方向（keepDir），那邊不夠好才回頭；走路兩邊都走不到 minDist（被同伴夾住）才放寬成只要不碰到同伴的身體。
 // 蝙蝠隨機挑幾個方向（glideTries），第一個第 1 級的就用，不然用最好的。
 // 這些記在角色身上（aiWalkDir、aiFrom），只有伺服器用，不同步
@@ -28,6 +29,7 @@ import { canFire } from './ai.js';
 export const LAND_FRAMES = 30;   // 走滿了還在半空中（剛走下小台階）：最多再多走幾幀到落地（客戶端照總幀數重播）
 export const FALL_FRAMES = 120;  // 走路停下來時還在半空中（前面不安全 / 體力用完 / 多走的幀數也用完）：放開方向鍵最多再落幾幀到站穩（walk.fall）
 const WALK_CUTS = [1, 0.75, 0.5, 0.25];   // 走路試幾種長度（想走的幀數 × 這些）：走到底會擋到射線時，走短一點
+const TAKEOVER_BLEED_HP = 1;   // 斷線代打的玩家走路流血扣到剩這麼多（含倒下）的停點不選（見 planWalk）
 
 // 角色 e 再往 dir 走一步安不安全（AI 走路每一幀都先問這個；客戶端不用：照伺服器算好的幀數重播）。
 // allyGap = 這一步走完離前面的同伴至少要多遠（預設 AI_MOVE.allyGap；被夾住時 planWalk 放寬成只要不碰到身體）
@@ -77,6 +79,9 @@ export function planWalk(match, actor) {
         const n = match.simulateWalk(g, dir, f, true, gap).frames;
         const d = Math.abs(g.x - actor.x);
         if (d < 1) break;
+        // 斷線代打的玩家（players 那一隊；敵人照舊）：分身走這一段流血扣到倒下（或只剩 TAKEOVER_BLEED_HP 點）就不選，試短一點的；
+        // 每一段都會這樣 → 這回合不走（站著開火）。不替斷線的人把自己走死
+        if (actor.team === 'players' && g.hp < actor.hp && g.hp <= TAKEOVER_BLEED_HP) continue;
         // n < f = 半路就被擋下來（走到邊上 / 同伴前面）
         pick = better(pick, { dir, f, gap, d, tier: tierOf(fire(g.x, g.y), d, goal, n < f) });
         if (pick.tier === 1) break;
@@ -144,6 +149,8 @@ export function planGlide(match, actor) {
   actor.x = x0 + pick.dx;
   actor.y = y0 + pick.dy;
   actor.movedThisTurn += pick.d;   // 跟走路一樣算移動的距離（回合結束甩掉燃燒層數，見 Match.burnTick；只有伺服器算）
+  // 流血：照飄的直線距離扣（客戶端的 glideScript 飄完也照 glideDist 扣一次，兩邊一樣；扣到倒下由 Match.planAiTurn 收尾）
+  actor.bleedFor(glideDist(pick));
   return { dx: pick.dx, dy: pick.dy, frames };
 }
 
@@ -152,6 +159,11 @@ export function glideAt(x0, y0, g, i) {
   const t = Math.min(1, i / g.frames);
   const s = t * t * (3 - 2 * t);
   return { x: x0 + g.dx * s, y: y0 + g.dy * s };
+}
+
+// 飄移的直線距離（流血照這個扣）：只用乘法與開根號，伺服器與客戶端算出來一模一樣（不用 Math.hypot）
+export function glideDist(g) {
+  return Math.sqrt(g.dx * g.dx + g.dy * g.dy);
 }
 
 // 蝙蝠這種飄在空中的：出生點 (x, y) 周圍 ±def.roam.x / ±def.roam.y 的框框（Match 建敵人時呼叫；種類沒寫 roam = 不飄）

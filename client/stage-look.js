@@ -1,3 +1,6 @@
+import { CONFIG } from '../shared/core/config.js';
+import { difficultyOf } from '../shared/game/stage-rules.js';
+
 // 關卡種類（shared/game/stage-rules.js 的 stageType：'normal' | 'elite' | 'boss'）在畫面上的名字與顏色：
 // 開場橫幅、左上的關卡標籤、選牌畫面、結算畫面都照這個。伺服器的訊息帶 type（舊的只帶 isBoss 也認得）
 export const STAGE_LOOK = {
@@ -14,3 +17,6 @@ export function stageTypeOf(info) {
 }
 
 export const stageLook = (info) => STAGE_LOOK[stageTypeOf(info)];
+
+// 難度（config.DIFFICULTY）在畫面上的名字：大廳、房間、列表、結算畫面都照這個；不認得的當一般
+export const difficultyName = (id) => CONFIG.DIFFICULTY[difficultyOf(id)].name;

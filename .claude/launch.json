@@ -29,6 +29,12 @@
       "port": 8126
     },
     {
+      "name": "prison-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/prison/server.js"],
+      "port": 8191
+    },
+    {
       "name": "shooting-hero-auto",
       "runtimeExecutable": "node",
       "runtimeArgs": ["server/server.js"],

@@ -86,6 +86,11 @@ const SOUNDS = {
     noise(ctx, out, t, { filter: 'highpass', f0: 3500, f1: 1800, dur: 0.08, vol: 0.28 });
     tone(ctx, out, t, { type: 'triangle', f0: 1400, f1: 700, dur: 0.07, vol: 0.08 });
   },
+  // 西洋刺劍：往前一刺的「唰」（短促的破風聲）加一點金屬的「錚」
+  stab(ctx, out, t) {
+    noise(ctx, out, t, { filter: 'bandpass', f0: 2600, f1: 5200, q: 1.2, dur: 0.09, vol: 0.32, attack: 0.006 });
+    tone(ctx, out, t + 0.02, { type: 'triangle', f0: 2400, f1: 2100, dur: 0.14, vol: 0.05 });
+  },
   // 飛鏢插進地面：短促的「咚」
   thunk(ctx, out, t) {
     tone(ctx, out, t, { type: 'triangle', f0: 320, f1: 140, dur: 0.07, vol: 0.3 });
@@ -164,7 +169,13 @@ const SOUNDS = {
     tone(ctx, out, t, { type: 'square', f0: 900, f1: 300, dur: 0.05, vol: 0.08 });
     noise(ctx, out, t + 0.06, { filter: 'bandpass', f0: 1200, f1: 500, q: 0.8, dur: 0.35, vol: 0.18 });
   },
-  // 獨眼巨人猛捶：很低的「咚」＋岩石震動的悶響，拖得比較長
+  // 獨眼巨人的震盪獅吼：低沉沙啞的「吼——」（幾個走音的鋸齒波往下掉）＋一大片轟隆的風聲，拖一秒多
+  roar(ctx, out, t) {
+    for (const [f, v] of [[96, 0.12], [101, 0.1], [148, 0.05]]) tone(ctx, out, t, { type: 'sawtooth', f0: f, f1: f * 0.62, dur: 1.1, vol: v, attack: 0.08 });
+    noise(ctx, out, t, { filter: 'lowpass', f0: 1400, f1: 200, dur: 1.2, vol: 0.55, attack: 0.06 });
+    noise(ctx, out, t + 0.05, { filter: 'bandpass', f0: 600, f1: 260, q: 0.9, dur: 0.9, vol: 0.3, attack: 0.05 });
+  },
+  // 獨眼巨人砸下東西（超巨石落地、倒下）：很低的「咚」＋岩石震動的悶響，拖得比較長
   stomp(ctx, out, t) {
     tone(ctx, out, t, { type: 'sine', f0: 70, f1: 28, dur: 0.8, vol: 0.95 });
     noise(ctx, out, t, { filter: 'lowpass', f0: 900, f1: 90, dur: 0.9, vol: 0.7 });
@@ -179,6 +190,28 @@ const SOUNDS = {
   ignite(ctx, out, t) {
     noise(ctx, out, t, { filter: 'lowpass', f0: 600, f1: 2400, dur: 0.35, vol: 0.4, attack: 0.04 });
     tone(ctx, out, t, { type: 'sine', f0: 90, f1: 140, dur: 0.3, vol: 0.12, attack: 0.04 });
+  },
+  // 流浪劍士拔刀（一閃、劍氣發動）：刀出鞘的「鏘——」（高頻的金屬聲拖一下）＋ 一刀劃過去的破風聲
+  iai(ctx, out, t) {
+    noise(ctx, out, t, { filter: 'highpass', f0: 2600, f1: 6000, dur: 0.12, vol: 0.35, attack: 0.004 });
+    for (const [f, v] of [[2960, 0.07], [4410, 0.04]]) tone(ctx, out, t + 0.03, { type: 'sine', f0: f, f1: f * 0.98, dur: 0.6, vol: v });
+    noise(ctx, out, t + 0.06, { filter: 'bandpass', f0: 1800, f1: 600, q: 0.9, dur: 0.22, vol: 0.25 });
+  },
+  // 流浪劍士格擋：刀身擋住一下的「噹」（兩個不和諧的金屬音）
+  clang(ctx, out, t) {
+    for (const [f, v] of [[1240, 0.12], [1873, 0.08], [2650, 0.04]]) tone(ctx, out, t, { type: 'triangle', f0: f, f1: f * 0.97, dur: 0.35, vol: v });
+    noise(ctx, out, t, { filter: 'bandpass', f0: 3500, q: 1.5, dur: 0.05, vol: 0.25 });
+  },
+  // 天狗搧風（風彈、羽刃飛過去、風彈炸開）：一陣「呼——」的風聲（帶通的雜訊往上掃再落下）
+  gust(ctx, out, t) {
+    noise(ctx, out, t, { filter: 'bandpass', f0: 300, f1: 1400, q: 0.7, dur: 0.45, vol: 0.45, attack: 0.06 });
+    noise(ctx, out, t + 0.2, { filter: 'bandpass', f0: 1400, f1: 500, q: 0.8, dur: 0.4, vol: 0.25 });
+    tone(ctx, out, t, { type: 'sine', f0: 180, f1: 120, dur: 0.4, vol: 0.05, attack: 0.05 });
+  },
+  // 天狗的羽毛射出去：很輕很短的「咻」
+  feather(ctx, out, t) {
+    noise(ctx, out, t, { filter: 'highpass', f0: 2500, f1: 5000, dur: 0.12, vol: 0.22, attack: 0.01 });
+    tone(ctx, out, t, { type: 'sine', f0: 1800, f1: 900, dur: 0.1, vol: 0.03 });
   },
   // 輪到你了（單人、多人都響，見 GameView.cueTurn）：木琴似的三個音往上「叮、叮、叮——」，最後一個音拉長；不分左右聲道
   yourTurn(ctx, out, t) {

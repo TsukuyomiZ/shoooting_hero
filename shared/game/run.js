@@ -6,7 +6,7 @@ import { Referee } from './referee.js';
 import { baseStats, drawOffers, applyCard, derivePlayerStats, needsDiscard, equipWeapon } from '../cards/cards.js';
 import * as Effects from '../cards/effects/index.js';
 import { logValue } from '../core/utils.js';
-import { isBossStage, isEliteStage, stageType } from './stage-rules.js';
+import { isBossStage, isEliteStage, stageType, difficultyOf, difficultyConfig } from './stage-rules.js';
 import { weightedPick } from '../maps/mechanics/common.js';
 
 // 一場冒險（肉鴿流程）：
@@ -21,10 +21,12 @@ import { weightedPick } from '../maps/mechanics/common.js';
 // 攜手之伴的連結記在玩家的 links（雙向，見 linksOf）
 // io 同 Referee：{ broadcast(msg, exceptId), schedule(fn, ms), cancel(h), now() }，可以多給 ended(result)：整場冒險打完時呼叫（送出 runOver 之後）
 // config = 關卡規則讀的設定（總關數、哪幾關是王關，再一路傳給每一關的 Match；測試換自己的數字用，其他設定還是全域 CONFIG）
+// difficulty = 難度（config.DIFFICULTY 的 key，例如 'elite' = 菁英之路；不認得的當 'normal'）：this.config 換成那個難度的一份設定（見 difficultyConfig）
 export class Run {
-  constructor({ players, seed, io, cards, config = CONFIG }) {
+  constructor({ players, seed, io, cards, config = CONFIG, difficulty = 'normal' }) {
     this.io = io;
-    this.config = config;
+    this.difficulty = difficultyOf(difficulty, config);
+    this.config = difficultyConfig(this.difficulty, config);
     this.cards = cards;
     this.seed = seed >>> 0;
     this.rng = new Rng(this.seed);
@@ -136,7 +138,7 @@ export class Run {
 
   stageInfo() {
     return {
-      stage: this.stage, stageCount: this.stageCount, isBoss: this.isBoss, type: this.stageType,
+      stage: this.stage, stageCount: this.stageCount, isBoss: this.isBoss, type: this.stageType, difficulty: this.difficulty,
       levelId: this.match ? this.match.levelId : null,
       levelName: this.match ? LEVELS[this.match.levelId].name : null,
       cards: Object.fromEntries([...this.players.values()].map(p => [p.id, p.cards.map(c => c.id)])),
@@ -342,11 +344,12 @@ export class Run {
     this.result = result;
     // 整場冒險結束（win = Boss 打倒、lose = 全滅）：打到第幾關、每個人最後的牌與結算統計
     this.record('run.over', {
-      result, stage: this.stage, stageCount: this.stageCount,
+      result, stage: this.stage, stageCount: this.stageCount, difficulty: this.difficulty,
       players: [...this.players.values()].map(p => ({ pid: p.id, name: p.name, hp: p.hp, cards: p.cards.map(c => c.id), weapons: p.weapons.slice(), ...p.totals })),
     });
     this.io.broadcast({
-      t: 'runOver', result, stage: this.stage, stageCount: this.stageCount, type: this.stageType, cards: this.stageInfo().cards, summary: this.summary(),
+      t: 'runOver', result, stage: this.stage, stageCount: this.stageCount, type: this.stageType, difficulty: this.difficulty,
+      cards: this.stageInfo().cards, summary: this.summary(),
     });
     if (typeof this.io.ended === 'function') this.io.ended(result);   // 伺服器的房間：列表不再列、走掉的人移出
   }

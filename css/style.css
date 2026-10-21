@@ -93,6 +93,17 @@ button.big { width: 100%; padding: 13px; font-size: 17px; margin-top: 8px; }
 .privacy-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
 .privacy-tag { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: #1f6f43; color: #dcfce7; }
 .privacy-tag.private { background: #7c4a03; color: #fde68a; }
+/* 難度（單人練習、建立房間都照這裡選的）：兩顆並排的切換鈕 + 底下一行說明；房間裡、列表上的難度標籤 */
+.row.difficulty-row { margin: 12px 0 4px; }
+.difficulty-heading { font-size: 14px; color: #cbd5e1; white-space: nowrap; }
+.difficulty-pick { flex: 1; display: flex; gap: 6px; }
+.difficulty-pick button { flex: 1; padding: 8px 10px; font-size: 15px; background: #15131c; border: 1px solid #3a3550; color: #cbd5e1; }
+.difficulty-pick button[aria-checked="true"] { background: #2a2140; border-color: #a855f7; color: #fff; font-weight: bold; }
+.difficulty-pick button[data-id="elite"][aria-checked="true"] { background: #3b1d5e; border-color: #c084fc; color: #f3e8ff; }
+.difficulty-desc { margin: 0 0 4px; font-size: 12px; color: #8a84a3; min-height: 16px; }
+.difficulty-tag { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: #3a3550; color: #e5e7eb; }
+.difficulty-tag.elite { background: #6b21a8; color: #f3e8ff; }
+.room-row .rdiff { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: #6b21a8; color: #f3e8ff; white-space: nowrap; }
 /* 大廳的公開房間列表（點一列就加入） */
 .room-browser { margin-top: 14px; padding-top: 10px; border-top: 1px solid #3a3550; }
 .room-browser-bar { display: flex; align-items: baseline; gap: 8px; }

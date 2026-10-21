@@ -174,6 +174,7 @@ await test('一關的每一步都有紀錄：開始、回合、移動、換武�
   const bs = io.last('battle.start');
   assert(bs && bs.stage === 1 && bs.round === 0 && bs.level === run.match.levelId && bs.entities.length === run.match.entities.length, 'battle.start');
   assert(bs.entities.some(e => e.team === 'enemies') && bs.entities.find(e => e.id === 'p1').name === '甲', 'battle.start lists everyone');
+  assert(!('next' in bs) && !('nextTarget' in bs) && !('nextLedge' in bs) && !('nextSeal' in bs), 'a normal stage has no opening plan to log: ' + JSON.stringify(bs));
 
   io.advance(2000);
   const t1 = io.last('turn.start');

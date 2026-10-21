@@ -5,6 +5,7 @@ export const BACKGROUNDS = {
   forest: buildForestBackground,
   jungle: buildJungleBackground,
   cave: buildCaveBackground,
+  prison: buildPrisonBackground,
 };
 
 const canvasOf = (W, H) => {
@@ -129,6 +130,54 @@ function buildCaveBackground(W, H) {
   mist.addColorStop(1, 'rgba(160,170,190,0.12)');
   ctx.fillStyle = mist;
   ctx.fillRect(0, 540, W, 120);
+  return c;
+}
+
+// 監獄：一整面磚牆（每塊磚明暗不同、偶爾裂開）、從天花板往下流的水痕、牆腳的青苔，越往上越暗。
+// 柱子、拱頂、高窗、牢房這些照關卡擺的東西是裝飾（level.decor，見 decor.js）
+function buildPrisonBackground(W, H) {
+  const c = canvasOf(W, H);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#0d0e13';   // 磚縫
+  ctx.fillRect(0, 0, W, H);
+  const rowH = 22, brickW = 46;
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let row = 0, y = 0; y < H; row++, y += rowH) {
+    const off = row % 2 ? brickW / 2 : 0;
+    for (let x = -off; x < W; x += brickW) {
+      const n = rnd();
+      const v = 40 + n * 14;
+      ctx.fillStyle = `rgb(${v},${v + 1},${v + 10})`;
+      ctx.fillRect(x + 1.5, y + 1.5, brickW - 3, rowH - 3);
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';   // 上緣的亮面、下緣的陰影
+      ctx.fillRect(x + 1.5, y + 1.5, brickW - 3, 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillRect(x + 1.5, y + rowH - 3.5, brickW - 3, 2);
+      if (n > 0.88) {   // 裂縫
+        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x + 10, y + 3); ctx.lineTo(x + 16, y + 10); ctx.lineTo(x + 13, y + 18); ctx.stroke();
+      }
+    }
+  }
+  for (let i = 0; i < 16; i++) {   // 水痕
+    const x = (i * 173 + 40) % W, len = 120 + (i * 97) % 260, w = 8 + (i * 7) % 18;
+    const g = ctx.createLinearGradient(0, 30, 0, 30 + len);
+    g.addColorStop(0, 'rgba(6,12,10,0.5)');
+    g.addColorStop(1, 'rgba(6,12,10,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x, 30, w, len);
+  }
+  for (let i = 0; i < 44; i++) {   // 牆腳的青苔
+    ctx.fillStyle = `rgba(52,84,50,${0.18 + (i % 4) * 0.05})`;
+    ctx.beginPath(); ctx.ellipse((i * 131) % W, 578 - (i * 17) % 34, 12 + (i % 5) * 5, 4 + (i % 3) * 3, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  const dark = ctx.createLinearGradient(0, 0, 0, H * 0.7);   // 越往上越暗
+  dark.addColorStop(0, 'rgba(0,0,0,0.6)');
+  dark.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = dark;
+  ctx.fillRect(0, 0, W, H);
   return c;
 }
 

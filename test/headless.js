@@ -541,6 +541,7 @@ function runTenStages(config) {
     treeGarden: ['eye', () => CONFIG.TREE_BOSS.eyeHp],
     jungleSerpent: ['snake', () => CONFIG.SNAKE_BOSS.hp],
     scorpionDen: ['scorpionShell', () => CONFIG.SCORPION.hp.shell],
+    prisonYard: ['executioner', () => CONFIG.EXECUTIONER.hp],
   };
   for (const k of [4, 9]) {
     const bossStart = starts[k];
@@ -946,14 +947,15 @@ test('哈哈子彈：狙擊槍打到地形彈射一次（預覽線跟實際一�
   return { bounceAt: { x: Math.round(bounce.x), y: Math.round(bounce.y) }, pierced };
 });
 
-test('等離子飛彈：同一條彈道連射三發；迴力鏢：飛到最長路徑（或先撞到地形）才沿原路飛回手上，去程、回程都穿過路上的敵人各打一次，隊友打不到、不挖地', () => {
+test('等離子飛彈：同一條彈道連射兩發（2026-10-14 從三發改成兩發）；迴力鏢：飛到最長路徑（或先撞到地形）才沿原路飛回手上，去程、回程都穿過路上的敵人各打一次，隊友打不到、不挖地', () => {
   const m = matchWith({}, { weapons: ['plasma'] });
   const shot = m.resolveShot(m.players[0], 'plasma', 45, 40);
   const P = CONFIG.WEAPONS.plasma;
-  assert(shot.projectiles.length === P.volley && shot.projectiles.map(p => p.spawn).join() === '1,11,21', 'three missiles, 10 frames apart');
+  const spawns = Array.from({ length: P.volley }, (_, k) => 1 + k * P.volleyGap).join();   // 發數、間隔照 config（使用者會調；2026-10-14 是 2 發、隔 10 幀 = '1,11'）
+  assert(P.volley >= 1 && shot.projectiles.length === P.volley && shot.projectiles.map(p => p.spawn).join() === spawns, `${P.volley} missiles, ${P.volleyGap} frames apart`);
   assert(shot.projectiles.every(p => p.x === shot.projectiles[0].x && p.vx === shot.projectiles[0].vx && p.vy === shot.projectiles[0].vy), 'same trajectory');
   const ends = shot.events.filter(e => ['explode', 'water', 'out'].includes(e.type));
-  assert(ends.length === 3 && ends.every(e => e.type !== 'explode' || e.carve.r === P.radius), 'each missile ends, radius 30: ' + shot.events.map(e => e.type));
+  assert(ends.length === P.volley && ends.every(e => e.type !== 'explode' || e.carve.r === P.radius), 'each missile ends, radius ' + P.radius + ': ' + shot.events.map(e => e.type));
 
   const B = CONFIG.WEAPONS.boomerang;
   const evs = (s) => s.events.map(e => e.type + (e.target ? ':' + e.target : '') + (e.on ? '(' + e.on + ')' : '') + '@' + e.f).join(' ');

@@ -252,7 +252,7 @@ function* replay(match, shot, weapon, live, drift, end, look) {
   if (actor && shot.actor && typeof shot.actor === 'object') place(actor, shot);
   const F = shot.flightFrames, S = shot.settleFrames;
   const projs = shot.projectiles.map((s, i) => ({
-    i, weapon, x: s.x, y: s.y, x0: s.x, y0: s.y, vx: s.vx, vy: s.vy, gravity: weapon.gravity, age: 0,
+    i, weapon, x: s.x, y: s.y, x0: s.x, y0: s.y, vx: s.vx, vy: s.vy, gravity: weapon.gravity, wind: s.wind || 0, age: 0,
     spawn: s.spawn, follow: !!s.follow, state: 'pending', path: null, retIdx: 0, trail: [], spin: 0,
   }));
   // 事件照 f → p 分桶（保留陣列順序）；unreached = 還沒輪到的（飛行結束還在的就是對不上）

@@ -10,7 +10,7 @@ export const guardian = {
     return buildGuardian(match, hpScale);
   },
 
-  // 先抽第一招（舉盾：一開場就舉著；躍擊：第一個玩家回合就標出落地的範圍）
+  // 先抽第一招（舉盾：一開場就舉著；躍擊：第一個玩家回合就標出落地的範圍；衝鋒：標出要衝向誰）
   ready(match) {
     planGuardianNext(match);
   },
@@ -25,7 +25,7 @@ export const guardian = {
     return actor.part === 'guardian' ? resolveGuardianTurn(match, actor) : null;
   },
 
-  // 預定的下一招（舉盾帶面向哪邊、躍擊帶落地點）
+  // 預定的下一招（舉盾帶面向哪邊、躍擊帶落地點與鎖定的人、衝鋒帶標記的人 targetId）
   snapshot(match) {
     const S = match.mechState;
     return { guardianNext: S.next ? { ...S.next } : null };

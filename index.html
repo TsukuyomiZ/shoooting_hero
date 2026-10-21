@@ -18,6 +18,11 @@
         <p class="sub">彈彈堂風格 PVE 共鬥，最多 4 人</p>
         <label class="row">暱稱 <input id="name" maxlength="12" placeholder="你的名字"></label>
         <div id="menu">
+          <div class="row difficulty-row">
+            <span class="difficulty-heading">難度</span>
+            <div id="difficulty" class="difficulty-pick" role="radiogroup" aria-label="難度"></div>
+          </div>
+          <p id="difficulty-desc" class="difficulty-desc"></p>
           <button id="btn-solo" class="big">單人練習</button>
           <div class="row create">
             <button id="btn-create" class="primary">建立房間</button>
@@ -38,6 +43,7 @@
         <div id="room" hidden>
           <div class="code-line">房號 <b id="room-code"></b><span id="room-hint" class="hint"></span></div>
           <div class="privacy-line">
+            <span id="difficulty-label" class="difficulty-tag"></span>
             <span id="privacy-label" class="privacy-tag"></span>
             <label id="privacy-toggle" class="private-check" hidden><input type="checkbox" id="room-private"> 設為私人房間</label>
           </div>

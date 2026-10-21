@@ -2,10 +2,10 @@ import { CONFIG } from '../../core/config.js';
 import { cave } from './cave.js';
 import { groundRoam } from '../../ai/ai-move.js';
 import { struckCave, passCave, caveSnapshot, restoreCave } from '../cave.js';
-import { buildCyclops, planCyclopsNext, resolveCyclopsTurn, shakeStalactites, isShock } from '../cyclops.js';
+import { buildCyclops, planCyclopsNext, resolveCyclopsTurn, restoreSealed, shakeStalactites, isShock } from '../cyclops.js';
 
 // 地心探險（菁英關）的地圖機制：洞穴（鐘乳石、火把，沿用 mechanics/cave.js 的掛勾）+ 獨眼巨人（規則在 cyclops.js）。
-// 狀態在 match.mechState（buildCyclops 建的：洞穴的狀態 + 預定的下一招 next）
+// 狀態在 match.mechState（buildCyclops 建的：洞穴的狀態 + 預定的下一招 next、出過幾回合 turns、被超巨石封住的平台 sealed）
 export const cyclops = {
   ...cave,
   type: 'cyclops',
@@ -19,7 +19,7 @@ export const cyclops = {
     return state;
   },
 
-  // 先抽第一招（抽到猛捶，第一個玩家回合就標出會掉的鐘乳石與衝擊範圍）
+  // 先排第一招（排到猛捶，第一個玩家回合就標出會掉的鐘乳石與衝擊範圍）
   ready(match) {
     planCyclopsNext(match);
   },
@@ -39,14 +39,16 @@ export const cyclops = {
     return actor.part === 'cyclops' ? resolveCyclopsTurn(match, actor) : null;
   },
 
-  // 洞穴的欄位（火把、掉下來的鐘乳石）+ 預定的下一招
+  // 洞穴的欄位（火把、掉下來的鐘乳石）+ 預定的下一招、被超巨石封住的平台
   snapshot(match) {
     const S = match.mechState;
-    return { ...caveSnapshot(match), cyclopsNext: S.next ? { ...S.next } : null };
+    return { ...caveSnapshot(match), cyclopsNext: S.next ? { ...S.next } : null, cyclopsSealed: S.sealed.slice() };
   },
 
+  // 洞穴的先套（壓碎的鐘乳石照 fallen 拿掉），再照快照放回超巨石；只帶一部分欄位時沒帶的不動
   restore(match, s) {
     restoreCave(match, s);
     if (s.cyclopsNext !== undefined) match.mechState.next = s.cyclopsNext ? { ...s.cyclopsNext } : null;
+    if (Array.isArray(s.cyclopsSealed)) restoreSealed(match, s.cyclopsSealed);
   },
 };

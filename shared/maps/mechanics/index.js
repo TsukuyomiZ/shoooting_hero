@@ -6,14 +6,17 @@ import { cave } from './cave.js';
 import { cyclops } from './cyclops.js';
 import { guardian } from './guardian.js';
 import { scorpion } from './scorpion.js';
+import { prison } from './prison.js';
+import { swordsman } from './swordsman.js';
+import { tengu } from './tengu.js';
 
 // 地圖機制（見 GLOSSARY.md）：某一張地圖特有的規則（Boss 的招式與受擊反應、只在這張圖發生的回合效果與場上道具）。
 // 關卡用 mechanic: { type, ...這個機制的資料 } 宣告（見 level.js），沒寫就是一般小關（plain）。
-// Match 只在下面這些時間點呼叫掛勾，不知道有哪些地圖；規則本身在 tree-boss.js / snake-boss.js / hive.js / cave.js / cyclops.js / guardian.js / scorpion.js，
+// Match 只在下面這些時間點呼叫掛勾，不知道有哪些地圖；規則本身在 tree-boss.js / snake-boss.js / hive.js / cave.js / cyclops.js / guardian.js / scorpion.js / prison.js / swordsman.js / tengu.js，
 // mechanics/ 底下每個檔案只決定「什麼時候、照什麼順序」呼叫它們（common.js 例外：規則模組共用的出招小工具）。
 // 機制本身沒有狀態（同一個物件給所有對戰共用）。每一場的狀態（Boss 預定的下一招、召喚 / 放出來的角色、流水號、場上的道具…）
 // 是一個物件 match.mechState：由機制的 build 建好回傳、Match 存著不碰，之後的掛勾與規則模組都讀寫它（客戶端的地圖畫面直接讀寫）。
-// 一般小關沒有狀態 = null。哪張地圖有哪些欄位，見各規則模組的 buildTree / buildSnake / buildHive / buildCave / buildCyclops / buildGuardian / buildScorpion
+// 一般小關沒有狀態 = null。哪張地圖有哪些欄位，見各規則模組的 buildTree / buildSnake / buildHive / buildCave / buildCyclops / buildGuardian / buildScorpion / buildSwordsman
 //
 // 每個掛勾都可以不寫（不寫 = 下面的預設：什麼都不做）：
 //   build(match, { hpScale, bossScale }) → state  建構：關卡的敵人之後，加上這個機制的角色（開場落地之前）；
@@ -22,6 +25,14 @@ import { scorpion } from './scorpion.js';
 //   ready(match)                          建構：開場落地之後（決定 Boss 的第一招；會抽亂數，順序不能動）
 //   cascade(match)                        勝負判定前、一波結算完算擊殺前：這個機制連帶造成的死亡（古樹之眼倒下 → 整棵樹枯萎）。要能重複呼叫
 //   moved(match, e, x0, y0, x, y) → fx|null   位置回報（落水檢查之前）：路上撿到的道具，由 applyPositionReport 回傳給裁判廣播
+//   hazardStart(match, e, now) → info | null   玩家 e 的回合開始（回合開始的效果之後、開始計時之前，裁判呼叫；now = 裁判的時鐘 ms）：
+//                                         這個回合裡有東西即時移動、碰到人就打（例如流浪劍士的劍氣慢慢飛過整排）就回傳給客戶端畫的資料
+//                                         （跟著 turn 訊息的 hazard 送出，紀錄記在 turn.start），沒有 = null
+//   hazardStep(match, now, flush) → step | null  回合中（含開火結算、AI 代打播放的時間）每隔一小段時間：推進到 now、打碰到的人（自己呼叫 applyExplosion）。
+//                                         flush = 回合要收尾了：還沒到時間的現在就結算（目前的地圖都沒有，劍氣剩下那段交給 hazardFinish）。
+//                                         回傳 { damages（這一次打到的）, done（這回合沒有還在動 / 等著的了）, notify（有要告訴客戶端的事）, ...給畫面的欄位 }；沒有 = null
+//   hazardFinish(match) → (() → shot) | null   回合收尾（hazardStep flush 之後、回合結束的效果之前）：還在動的（例如劍氣）回傳一口氣結算剩下那一段的函式
+//                                         （回傳跟開火同樣格式的結果）
 //   turnStart(match, e, fx)               自己的回合開始：中毒結算之後、回血之前，要飄字的推進 fx
 //   turnEnd(match, e, fx)                 每個角色的回合結束：燃燒之後、神佑之石之前
 //   roundStart(match, fx)                 新的一輪開始（Match.beginRound：輪數加過之後、這一輪第一位的回合之前）：
@@ -31,6 +42,8 @@ import { scorpion } from './scorpion.js';
 //                                         例如洞穴裡站在陰影中的敵人 ×1.3。預設 1
 //   defenseMult(match, e) → number        角色 e 受到的傷害倍率（Match.applyExplosion 算每個人要扣多少時，接在減傷後面乘）：
 //                                         例如大樹守衛舉盾時 ×0.7。預設 1
+//   hurt(match, e, dmg, attacker)         角色 e 這一下真的被扣了 dmg 點血（Match.applyExplosion 大家都扣完血之後，跟效果的 onHurt 同一個時間點；
+//                                         分給連結對象的份不算）：例如流浪劍士擺著格擋架勢時數被打中幾次。燃燒、流血、中毒不經過這裡
 //   struck(match, owner, at) → object|null   一顆飛行物撞到東西、結算完傷害之後（落水 / 飛出場外不算；半路才出現的飛行物也不算）：
 //                                         at = { type: 'terrain' | 'entity', x, y, blast（爆炸半徑，沒爆炸 = 0）, weapon（武器 id）}。
 //                                         回傳要附在事件上的欄位（例如洞穴的 falls / lights，與要接著飛的 adds，見 shared/physics/volley.js），沒有 = null
@@ -40,7 +53,8 @@ import { scorpion } from './scorpion.js';
 //   absorbHit(match, e, hit) → boolean    爆炸 / 命中結算的第一步（無敵之前），hit = { attacker, friendly, damages, later }：
 //                                         回傳 true = 這個角色由機制處理（自己把傷害那一筆推進 damages），不進一般的傷害、燃燒、擊退。
 //                                         later = 所有人扣完血之後才照順序執行的函式
-//   eventExtras(match) → object           一個 Volley 事件有傷害時（ents 之後）：要附在事件上的欄位（例如 drops、bees）
+//   eventExtras(match, { weapon, damages }) → object   一個 Volley 事件有傷害時（ents 之後）：要附在事件上的欄位（例如 drops、bees、stuns）；
+//                                         weapon = 這一下的武器 id（半路掉下來的鐘乳石 / 吊燈是它自己的），damages = 這一下的傷害清單
 //   replayEvent(match, ev) → { items, bees }  客戶端重播套用一個事件時：照 eventExtras 帶來的欄位建出道具 / 角色（ShotMade 用）
 //   aiTurn(match, actor) → boss|null      AI 回合：這個角色由機制出招就回傳 { steps, next }，null = 照一般 AI
 //   snapshot(match) → object              同步快照裡這個機制的欄位（預設值與順序見 snapshotOf）
@@ -53,11 +67,15 @@ const HOOKS = {
   ready: NOOP,
   cascade: NOOP,
   moved: () => null,
+  hazardStart: () => null,
+  hazardStep: () => null,
+  hazardFinish: () => null,
   turnStart: NOOP,
   turnEnd: NOOP,
   roundStart: NOOP,
   attackMult: () => 1,
   defenseMult: () => 1,
+  hurt: NOOP,
   struck: () => null,
   passed: () => null,
   absorbHit: () => false,
@@ -84,7 +102,7 @@ function wrap(adapter) {
 }
 
 const PLAIN = wrap(plain);
-const TYPES = { tree: wrap(tree), snake: wrap(snake), hive: wrap(hive), cave: wrap(cave), cyclops: wrap(cyclops), guardian: wrap(guardian), scorpion: wrap(scorpion) };
+const TYPES = { tree: wrap(tree), snake: wrap(snake), hive: wrap(hive), cave: wrap(cave), cyclops: wrap(cyclops), guardian: wrap(guardian), scorpion: wrap(scorpion), prison: wrap(prison), swordsman: wrap(swordsman), tengu: wrap(tengu) };
 // 舊格式：機制的資料直接掛在關卡上（tree: {...} / snake: {...} / hive: {...}）
 const LEGACY_KEYS = ['tree', 'snake', 'hive'];
 
@@ -102,9 +120,11 @@ export function mechanicFor(level, levelId = '?') {
 
 // Match.snapshot 裡跟地圖機制有關的欄位：沒有這個機制的地圖也照樣帶（預設值），欄位順序固定
 // （minions、treeNext、snakeNext、items、bees；客戶端與重連都照這個格式）。場上的道具（items，目前只有巨蟒的蛇血）每張地圖都帶，沒有就是空的。
-// 洞穴另外接在後面帶 torches、fallen（只有洞穴有，見 mechanics/cave.js）；地心探險再多 cyclopsNext（見 mechanics/cyclops.js）；
+// 洞穴另外接在後面帶 torches、fallen（只有洞穴有，見 mechanics/cave.js）；地心探險再多 cyclopsNext、cyclopsSealed（被超巨石封住的平台，見 mechanics/cyclops.js）；
 // 大樹守衛帶 guardianNext（見 mechanics/guardian.js）；
-// 巨蠍巢穴再多 scorpionHole、scorpionFacing（見 mechanics/scorpion.js）
+// 巨蠍巢穴再多 scorpionHole、scorpionFacing（見 mechanics/scorpion.js）；處刑監獄帶 prison（見 mechanics/prison.js）；
+// 流浪劍士帶 swordsmanNext（一閃帶預警線）、swordsmanQi、swordsmanParry、swordsmanFlying（見 mechanics/swordsman.js）；
+// 天狗帶 tenguNext、tenguHover（浮著幾根羽毛）、tenguFlying（還在飛的羽毛，見 mechanics/tengu.js）
 export function snapshotOf(match) {
   return {
     minions: [],

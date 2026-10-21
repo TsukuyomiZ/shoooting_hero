@@ -344,8 +344,8 @@ await test('陰影（地心探險）：獨眼巨人站在陰影裡，招式傷�
   const m = make('depths', 1);
   const cy = m.byId('cyclops');
   const W = CONFIG.WEAPONS;
-  assert(inShadow(m, cy.cx, cy.cy) && near(m.damageMult(cy, W.cyclopsBoulder), 0.7 * 1.3) && near(m.damageMult(cy, W.cyclopsShock), 0.7 * 1.3), 'dark: ×1.3');
-  assert(near(m.damageMult(cy, W.stalactite), 0.7), 'the rocks he shakes down: no bonus');
+  assert(inShadow(m, cy.cx, cy.cy) && near(m.damageMult(cy, W.cyclopsBoulder), 0.7 * 1.3), 'dark: ×1.3');
+  assert(near(m.damageMult(cy, W.stalactite), 0.7), 'falling rocks (a hazard, not his move): no bonus');
   lightTorch(m, 2);
   assert(!inShadow(m, cy.cx, cy.cy) && near(m.damageMult(cy, W.cyclopsBoulder), 0.7), 'lit torch next to him');
   const plain = make('level1', 1);

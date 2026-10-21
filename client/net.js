@@ -99,8 +99,8 @@ export class LocalTransport {
     this.log.flushFinal();
   }
 
-  // 單人也是一場完整冒險：讀牌庫 → 在瀏覽器裡跑 Run
-  async start(name) {
+  // 單人也是一場完整冒險：讀牌庫 → 在瀏覽器裡跑 Run。difficulty = 大廳選的難度（config.DIFFICULTY 的 key）
+  async start(name, difficulty = 'normal') {
     let cards = [];
     try {
       const res = await fetch('shared/cards/cards.json', { cache: 'no-cache' });
@@ -120,8 +120,8 @@ export class LocalTransport {
       now: () => Date.now(),
       record: (ev, data) => this.record(ev, data),   // 紀錄（玩家看不到，送回伺服器寫檔）
     };
-    this.log.record('solo.start', { version: versionLabel(VERSION), name, seed, cards: cards.length });
-    this.run = new Run({ players, seed, io, cards });
+    this.run = new Run({ players, seed, io, cards, difficulty });
+    this.log.record('solo.start', { version: versionLabel(VERSION), name, seed, cards: cards.length, difficulty: this.run.difficulty });
     this.emit({ t: 'welcome', id: 'me', token: null });
     this.run.start();
   }

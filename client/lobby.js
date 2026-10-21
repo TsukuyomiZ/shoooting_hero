@@ -1,4 +1,10 @@
-// 大廳畫面（DOM）：暱稱、建房（公開 / 私人）/ 公開房間列表 / 輸入房號加入 / 單人、房間內的準備與開始
+import { CONFIG } from '../shared/core/config.js';
+import { difficultyOf, difficultyDesc } from '../shared/game/stage-rules.js';
+import { difficultyName } from './stage-look.js';
+
+const DIFFICULTY_KEY = 'sh_difficulty';   // 上次選的難度（只是方便，讀不到就用一般）
+
+// 大廳畫面（DOM）：暱稱、難度、建房（公開 / 私人）/ 公開房間列表 / 輸入房號加入 / 單人、房間內的準備與開始
 export class Lobby {
   constructor(root, handlers) {
     this.root = root;
@@ -17,8 +23,26 @@ export class Lobby {
     this.codeInput.addEventListener('input', () => { this.codeInput.value = this.codeInput.value.toUpperCase(); });
     this.codeInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') this.$('#btn-join').click(); });
 
-    this.$('#btn-solo').addEventListener('click', () => this.guard(() => this.h.onSolo(this.name())));
-    this.$('#btn-create').addEventListener('click', () => this.guard(() => this.h.onCreate(this.name(), this.$('#create-private').checked)));
+    // 難度：單人練習、建立房間都照這裡選的
+    this.difficultyPick = this.$('#difficulty');
+    this.difficultyPick.replaceChildren(...Object.entries(CONFIG.DIFFICULTY).map(([id, d]) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.id = id;
+      btn.setAttribute('role', 'radio');
+      btn.textContent = d.name;
+      return btn;
+    }));
+    this.difficultyPick.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('button[data-id]');
+      if (btn) this.setDifficulty(btn.dataset.id, true);
+    });
+    let saved = null;
+    try { saved = localStorage.getItem(DIFFICULTY_KEY); } catch { /* 無痕視窗之類：用一般 */ }
+    this.setDifficulty(saved, false);
+
+    this.$('#btn-solo').addEventListener('click', () => this.guard(() => this.h.onSolo(this.name(), this.difficulty)));
+    this.$('#btn-create').addEventListener('click', () => this.guard(() => this.h.onCreate(this.name(), this.$('#create-private').checked, this.difficulty)));
     this.$('#btn-join').addEventListener('click', () => {
       const code = this.codeInput.value.trim().toUpperCase();
       if (code.length < 4) return this.showError('請輸入 4 碼房號');
@@ -40,6 +64,14 @@ export class Lobby {
 
   name() {
     return this.nameInput.value.trim().slice(0, 12) || '玩家';
+  }
+
+  // 選難度：按鈕亮起來、底下的說明換成那個難度的（哪幾關是菁英關、敵人傷害打不打折）；remember = 記住下次打開還是這個
+  setDifficulty(id, remember) {
+    this.difficulty = difficultyOf(id);
+    for (const btn of this.difficultyPick.querySelectorAll('button[data-id]')) btn.setAttribute('aria-checked', String(btn.dataset.id === this.difficulty));
+    this.$('#difficulty-desc').textContent = difficultyDesc(this.difficulty);
+    if (remember) try { localStorage.setItem(DIFFICULTY_KEY, this.difficulty); } catch { /* 存不了就算了 */ }
   }
 
   async guard(fn) {
@@ -101,9 +133,11 @@ export class Lobby {
       btn.disabled = r.started || full || this.busy;
       if (!btn.disabled) btn.dataset.code = r.code;
       btn.title = btn.disabled ? `房間${state}` : `加入房號 ${r.code}`;
-      btn.innerHTML = `<span class="rcode"></span><span class="rhost"></span><span class="rcount"></span><span class="rstate${btn.disabled ? ' busy' : ''}"></span>`;
+      const hard = difficultyOf(r.difficulty) !== 'normal';
+      btn.innerHTML = `<span class="rcode"></span><span class="rhost"></span>${hard ? '<span class="rdiff"></span>' : ''}<span class="rcount"></span><span class="rstate${btn.disabled ? ' busy' : ''}"></span>`;
       btn.querySelector('.rcode').textContent = r.code;
       btn.querySelector('.rhost').textContent = `${r.host} 的房間`;
+      if (hard) btn.querySelector('.rdiff').textContent = difficultyName(r.difficulty);
       btn.querySelector('.rcount').textContent = `${r.players} / ${r.max}`;
       btn.querySelector('.rstate').textContent = state;
       li.appendChild(btn);
@@ -119,6 +153,10 @@ export class Lobby {
     this.inRoom = true;
     this.$('#room-code').textContent = msg.code;
     const isHostNow = msg.hostId === myId;
+    const diff = this.$('#difficulty-label');
+    diff.textContent = `難度：${difficultyName(msg.difficulty)}`;
+    diff.classList.toggle('elite', difficultyOf(msg.difficulty) === 'elite');
+    diff.title = difficultyDesc(msg.difficulty);
     const label = this.$('#privacy-label');
     label.textContent = msg.private ? '私人房間' : '公開房間';
     label.classList.toggle('private', !!msg.private);

@@ -28,8 +28,8 @@ export function hasLineOfSight(world, shooter, target) {
 
 // 拋射武器的偏好順序（AI 從自己的武器欄挑第一把有的）
 const ARC_PREFERENCE = ['plasma', 'cannon', 'boomerang', 'treeSpear'];
-// 直線武器（狙擊槍；蝙蝠的聲波照狙擊槍的打法；飛鏢有一點重力但幾乎是直線；高壓水炮只打得到射程內的）
-const LINE_PREFERENCE = ['sniper', 'sonic', 'darts', 'waterCannon'];
+// 直線武器（狙擊槍；蝙蝠的聲波照狙擊槍的打法；飛鏢有一點重力但幾乎是直線；高壓水炮、西洋刺劍只打得到射程內的）
+const LINE_PREFERENCE = ['sniper', 'sonic', 'darts', 'waterCannon', 'rapier'];
 
 // 幫 shooter 規劃一發：對敵隊試射找最接近的角度/力量，再加上誤差。只用 weapons 裡有的武器（預設 = 武器欄；
 // 射過飛鏢的回合被代打只能用飛鏢）。敵人回合、以及斷線玩家的 AI 代打都用這個。回傳 { weapon, angle, power, facing, targetId } 或 null。
@@ -78,10 +78,11 @@ function targeting(world, shooter, weapons) {
 
 // planShot 的後半：從 pool 挑目標、瞄準（targeting 算好的武器與目標）
 function aimShot(world, shooter, rng, { avoid, arcId, lineId, inReach, pool }) {
-  // 七成機率打血最少的，三成隨機
-  const target = rng.chance(0.7)
+  // 有隊友（或自己）被關在囚籠裡（處刑監獄）：先打破籠子救人；不然七成機率打血最少的，三成隨機
+  const rescue = pool.find(e => e.heldId && world.entities.some(f => f.id === e.heldId && f.alive && f.team === shooter.team));
+  const target = rescue || (rng.chance(0.7)
     ? pool.reduce((a, b) => (b.hp < a.hp ? b : a))
-    : rng.pick(pool);
+    : rng.pick(pool));
   const facing = target.cx >= shooter.cx ? 1 : -1;
   const ai = shooter.ai || CONFIG.ENEMY;
   const err = ai.aimError;

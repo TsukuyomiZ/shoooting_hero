@@ -211,8 +211,9 @@ function lightsOf(c) {
 // 遮光：整片暗下來，光源的地方挖出柔和的圓（destination-out），再在火把周圍疊一點暖色；
 // 熄著的火把淡淡地畫在遮光上面（知道要去點哪裡）；站在陰影裡的敵人（傷害加成）身上透出一圈紅光。
 // aura(e) = 這個敵人要不要畫紅光（別的地圖畫面自己標陰影的，例如洞穴巨蠍只露發紅的雙眼）；
-// more(g) = 額外的照明：在遮光的暫存畫布上用 destination-out 再挖掉一些地方（例如巨蠍巢穴：火把亮著的洞整個照亮）
-export function drawShade(ctx, c, aura = () => true, more = null) {
+// more(g) = 額外的照明：在遮光的暫存畫布上用 destination-out 再挖掉一些地方（例如巨蠍巢穴：火把亮著的洞整個照亮）；
+// hidden(i) = 第 i 支熄著的火把不畫（例如地心探險：被超巨石壓在底下的）
+export function drawShade(ctx, c, aura = () => true, more = null, hidden = () => false) {
   const S = c.match && c.match.mechState;
   if (!S) return;
   const L = c.layer ? c.layer() : null;   // 遮光先畫在暫存畫布上（挖出光的圓），再整張疊上去
@@ -246,7 +247,7 @@ export function drawShade(ctx, c, aura = () => true, more = null) {
   ctx.save();
   ctx.globalAlpha = 0.5;
   S.def.torches.forEach((t, i) => {
-    if (torchLevel(c.match, i) > 0) return;
+    if (torchLevel(c.match, i) > 0 || hidden(i)) return;
     ctx.fillStyle = '#78716c';
     ctx.fillRect(t.x - 2, t.y - TORCH_H + 6, 4, TORCH_H - 6);
     ctx.beginPath(); ctx.ellipse(t.x, t.y - TORCH_H + 4, 4.5, 6, 0, 0, Math.PI * 2); ctx.fill();
