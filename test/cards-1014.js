@@ -189,8 +189,8 @@ await test('牌庫：八張新牌通過驗證，id / 名字 / 稀有度 / unique
     ...Object.values(W).flatMap(w => [w.desc || '', w.hud || '']), ...CHANGELOG.flatMap(c => [c.title, ...(c.new || []), ...(c.change || []), ...(c.fix || [])]),
   ];
   assert(!texts.some(t => /氣球/.test(t)), 'balloons mentioned: ' + texts.filter(t => /氣球/.test(t)));
-  // 版本履歷（不改版號，記在最上面那一筆）
-  const top = CHANGELOG[0];
+  // 版本履歷：這批牌記在 1.4.2 那一筆（之後改版，最上面那一筆就不是它了）
+  const top = CHANGELOG.find(c => c.version === '1.4.2');
   assert(top.new.some(l => ['狂歡派對', '被虐體質', '威嚇', '長跑選手', '全力一擊', '金剛不壞', '石假面'].every(n => l.includes(n))), 'CHANGELOG new: equipment cards');
   assert(top.new.some(l => l.includes('西洋刺劍')) && top.change.some(l => l.includes('等離子飛彈')), 'CHANGELOG rapier / plasma');
   return { cards: Object.keys(want).length };

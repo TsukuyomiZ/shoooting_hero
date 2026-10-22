@@ -1,6 +1,6 @@
 import {
-  buildPrison, planExecNext, shieldsPrisoner, resolveExecTurn, resolveBeastTurn, isBeast, syncCage, prisonAttackMult, prisonDefense,
-  struckPrison, stunExtras, replayPrison, prisonSnapshot, restorePrison,
+  buildPrison, planExecNext, shieldsPrisoner, resolveExecTurn, resolveBeastTurn, isBeast, syncCage, syncPerch, prisonAttackMult, prisonDefense,
+  struckPrison, prisonEventExtras, replayPrison, prisonSnapshot, restorePrison,
 } from '../prison.js';
 
 // 處刑監獄（Boss 關）的地圖機制：處刑官、三隻猛獸、囚籠、天花板的吊燈（規則在 prison.js）。
@@ -18,9 +18,18 @@ export const prison = {
     planExecNext(match);
   },
 
-  // 一波結算完：囚籠被打破、被關的人倒下 → 放出來（可以重複呼叫）
+  // 一波結算完：囚籠被打破、被關的人倒下 → 放出來；放出來的猛獸倒下了 → 處刑官馬上跳下處刑台（都可以重複呼叫）。
+  // 平常打倒猛獸的那一下就跳了（eventExtras），這裡是保險（沒有事件就倒下的）：跳下來的話這一波的結果帶 descend（紀錄照它記；客戶端照同一個條件自己推）
   cascade(match) {
     syncCage(match);
+    const descend = syncPerch(match);
+    return descend ? { descend } : null;
+  },
+
+  // 回合結束（燃燒之後）：猛獸在自己的回合結束被燒死 → 處刑官馬上跳下處刑台（記進 turn.end 的 fx、客戶端的 turnFx 照它畫弧線）
+  turnEnd(match, e, fx) {
+    const jump = syncPerch(match);
+    if (jump) fx.push({ type: 'descend', id: 'executioner', ...jump });
   },
 
   // 被關在籠子裡的人開火一定打在籠子上：那一下的爆炸傷不到他自己（不扣血、不擊退）
@@ -43,9 +52,10 @@ export const prison = {
     return struckPrison(match, owner, at);
   },
 
-  // 掉下來的吊燈砸到的敵人暈眩一回合（事件的 stuns）
+  // 掉下來的吊燈砸到的敵人暈眩一回合（事件的 stuns）；這一下打倒了放出來的猛獸 → 處刑官馬上跳下處刑台（事件的 descend，
+  // 同一波後面的砲彈就打得到他；客戶端重播到這一下照同一個條件推）
   eventExtras(match, info) {
-    return stunExtras(match, info);
+    return prisonEventExtras(match, info);
   },
 
   replayEvent(match, ev) {

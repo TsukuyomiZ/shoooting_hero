@@ -4,6 +4,8 @@ export const STICKERS = [
   { id: 'huh', label: '問號', src: 'assets/stickers/huh.webp' },
   { id: 'dog', label: '吉娃娃', src: 'assets/stickers/dog.webp' },
   { id: 'lol', label: '大笑', src: 'assets/stickers/lol.webp' },
+  { id: 'like', label: '讚', src: 'assets/stickers/like.webp' },
+  { id: 'sad', label: '委屈', src: 'assets/stickers/sad.webp' },
 ];
 
 // 洗版限制：每人 windowMs 內最多 count 張（伺服器擋，客戶端也照同一套規則先擋，自己才不會看到別人看不到的貼圖）

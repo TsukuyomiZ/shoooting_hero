@@ -9,6 +9,7 @@ import { scorpion } from './scorpion.js';
 import { prison } from './prison.js';
 import { swordsman } from './swordsman.js';
 import { tengu } from './tengu.js';
+import { spider } from './spider.js';
 
 // 地圖畫面（見 GLOSSARY.md）：某一張地圖特有的畫面與演出——Boss 出招的動畫、王與招式的畫法、場景、HUD 上的提示、選曲、死亡特效。
 // 跟地圖機制（shared/maps/mechanics/）成對：機制決定發生什麼，畫面決定怎麼演出來。照 match.mechanic.type 選（一般小關 = plain，什麼都沒有）。
@@ -118,7 +119,7 @@ export function defineMapView(adapter) {
   return Object.freeze(v);
 }
 
-const VIEWS = Object.fromEntries([plain, tree, snake, hive, cave, cyclops, guardian, scorpion, prison, swordsman, tengu].map(a => [a.type, defineMapView(a)]));
+const VIEWS = Object.fromEntries([plain, tree, snake, hive, cave, cyclops, guardian, scorpion, prison, swordsman, tengu, spider].map(a => [a.type, defineMapView(a)]));
 
 /** 這場（match.mechanic.type）的地圖畫面。沒有對應的畫面 → 丟錯（新的地圖機制要配一個，沒有演出就寫一個空的） */
 export function mapViewFor(match) {

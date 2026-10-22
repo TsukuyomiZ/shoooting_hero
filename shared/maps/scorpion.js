@@ -161,7 +161,7 @@ export function buildScorpion(match, hpScale) {
     const b = partBox(def, hole, facing, P.key);
     match.entities.push(new Entity({
       ...CONFIG.ENEMY, id: P.id, name: P.name, team: 'enemies', controller: 'ai', slot: 0, facing,
-      x: b.x, y: b.y, hw: b.hw, h: b.h, shape: b.shape, boss: true, fixed: true, part: P.key,
+      x: b.x, y: b.y, hw: b.hw, h: b.h, shape: b.shape, boss: true, fixed: true, part: P.key, body: 'scorpion',
       hp: Math.round(CONFIG.SCORPION.hp[P.key] * hpScale), intangible: true,
     }));
   }

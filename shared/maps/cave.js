@@ -1,5 +1,6 @@
 import { CONFIG } from '../core/config.js';
 import { clamp } from '../core/utils.js';
+import { passesFire } from '../physics/fire.js';
 
 // 洞穴地形（地圖「岩穴」）的規則：鐘乳石與火把（伺服器與客戶端共用）。
 // Match 什麼時候呼叫這些，見地圖機制 shared/maps/mechanics/cave.js。這一場的狀態在 match.mechState（buildCave 建的那一份）。
@@ -7,19 +8,30 @@ import { clamp } from '../core/utils.js';
 // - 鐘乳石：天花板垂下來的地形（level.stalactites，遮罩值 STALACTITE，見 terrain.js）。擋子彈、炸不壞；
 //   被任何一方的飛行物打到（直擊那一根、或爆炸範圍碰到）就整根掉下來：從遮罩拿掉，變成一顆從尖端開始自由落下的飛行物
 //   （WEAPONS.stalactite，事件的 adds，見 shared/physics/volley.js），砸到第一個角色（傷害算打下它的人的攻擊）或落地就碎掉
-// - 火把：level.mechanic.torches = [{ x, y（底部，插在地上 / 平台上）, lit（一開始就亮著）, faint（光很微弱）, light（這支的光圈半徑，沒寫 = CAVE.torchLight）}]。
+// - 火把：level.mechanic.torches = [{ x, y（底部，插在地上 / 平台上）, lit（一開始就亮著）, faint（光很微弱）, light（這支的光圈半徑，沒寫 = CAVE.torchLight）,
+//   burn（子彈穿過這支火把著火之後附加幾層燃燒，沒寫 = CAVE.torchBurn）,
+//   大型的火（例如蜘蛛巢穴中間的火柱）另外可以寫：h（底部到火焰的高度，沒寫 = TORCH_H）、flameH（火焰本身也算進點燃 / 著火範圍的高度，沒寫 = 0）、
+//   w（走過去碰到的半寬，沒寫 = 6）、pass（飛過去點燃 / 穿過著火的範圍，沒寫 = CAVE.torchPass）、
+//   畫面用的 flame（火焰大小倍率）、pillar（畫成石頭火柱、光圈裡整片照亮，見 client/map-views/cave.js）}]。
 //   玩家方的攻擊打在火把旁邊（離火把 CAVE.torchReach px 內，爆炸的話再加上爆炸半徑）、或玩家自己走過去碰到，就點燃。
 //   還亮著但已經變暗的也一樣：隨時都能補回最亮（2026-10-08 使用者：「隨時都能補滿，都沒被擊中才會慢慢熄掉」）。
 //   火把會燒完：點燃 / 補滿的那一輪亮度 CAVE.torchRounds（3，最亮），之後每一輪開始暗一格（3 → 2 → 1），
 //   一直沒人去點就 3 輪後熄滅（0）。一開始就亮著的火把算第 1 輪點燃的。
 //   亮度不另外存：狀態記的是每支火把「第幾輪點燃的」，亮度照現在的輪數（match.round）推出來（torchLevel）——
 //   伺服器、客戶端（照伺服器的訊息設輪數）、重連都算得一樣，變暗 / 熄滅不用另外廣播。
-//   會颳風的對戰（狀態的 windy = true：巨蠍巢穴的多人）：每一輪開始一陣強風把火把全部吹熄，只有這一輪點燃的亮著
+//   會颳風的對戰（狀態的 windy = true：巨蠍巢穴的多人）：每一輪開始一陣強風把火把全部吹熄，只有這一輪點燃的亮著。
+//   火把是火源：任何一方的飛行物穿過亮著的火把就著火，打中的對方附加燃燒（caveFireSources；著火是共同設定，見 shared/physics/fire.js）
 // - 陰影：不在任何一支亮著的火把的光圈裡（光圈半徑照亮度縮小，torchLight；畫面的照明也照這個畫）。
 //   站在陰影裡的敵人造成的傷害 +CAVE.shadowDamagePct%（地圖機制的 attackMult：看結算傷害那一下他身體中心在不在陰影裡）。
 //   照明是畫面（client/map-views/cave.js）：看不到的地方一樣打得到
 
 export const TORCH_H = 34;   // 火把的高度（底部到火焰）
+
+// 這支火把的高度（底部到火焰；關卡沒寫 h = TORCH_H）、點燃 / 著火範圍的頂端（火焰本身算 flameH 那麼高）
+export const torchH = (t) => t.h ?? TORCH_H;
+export const torchTop = (t) => t.y - torchH(t) - (t.flameH ?? 0);
+// 飛過去點燃 / 穿過著火的範圍（從火把那一段往外多遠）
+const passOf = (t) => t.pass ?? CONFIG.CAVE.torchPass;
 
 // 這一輪點燃的火把記成第幾輪：還沒開打（第 0 輪）算第 1 輪，第 1 輪才是最亮的
 const litRound = (match) => Math.max(1, match.round);
@@ -60,7 +72,7 @@ export function torchLevel(match, i) {
 }
 
 // 火焰的位置
-export const flameOf = (t) => ({ x: t.x, y: t.y - TORCH_H });
+export const flameOf = (t) => ({ x: t.x, y: t.y - torchH(t) });
 
 // 亮度 level 的火把光圈有多大（最亮 = 1）：最暗那一格 CAVE.dimLight，中間照比例；熄了 = 0
 export function lightScale(level) {
@@ -106,15 +118,44 @@ export function roundCave(match, fx) {
   });
 }
 
-// (x, y) 離火把（底部到火焰的那一段）多遠
+// (x, y) 離火把（底部到火焰的那一段；大型的火連火焰本身）多遠
 function torchDist(t, x, y) {
   const dx = x - t.x;
-  const dy = y - clamp(y, t.y - TORCH_H, t.y);
+  const dy = y - clamp(y, torchTop(t), t.y);
   return Math.sqrt(dx * dx + dy * dy);
 }
 
+// 火把 t 底部到火焰的那一段（大型的火連火焰本身），再往外 passOf(t) px（膠囊形，同 shared/physics/fire.js 的火源）：
+// 子彈從旁邊飛過去點燃、穿過著火都照這一段量
+const torchSpan = (t) => ({ x0: t.x, y0: torchTop(t), x1: t.x, y1: t.y, r: passOf(t) });
+
+// 玩家方的飛行物這一段路（seg，同 passCave；撞到東西那一幀是出發點到撞擊點）從哪幾支火把旁邊飛過去（離火把 CAVE.torchPass + 判定半徑以內）
+function torchesPassed(match, owner, seg) {
+  const S = caveState(match);
+  if (!S || !owner || owner.team !== 'players') return [];
+  const out = [];
+  S.def.torches.forEach((t, i) => { if (passesFire(seg, torchSpan(t))) out.push(i); });
+  return out;
+}
+
+// 洞穴的火源（地圖機制的 fireSources；飛行物穿過火源著火是共同設定，規則在 shared/physics/fire.js）：
+// 亮著的火把，每一方的飛行物都算（2026-10-22 使用者：「敵人射出的子彈穿過火把也會燃燒，這是共同設定」）；
+// 玩家方的再加上熄著的——玩家的子彈飛過去就把它點燃了（判定跟點燃同一段），同一下也算穿過火。敵人的子彈點不燃熄著的火把，也就不會從那裡著火。
+// 範圍：底部到火焰那一段往外 CAVE.torchPass px（這支自己的 pass；跟飛過去點燃一樣）。燃燒層數照這支火把自己的 burn（關卡資料，沒寫 = CAVE.torchBurn）
+export function caveFireSources(match, owner) {
+  const S = caveState(match);
+  if (!S) return [];
+  const kindles = !!owner && owner.team === 'players';
+  const out = [];
+  S.def.torches.forEach((t, i) => {
+    if (kindles || levelOf(S, i, match.round) > 0) out.push({ ...torchSpan(t), burn: t.burn ?? CONFIG.CAVE.torchBurn });
+  });
+  return out;
+}
+
 // 一顆飛行物撞到東西（地圖機制的 struck）：打到 / 炸到的鐘乳石掉下來、打在火把旁邊就點燃 / 補滿（只有玩家方）。
-// 回傳要附在事件上的 { falls, adds, lights }（沒有的欄位不帶；什麼都沒有 = null）
+// 撞到之前、這一幀從 (at.x0, at.y0) 飛過來的那一小段從火把旁邊經過的也點燃（同 passCave：撞到東西的那一幀不另外寫 pass 事件；
+// 子彈在這一段穿過火把著火的話，火把也要跟著亮）。回傳要附在事件上的 { falls, adds, lights }（沒有的欄位不帶；什麼都沒有 = null）
 export function struckCave(match, owner, at) {
   const S = caveState(match);
   if (!S) return null;
@@ -127,6 +168,7 @@ export function struckCave(match, owner, at) {
   const { adds } = dropStalactites(match, falls);
   const lights = [];
   if (owner && owner.team === 'players') {
+    if (Number.isFinite(at.x0)) lights.push(...lightPassed(match, owner, { x0: at.x0, y0: at.y0, x1: at.x, y1: at.y, r: at.r }));
     S.def.torches.forEach((t, i) => {
       if (canLight(match, S, i) && torchDist(t, at.x, at.y) <= at.blast + CONFIG.CAVE.torchReach) {
         S.lit[i] = litRound(match);
@@ -163,24 +205,20 @@ export function standingStalactites(match) {
 // 飛行物這一幀從 (x0, y0) 飛到 (x1, y1)、沒撞到東西（地圖機制的 passed）：玩家方的飛行物從火把旁邊飛過去
 // （離火把 CAVE.torchPass + 飛行物的判定半徑以內）就點燃 / 補滿。回傳 { lights }，沒有 = null。每顆飛行物每一幀都會呼叫：先用外框排除
 export function passCave(match, owner, seg) {
-  const S = caveState(match);
-  if (!S || !owner || owner.team !== 'players') return null;
-  const reach = CONFIG.CAVE.torchPass + (seg.r || 0);
-  const lights = [];
-  S.def.torches.forEach((t, i) => {
-    if (!canLight(match, S, i)) return;
-    if (Math.max(seg.x0, seg.x1) < t.x - reach || Math.min(seg.x0, seg.x1) > t.x + reach) return;
-    if (Math.max(seg.y0, seg.y1) < t.y - TORCH_H - reach || Math.min(seg.y0, seg.y1) > t.y + reach) return;
-    const n = Math.max(1, Math.ceil(Math.sqrt((seg.x1 - seg.x0) * (seg.x1 - seg.x0) + (seg.y1 - seg.y0) * (seg.y1 - seg.y0)) / 2));
-    for (let k = 0; k <= n; k++) {
-      if (torchDist(t, seg.x0 + (seg.x1 - seg.x0) * k / n, seg.y0 + (seg.y1 - seg.y0) * k / n) <= reach) {
-        S.lit[i] = litRound(match);
-        lights.push(i);
-        return;
-      }
-    }
-  });
+  const lights = lightPassed(match, owner, seg);
   return lights.length ? { lights } : null;
+}
+
+// 這一段路飛過去的火把裡，這一輪還沒點過的點燃 / 補滿：回傳點燃的（第幾支）
+function lightPassed(match, owner, seg) {
+  const S = caveState(match);
+  const lights = [];
+  for (const i of torchesPassed(match, owner, seg)) {
+    if (!canLight(match, S, i)) continue;
+    S.lit[i] = litRound(match);
+    lights.push(i);
+  }
+  return lights;
 }
 
 // 行動玩家從 (x0, y0) 走到 (x1, y1)（位置回報之間的路線，每 4px 檢查一次）：身體碰到火把就點燃 / 補滿。
@@ -192,7 +230,7 @@ export function touchTorch(match, e, x0, y0, x1, y1) {
   for (let k = 0; k <= n; k++) {
     const px = x0 + (x1 - x0) * k / n, py = y0 + (y1 - y0) * k / n;
     const i = S.def.torches.findIndex((t, j) =>
-      canLight(match, S, j) && Math.abs(px - t.x) <= e.hw + 6 && py >= t.y - TORCH_H && py - e.h <= t.y);
+      canLight(match, S, j) && Math.abs(px - t.x) <= e.hw + (t.w ?? 6) && py >= torchTop(t) && py - e.h <= t.y);
     if (i >= 0) {
       S.lit[i] = litRound(match);
       return { type: 'torch', id: e.id, torch: i };

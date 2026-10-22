@@ -53,7 +53,7 @@
     { "id": "time_warp",       "name": "時間扭曲",     "rarity": "gold",   "desc": "武器傷害 +15%，回合結束之後再獲得一個額外回合（冷卻 3 回合）", "effects": { "damagePct": 15, "extraTurn": 1 }, "unique": true },
     { "id": "god_body",        "name": "神之軀",       "rarity": "gold",   "desc": "血量上限 +150",            "effects": { "maxHp": 150 } },
     { "id": "soul_eater",      "name": "噬魂者",       "rarity": "gold",   "desc": "武器傷害 +20%，每擊殺一個敵人再 +5%（整場冒險累積）", "effects": { "damagePct": 20, "killDamagePct": 5 } },
-    { "id": "carpet_bomb",     "name": "無差別轟炸",   "rarity": "gold",   "desc": "回合開始時，自己以外的區域都受到飛彈攻擊（每發傷害 50、半徑 30，隊友也會被炸到，不會炸壞地形；冷卻 3 回合）", "effects": { "bombard": 1 }, "unique": true },
+    { "id": "carpet_bomb",     "name": "無差別轟炸",   "rarity": "gold",   "desc": "回合開始時，自己以外的區域都受到飛彈攻擊（每發傷害 50、半徑 30，每個目標最多被炸 3 次（多部位的首領整隻合算），隊友也會被炸到，不會炸壞地形；冷卻 3 回合）", "effects": { "bombard": 1 }, "unique": true },
     { "id": "godslayer",       "name": "弒神者",       "rarity": "gold",   "desc": "對首領傷害 +100%",         "effects": { "bossDamagePct": 100 } },
     { "id": "blessed_stone",   "name": "神佑之石",     "rarity": "gold",   "desc": "每過三回合，全體隊友無敵一次（擋下一次傷害）", "effects": { "teamShield": 1 }, "unique": true },
     { "id": "bond",            "name": "攜手之伴",     "rarity": "gold",   "desc": "指定一名隊友成為「連結」：你們受到的傷害先減 30%，再跟連結的隊友平分", "effects": { "link": 1 }, "unique": true },

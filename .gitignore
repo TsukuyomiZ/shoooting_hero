@@ -1,2 +1,5 @@
 # 伺服器 / 單人練習的遊戲紀錄（server/logger.js 會自己建資料夾）
 logs/
+
+# 開發用小工具（PV 錄影 tools/pv、監獄地圖概念預覽 tools/prison），不是遊戲本體
+tools/

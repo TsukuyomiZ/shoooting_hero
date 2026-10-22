@@ -71,7 +71,7 @@ await test('每張地圖拿到對的地圖畫面（照 match.mechanic.type）：
     const s1 = v.create(m), s2 = v.create(m);
     assert(s1 && typeof s1 === 'object' && s1 !== s2, `${id}: create builds a fresh state every time`);
   }
-  assert(Object.values(got).filter(t => t !== 'plain').sort().join() === 'cave,cyclops,guardian,hive,prison,scorpion,snake,swordsman,tengu,tree', 'one map each: ' + J(got));
+  assert(Object.values(got).filter(t => t !== 'plain').sort().join() === 'cave,cyclops,guardian,hive,prison,scorpion,snake,spider,swordsman,tengu,tree', 'one map each: ' + J(got));
   return got;
 });
 
@@ -146,8 +146,8 @@ await test('render.js / game-view.js 不認得任何一張地圖：程式碼（�
 await test('地圖畫面不碰 GameView 本身：不 import 音效 / 畫面模組（只 import shared/ 與通用的繪圖小工具），不寫 view.particles / shake / treeFx…（特效走 c.fx）', () => {
   const dir = 'client/map-views/';
   const files = fs.readdirSync(path.join(ROOT, dir)).filter(f => f.endsWith('.js'));
-  assert(['index.js', 'plain.js', 'tree.js', 'snake.js', 'hive.js', 'cave.js', 'cyclops.js', 'guardian.js', 'scorpion.js', 'prison.js', 'swordsman.js', 'tengu.js'].every(f => files.includes(f)), 'map-views/: ' + files);
-  const ALLOWED = /^(\.\.\/\.\.\/shared\/(?:[\w-]+\/)+[\w-]+\.js|\.\.\/(draw|weapon-art)\.js|\.\/(plain|tree|snake|hive|cave|cyclops|guardian|scorpion|prison|swordsman|tengu)\.js)$/;
+  assert(['index.js', 'plain.js', 'tree.js', 'snake.js', 'hive.js', 'cave.js', 'cyclops.js', 'guardian.js', 'scorpion.js', 'prison.js', 'swordsman.js', 'tengu.js', 'spider.js'].every(f => files.includes(f)), 'map-views/: ' + files);
+  const ALLOWED = /^(\.\.\/\.\.\/shared\/(?:[\w-]+\/)+[\w-]+\.js|\.\.\/(draw|weapon-art)\.js|\.\/(plain|tree|snake|hive|cave|cyclops|guardian|scorpion|prison|swordsman|tengu|spider)\.js)$/;
   const GAMEVIEW = /\bview\s*\.|\bsfx\b|\baudio\b|\bdocument\b|\bwindow\b|\.(particles|flashes|linkFlashes|floatTexts|treeFx|snakeFx|painter|banner|shake)\s*(=(?!=)|\.push\b|\[)/;
   for (const f of files) {
     const src = read(dir + f);

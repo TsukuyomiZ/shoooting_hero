@@ -6,6 +6,7 @@ import { Entity, poisonTick } from '../physics/entities.js';
 import { launchVelocity, makeProjectile, hitAction, bounceProjectile, shotTraits, blastRadius, shotRange, applyRecoil } from '../physics/weapons.js';
 import { runVolley } from '../physics/volley.js';
 import { windMaxOf, rollWind, windAccel } from '../physics/wind.js';
+import { catchFire, burnOf } from '../physics/fire.js';
 import { planShot } from '../ai/ai.js';
 import { canStep, planWalk, planGlide, roamAround, LAND_FRAMES, FALL_FRAMES } from '../ai/ai-move.js';
 import { clamp } from '../core/utils.js';
@@ -309,6 +310,7 @@ export class Match {
   // 自己的回合結束時：
   // - 燃燒：先用這回合移動的距離甩掉層數（每回合最多 maxReducePerTurn 層），剩下的每層扣最大血量 pctPerStack%
   // - 流血：止血（層數歸零）
+  // - 糾纏：少一個回合（解開的那一回合記一筆 fx）
   // - 地圖機制的回合結束效果（例如巨蟒被燒到跨過門檻掉蛇血、古樹的嘴巴張開）
   // - 效果的回合結束（照 shared/cards/effects/ 登記的順序：神佑之石給全隊無敵 → 時間扭曲給額外回合）。
   //   isExtra = 這是時間扭曲給的額外回合
@@ -317,6 +319,7 @@ export class Match {
     if (!e.alive) return fx;
     this.burnTick(e, fx);
     this.stopBleeding(e, fx);
+    this.untangle(e, fx);
     this.mechanic.turnEnd(this, e, fx);
     Effects.turnEnd(this, e, fx, isExtra);
     return fx;
@@ -346,6 +349,13 @@ export class Match {
     if (e.alive) fx.push({ type: 'bleed', id: e.id, stacks: e.bleed, dmg: e.bledThisTurn });
     e.bleed = 0;
     e.bleedFrac = 0;
+  }
+
+  // 糾纏在自己的回合結束時少一個回合；解開了記一筆 fx 給客戶端飄字
+  untangle(e, fx) {
+    if (!(e.entangle > 0)) return;
+    e.entangle--;
+    if (e.entangle === 0) fx.push({ type: 'untangle', id: e.id });
   }
 
   // ---- 傷害規則 ----
@@ -468,19 +478,26 @@ export class Match {
     const spent = new Set();
     const block = (e) => { if (!spent.has(e)) { spent.add(e); e.shield--; } };
 
-    // 1. 算好每個被打到的人要扣多少、要分多少給連結對象（還沒扣血）
-    const hits = [];
-    const later = [];   // 地圖機制要等大家都扣完血才做的事（例如蜂巢扣 1、放蜜蜂）
+    // 0. 這一下碰得到誰；opts.pick(清單) 可以再挑掉一些（例如無差別轟炸每一隻最多被炸幾次，見 resolveHit）
+    let reach = [];
     for (const e of aliveBefore) {
       if (opts.exclude && opts.exclude.has(e)) continue;
       if (e.intangible) continue;   // 躲起來的（例如洞穴深處的巨蠍）：直擊、波及都碰不到
       const direct = e === directHit;
       const d = e.distanceTo(x, y);
       if (!direct && (!splash || d > R)) continue;
+      reach.push({ e, direct, d });
+    }
+    if (opts.pick) reach = opts.pick(reach);
+
+    // 1. 算好每個被打到的人要扣多少、要分多少給連結對象（還沒扣血）
+    const hits = [];
+    const later = [];   // 地圖機制要等大家都扣完血才做的事（例如蜂巢扣 1、放蜜蜂）
+    for (const { e, direct, d } of reach) {
       const factor = direct ? 1 : Math.max(0.3, 1 - d / R);
       const friendly = !!attacker && e.team === attacker.team;
-      // 地圖機制自己處理的角色（例如古樹之口、蜂巢）：在無敵之前，不進一般的傷害、燃燒、擊退
-      if (this.mechanic.absorbHit(this, e, { attacker, friendly, damages, later })) continue;
+      // 地圖機制自己處理的角色（例如古樹之口、蜂巢、蛛卵）：在無敵之前，不進一般的傷害、燃燒、擊退（burn = 這一下會附加的燃燒層數，要燒的自己上）
+      if (this.mechanic.absorbHit(this, e, { attacker, friendly, damages, later, burn })) continue;
       if (shielded.has(e)) {   // 這一下完全無效，也不會被擊退、不會分給連結對象
         block(e);
         damages.push({ id: e.id, dmg: 0, friendly, blocked: true });
@@ -615,12 +632,20 @@ export class Match {
   resolveVolley(owner, weapon, projs, burn, isShot = false) {
     // 風：這一波的飛行物照這個回合的風偏（吃不吃風看武器，見 physics/wind.js）；重播照 projectiles 帶的 wind 飛
     for (const p of projs) if (!p.wind) p.wind = windAccel(this.wind, p.weapon);
+    // 每一隻最多被這一波打到幾次（武器的 maxHits，例如無差別轟炸）：這一波的飛行物共用一份 ignore（各自的併起來）與計數 hitCount，見 resolveHit
+    if (weapon.maxHits) {
+      const ignore = new Set(projs.flatMap(p => [...p.ignore]));
+      const hitCount = new Map();
+      for (const p of projs) Object.assign(p, { ignore, hitCount });
+    }
     const specs = projs.map(p => ({ spawn: p.spawn, x: p.x, y: p.y, vx: p.vx, vy: p.vy, ...(p.follow ? { follow: true } : {}), ...(p.wind ? { wind: p.wind } : {}) }));
     const before = this.entities.filter(e => e.alive);
     const n0 = this.entities.length;
     // 飛行 → 沉降（shared/physics/volley.js：跟客戶端重播同一個幀迴圈；撞到東西時呼叫下面的 resolveHit）
     const { events, flightFrames, settleFrames } = runVolley(this, owner, weapon, projs, burn);
-    this.mechanic.cascade(this);   // 地圖機制連帶的死亡（這一發打倒了古樹之眼 → 嘴巴與樹妖一起枯萎）：要在算擊殺之前，也算擊殺
+    // 地圖機制連帶的死亡（這一發打倒了古樹之眼 → 嘴巴與樹妖一起枯萎）：要在算擊殺之前，也算擊殺。
+    // 回傳的欄位接在結果上（例如處刑官跳下處刑台的 descend；紀錄照它記）
+    const cascaded = this.mechanic.cascade(this);
     // 這一發途中才出現的角色（打到蜂巢飛出來的蜜蜂）被同一發後面的砲彈打死，也算擊殺
     const kills = this.creditKills(owner, [...before, ...this.entities.slice(n0)]);
     const hitEnemy = isShot ? this.hitEnemy(events) : undefined;
@@ -631,22 +656,28 @@ export class Match {
     }
     return {
       projectiles: specs, events, hit: summarizeHit(events),
-      kills, ...Effects.shotState(owner), ...(isShot ? { hitEnemy } : {}),
+      kills, ...Effects.shotState(owner), ...(isShot ? { hitEnemy } : {}), ...(cascaded || {}),
       results: this.entities.map(e => e.toState()),
       flightFrames, settleFrames,
     };
   }
 
   // 一顆飛行物撞到東西（shared/physics/volley.js 的 runVolley 呼叫）：依規則爆炸 / 穿透 / 彈射 / 折返，結果寫成一個事件。
-  // 飛行物的狀態（結束 / 回程）不在這裡改：runVolley 拿事件套用同一個狀態機（transition），客戶端重播也是那一份
-  resolveHit(owner, weapon, p, i, hit, frame, burn) {
+  // 飛行物的狀態（結束 / 回程、著火）不在這裡改：runVolley 拿事件套用同一個狀態機（transition），客戶端重播也是那一份。
+  // from = 這一幀從哪裡飛過來 { x, y }（迴力鏢回程掃到的沒有）：撞到之前那一小段穿過場上的火源（例如洞穴的火把）就在結算傷害之前著火
+  // （事件帶 ignite）。著火的飛行物打中的人，除了這一波的燃燒 burn 再附加它的火（著火是共同設定，見 shared/physics/fire.js）
+  resolveHit(owner, weapon, p, i, hit, frame, burn, from = null) {
     const act = hitAction(p, hit);
     const ev = { f: frame, p: i, type: act === 'end' ? hit.type : act, x: hit.x, y: hit.y };
     const target = hit.type === 'entity' ? hit.entity : null;
     if (target) ev.target = target.id;
+    const ignite = from ? catchFire(this, owner, weapon, p, { x0: from.x, y0: from.y, x1: hit.x, y1: hit.y, r: p.hitRadius }) : 0;
+    if (ignite > 0) ev.ignite = ignite;
+    burn = burnOf(burn, p, ignite);
     const stealPct = this.lifestealOf(owner);   // 打中之前的場面（看隊友人數的吸血：這一下炸死隊友不算）
     let damages = null;
     let blast = 0;   // 這一下的爆炸半徑（沒爆炸 = 0），給地圖機制的 struck
+    const pick = p.hitCount ? capPick(p.hitCount, weapon.maxHits) : null;   // 每一隻最多被這一波打到幾次（見下面）
     switch (act) {
       case 'end':
         break;
@@ -656,7 +687,7 @@ export class Match {
         break;
       case 'pierce':
         p.ignore.add(target);
-        damages = this.applyExplosion(hit.x, hit.y, weapon, owner, target, { directOnly: true, burn });
+        damages = this.applyExplosion(hit.x, hit.y, weapon, owner, target, { directOnly: true, burn, pick });
         Object.assign(ev, { vx: p.vx, vy: p.vy });
         break;
       case 'return':   // 迴力鏢：飛到最長路徑（或撞到地形 / 落水 / 飛出場外）就沿原路飛回去。回程重新算一趟：去程打過的敵人回程還會再被打一次
@@ -673,16 +704,31 @@ export class Match {
           ev.carve = { x: hit.x, y: hit.y, r };
           this.terrain.carve(hit.x, hit.y, r);
         }
-        damages = this.applyExplosion(hit.x, hit.y, weapon, owner, target, { burn, exclude: p.ignore });
+        damages = this.applyExplosion(hit.x, hit.y, weapon, owner, target, { burn, exclude: p.ignore, pick });
         // 毒液噴灑：同一次噴灑的毒液共用 ignore，打中過的人其他顆就穿過去（每人最多中一次）
         if (target && weapon.shareHits) p.ignore.add(target);
+      }
+    }
+    // 每一隻被這一波打到幾次（武器的 maxHits，無差別轟炸：大體積的怪物一次被好幾發炸到）：被打到 = 傷害清單裡有他（被擋下、地圖機制處理的也算），
+    // 攜手之伴分到的那份（shared）不算；好幾個部位的怪物（Entity.body，例如巨蠍）整隻合起來算。
+    // 到了就整隻放進這一波共用的 ignore：之後的飛行物穿過他、爆炸也炸不到他（同一下就會超過的，由 pick 先挑掉）
+    if (damages && p.hitCount) {
+      for (const d of damages) {
+        const e = d.shared ? null : this.byId(d.id);
+        if (!e) continue;
+        const k = hitKey(e);
+        const n = (p.hitCount.get(k) || 0) + 1;
+        p.hitCount.set(k, n);
+        if (n >= weapon.maxHits) for (const f of this.entities) if (hitKey(f) === k) p.ignore.add(f);
       }
     }
     // 地圖機制對「這一下打在哪裡」的反應（例如洞穴：打到 / 炸到鐘乳石就掉下來、打在火把旁邊就點燃）：附在事件上，客戶端照著播（replayEvent）。
     // 半路才出現的飛行物（掉下來的鐘乳石，p.added）不算；落水、飛出場外不算（迴力鏢在水面、場外折返也一樣）。
     // 飛到最長路徑停下的那一點（range：高壓水炮散掉、迴力鏢在半空中折返）算：這一幀有事件就不做飛過去的判定（resolvePass），終點要照樣看
     if ((hit.type === 'terrain' || hit.type === 'entity' || hit.type === 'range') && !p.added) {
-      const extra = this.mechanic.struck(this, owner, { type: hit.type, x: hit.x, y: hit.y, blast, weapon: weapon.id });
+      const extra = this.mechanic.struck(this, owner, {
+        type: hit.type, x: hit.x, y: hit.y, blast, weapon: weapon.id, ...(from ? { x0: from.x, y0: from.y, r: p.hitRadius } : {}),
+      });
       if (extra) Object.assign(ev, extra);
     }
     if (damages && damages.length) {
@@ -700,10 +746,13 @@ export class Match {
   }
 
   // 一顆飛行物這一幀從 (x0, y0) 飛到現在的位置、沒撞到東西（shared/physics/volley.js 的 runVolley 呼叫）：地圖機制要它留下記號的話
-  // （例如玩家的子彈從火把旁邊飛過去 → 點燃）寫成一個 pass 事件（飛行物照樣繼續飛），不然 null
+  // （例如玩家的子彈從火把旁邊飛過去 → 點燃）、或它穿過場上的火源著火了（ignite，見 shared/physics/fire.js）寫成一個 pass 事件（飛行物照樣繼續飛），不然 null
   resolvePass(owner, p, i, frame, x0, y0) {
-    const extra = this.mechanic.passed(this, owner, { x0, y0, x1: p.x, y1: p.y, r: p.hitRadius, weapon: p.weapon.id });
-    return extra ? { f: frame, p: i, type: 'pass', x: p.x, y: p.y, ...extra } : null;
+    const seg = { x0, y0, x1: p.x, y1: p.y, r: p.hitRadius, weapon: p.weapon.id };
+    const extra = this.mechanic.passed(this, owner, seg);
+    const ignite = catchFire(this, owner, p.weapon, p, seg);
+    if (!extra && !(ignite > 0)) return null;
+    return { f: frame, p: i, type: 'pass', x: p.x, y: p.y, ...extra, ...(ignite > 0 ? { ignite } : {}) };
   }
 
   // AI 回合：先走動（站在地上的走路 walk = { dir, frames, fall }，代打的玩家路上撿到道具再帶 pickups；
@@ -751,6 +800,26 @@ export class Match {
     this.mechanic.restore(this, s);
     this.applyEntities(s.entities);
   }
+}
+
+// 武器的 maxHits（無差別轟炸）怎麼數「同一隻」：好幾個部位的怪物（Entity.body）整隻一個，其他每個角色各一個
+const hitKey = (e) => (e.body ? 'body:' + e.body : e.id);
+
+// applyExplosion 的 opts.pick：這一下碰得到的人裡，每一隻只留這一波還剩下的次數（hitCount = 已經被打到幾次、max = 上限）。
+// 一下就會超過的（例如一發同時波及巨蠍的兩個部位、只剩一次）先留直擊的、再留離爆炸點近的（一樣近照角色順序），其他的這一下碰不到
+function capPick(hitCount, max) {
+  return (reach) => {
+    const left = new Map();
+    const keep = new Set();
+    const order = reach.map((r, i) => ({ r, i })).sort((a, b) => (b.r.direct - a.r.direct) || (a.r.d - b.r.d) || (a.i - b.i));
+    for (const { r } of order) {
+      const k = hitKey(r.e);
+      const n = left.has(k) ? left.get(k) : max - (hitCount.get(k) || 0);
+      if (n > 0) keep.add(r);
+      left.set(k, n - 1);
+    }
+    return reach.filter(r => keep.has(r));
+  };
 }
 
 // 第一顆飛行物最後停在哪（terrain / entity / water / out / range = 飛到最長路徑），給記錄與相容用。

@@ -41,7 +41,7 @@ export function buildTree(match, hpScale) {
   const state = { def, hpScale, minions: [], seq: 0, next: null };
   const part = (p, o) => new Entity({
     ...CONFIG.ENEMY, team: 'enemies', controller: 'ai', slot: 0, facing: -1,
-    x: p.x, y: p.y + p.hh, hw: p.hw, h: p.hh * 2, boss: true, fixed: true, ...o,
+    x: p.x, y: p.y + p.hh, hw: p.hw, h: p.hh * 2, boss: true, fixed: true, body: 'tree', ...o,
   });
   match.entities.push(part(def.eye, { id: 'eye', name: '古樹之眼', part: 'eye', hp: Math.round(T.eyeHp * hpScale) }));
   // 嘴巴打不壞（血量只是佔位，不會被扣），只會被打到閉上；閉上要撐過幾個古樹回合依單人 / 多人而定

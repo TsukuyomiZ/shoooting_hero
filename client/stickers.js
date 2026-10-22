@@ -1,10 +1,10 @@
-import { CONFIG } from '../shared/core/config.js';
 import { STICKERS, allowSticker } from '../shared/social/stickers.js';
+import { LANES, laneTopPct, pickLane } from './danmaku-lanes.js';
 
 // 反應貼圖：右下角一排按鈕，按下去貼圖像彈幕一樣從畫面右邊飄到左邊（所有人都看得到）
 // DOM 疊在 canvas 上（跟著 canvas 縮放），不畫進 canvas，選牌畫面打開時也照樣飄
-// 只用畫面最上方一條軌道，不擋到底下的戰場；同時太多張就排隊依序出場
-const LANE_Y = 112 / CONFIG.WORLD_H;        // 左上回合資訊（含狂熱標籤）、上方武器列的正下方
+// 只用頂部 HUD 正下方的三排軌道（client/danmaku-lanes.js），不擋到底下的戰場：
+// 新的一則放進最早能放的那排（好幾排空著就放最上面那排）；三排都滿了就排隊，等最早空出來的那排
 const FLY_MS = 5200;                        // 飄過整個畫面的時間
 const GAP_PX = 24;                          // 前後兩張的最小間距
 const MAX_PENDING = 8;                      // 排隊上限：滿了別人的貼圖就丟掉（自己按的一定會播）
@@ -21,8 +21,8 @@ export class StickerUi {
     this.who = who;
     this.myId = null;
     this.sent = [];                              // 自己最近送出的時間（洗版限制，跟伺服器同一套）
-    this.laneFree = 0;                           // 軌道什麼時候可以再放下一張（performance.now）
-    this.pending = [];                           // 排隊等著出場的 { from, sticker }
+    this.lanes = Array(LANES).fill(null);        // 每一排最後放的那則 { at, w, v }（performance.now、寬 px、速度 px/ms）
+    this.pending = [];                           // 排隊等著出場的 { from, sticker 或 text, at }
     this.pumpTimer = null;
 
     this.layer = el('div', 'sticker-layer');
@@ -71,7 +71,7 @@ export class StickerUi {
     this.send({ t: 'sticker', id });
   }
 
-  // 收到別人的貼圖（或自己剛按的）：排進隊伍，軌道空出來就出場
+  // 收到別人的貼圖（或自己剛按的）：排進隊伍，有一排空出來就出場
   spawn(from, id) {
     const sticker = BY_ID.get(id);
     if (!sticker) return;
@@ -80,28 +80,49 @@ export class StickerUi {
     this.pump();
   }
 
-  // 聊天訊息（client/chat.js）：跟貼圖排同一條軌道；伺服器有洗版限制，所以不受排隊上限影響（不丟別人的話）
+  // 聊天訊息（client/chat.js）：跟貼圖排同一個隊伍、共用三排軌道；伺服器有洗版限制，所以不受排隊上限影響（不丟別人的話）
   spawnText(from, text) {
     if (!text) return;
     this.pending.push({ from, text, at: performance.now() });
     this.pump();
   }
 
+  // 隊伍最前面那則：量好寬度，放進最早能放的那排；三排都還不能放就等到最早空出來的那排（照順序出場）
   pump() {
     if (this.pumpTimer) return;
-    const now = performance.now();
-    while (this.pending.length && now - this.pending[0].at > STALE_MS) this.pending.shift();
-    if (!this.pending.length) return;
-    const wait = this.laneFree - now;
-    if (wait > 0) {
-      this.pumpTimer = setTimeout(() => { this.pumpTimer = null; this.pump(); }, wait);
-      return;
+    for (;;) {
+      const now = performance.now();
+      while (this.pending.length && now - this.pending[0].at > STALE_MS) this.pending.shift();
+      const next = this.pending[0];
+      if (!next) return;
+      next.node ||= this.build(next);
+      this.syncLayer();
+      this.danmaku.append(next.node);   // 還沒設 top / 動畫：待在畫面右邊外面（看不到），先量寬度
+      const W = this.danmaku.clientWidth;
+      const w = next.node.offsetWidth;
+      if (!W || !w) { next.node.remove(); this.pending.shift(); continue; }   // 畫面還沒排版（大小是 0）：不播，也不要把軌道卡死
+      const { lane, at } = pickLane(this.lanes, now, w, W, FLY_MS, GAP_PX);
+      if (at > now) {   // 先拿下來，出場時再放上去（貼圖彈出來的動畫才會從頭播）
+        next.node.remove();
+        this.pumpTimer = setTimeout(() => { this.pumpTimer = null; this.pump(); }, at - now);
+        return;
+      }
+      this.pending.shift();
+      this.launch(next.node, lane, now, W, w);
     }
-    this.launch(this.pending.shift());
-    this.pump();
   }
 
-  launch({ from, sticker: s, text }) {
+  launch(node, lane, now, W, w) {
+    node.style.top = `${laneTopPct(lane)}%`;
+    const speed = (W + w) / FLY_MS;   // px / ms
+    this.lanes[lane] = { at: now, w, v: speed };
+    const anim = node.animate([{ transform: 'translateX(0)' }, { transform: `translateX(${-(W + w)}px)` }], { duration: FLY_MS, easing: 'linear' });
+    anim.onfinish = () => node.remove();
+    anim.oncancel = () => node.remove();
+  }
+
+  // 一則彈幕的 DOM（還沒放進畫面）：貼圖是圖在前、名字在後；聊天是名字在前、字在後
+  build({ from, sticker: s, text }) {
     const { name, color } = this.who(from);
     const item = el('div', 'dm');
     if (from === this.myId) item.classList.add('mine');
@@ -119,19 +140,7 @@ export class StickerUi {
       words.textContent = text;
       item.append(tag, words);
     }
-
-    item.style.top = `${LANE_Y * 100}%`;
-    this.syncLayer();
-    this.danmaku.append(item);
-
-    const W = this.danmaku.clientWidth;
-    const w = item.offsetWidth;
-    if (!W || !w) { item.remove(); return; }   // 畫面還沒排版（大小是 0）：不播，也不要把軌道卡死
-    const speed = (W + w) / FLY_MS;   // px / ms
-    this.laneFree = performance.now() + (w + GAP_PX) / speed;
-    const anim = item.animate([{ transform: 'translateX(0)' }, { transform: `translateX(${-(W + w)}px)` }], { duration: FLY_MS, easing: 'linear' });
-    anim.onfinish = () => item.remove();
-    anim.oncancel = () => item.remove();
+    return item;
   }
 }
 

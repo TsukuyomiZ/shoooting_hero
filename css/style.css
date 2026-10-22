@@ -291,26 +291,30 @@ button.big { width: 100%; padding: 13px; font-size: 17px; margin-top: 8px; }
   container-type: size;
 }
 .danmaku { position: absolute; inset: 0; overflow: hidden; }
+/* 三排軌道（client/danmaku-lanes.js：第一排上緣 y=112、排距 40 px ≈ 3.9cqw）：一則的高度比排距矮一點，排跟排之間留縫 */
 .dm {
   position: absolute;
   left: 100%;
+  box-sizing: border-box;
+  height: 3.5cqw;
   display: flex;
   align-items: center;
   gap: 0.5cqw;
-  padding: 0.3cqw 0.9cqw 0.3cqw 0.3cqw;
+  padding: 0 0.9cqw 0 0.2cqw;
   border-radius: 999px;
+  line-height: 1;
   white-space: nowrap;
   will-change: transform;
 }
 .dm.mine { background: rgba(255, 255, 255, 0.12); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.75); }
 .dm img {
-  width: 5.2cqw;
-  height: 5.2cqw;
+  width: 3.2cqw;
+  height: 3.2cqw;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
   animation: dm-pop 0.25s ease-out, dm-bob 0.45s 0.25s ease-in-out infinite alternate;
 }
 .dm-name {
-  font-size: 1.5cqw;
+  font-size: 1.4cqw;
   font-weight: bold;
   text-shadow: 0 0 3px #000, 0 0 3px #000, 0 1px 2px #000;
 }
@@ -345,11 +349,11 @@ button.big { width: 100%; padding: 13px; font-size: 17px; margin-top: 8px; }
 .sticker-btn.blocked { animation: sticker-blocked 0.3s; }
 .chat-btn { font-size: 2.4cqw; line-height: 1; }
 
-/* ---- 聊天（client/chat.js）：彈幕跟貼圖同一條軌道；輸入框只在打字時出現在左下角 ---- */
-.dm.text { padding: 0.5cqw 1.1cqw; background: rgba(10, 10, 20, 0.35); }
+/* ---- 聊天（client/chat.js）：彈幕跟貼圖共用三排軌道；輸入框只在打字時出現在左下角 ---- */
+.dm.text { padding: 0 1.1cqw; background: rgba(10, 10, 20, 0.35); }
 .dm.text.mine { background: rgba(255, 255, 255, 0.14); }
 .dm-text {
-  font-size: 2.1cqw;
+  font-size: 1.8cqw;
   font-weight: bold;
   color: #fff;
   text-shadow: 0 0 3px #000, 0 0 3px #000, 0 1px 2px #000;

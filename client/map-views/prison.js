@@ -1,7 +1,7 @@
 import { CONFIG } from '../../shared/core/config.js';
 import {
-  EXEC_ACTION_NAMES as N, EXEC_NAME, BEASTS, NUMERALS, isBeast, prisonState, bossOf, setUp, spawnBeast, spawnCage, syncCage,
-  cageRoundsLeft, handOf, pounceTarget, restorePrison, bladeDrop,
+  EXEC_ACTION_NAMES as N, EXEC_NAME, BEASTS, NUMERALS, isBeast, prisonState, bossOf, setUp, spawnBeast, spawnCage, syncCage, syncPerch,
+  cageRoundsLeft, handOf, tigerForecast, cleaverCount, restorePrison, bladeDrop,
 } from '../../shared/maps/prison.js';
 
 // Boss 關「處刑監獄」的地圖畫面：處刑官與三隻猛獸回合的動畫（照伺服器廣播的招式播）、處刑官 / 猛獸 / 囚籠 / 斷頭台 / 吊燈的畫法、
@@ -24,7 +24,9 @@ export const prison = {
   //   doors      三間牢門打開了幾成（0 ~ 1，牢房開了就慢慢打開）
   //   cageDrop   正在從天而降的囚籠（出生資料 + k = 掉到幾成）
   //   guillotine 處刑時出現的斷頭台 { x, y, rise, dropped }；chain = 從王手上射出去的鎖鏈 { x0, y0, x1, y1, k }；whip = 皮鞭 { x0, y0, x1, y1, k }
-  create: () => ({ fx: null, running: null, doors: [0, 0, 0], cageDrop: null, guillotine: null, chain: null, whip: null }),
+  //   hop        猛獸一倒下就跳下處刑台的處刑官 { x0, y0, t }（不是他的招式，所以不走 fx：t = 跳了幾秒，落地就清掉；終點 = 他現在的位置）
+  //   execDone   處刑官的回合播完了（還沒輪到下一位）：劍齒虎的預告改看現在誰在流血（見 tigerForecast）；下一個敵人的回合開始就清掉
+  create: () => ({ fx: null, running: null, doors: [0, 0, 0], cageDrop: null, guillotine: null, chain: null, whip: null, hop: null, execDone: false }),
 
   musicTrack: () => 'scorpion',   // 先借用巨蠍的 Boss 曲（陰暗、偷偷摸摸的）；之後可以換專屬的
 
@@ -34,9 +36,17 @@ export const prison = {
   },
   onDeath: onPrisonDeath,
 
-  // 每一步：囚籠被打破 / 被關的人倒下 → 放出來（跟伺服器的 cascade 同一個條件）；牢門照開了幾間慢慢打開
+  // 每一步：囚籠被打破 / 被關的人倒下 → 放出來；放出來的猛獸倒下了 → 處刑官馬上跳下處刑台（都跟伺服器的 cascade 同一個條件；
+  // 跳下來平常在重播到打倒猛獸的那一下就推了（showEvent 畫弧線），這裡是保險）；牢門照開了幾間慢慢打開。
+  // 出招動畫播到一半時不推跳下來：放猛獸那一招是先落在處刑台上、過幾幀才放出猛獸（見 castFrame 的 release），
+  // 中間那幾幀會被當成猛獸倒下了；他的回合播完照伺服器的狀態對齊
   update(c, dt) {
     syncCage(c.match);
+    if (!c.state.fx) {
+      const jump = syncPerch(c.match);
+      if (jump && !c.state.hop) startHop(c, jump.x0, jump.y0);
+    }
+    stepHop(c, dt);
     const S = prisonState(c.match);
     if (!S) return;
     for (let k = 0; k < c.state.doors.length; k++) {
@@ -58,6 +68,8 @@ export const prison = {
       const e = c.match.byId(sid);
       if (e) c.fx.float(e, '暈眩！', '#fde68a', 16);
     }
+    // 這一下打倒了放出來的猛獸：處刑官跳下處刑台（狀態在重播的 replayEvent 已經推過了，這裡照事件帶的起點畫弧線）
+    if (ev.descend && !c.state.hop) startHop(c, ev.descend.x0, ev.descend.y0);
     if (!ev.target) return;
     if (id === 'execFlail') { c.fx.shake(9); c.fx.sound('thunk', { x: ev.x }); }
     else if (id === 'execBlade') {
@@ -69,6 +81,14 @@ export const prison = {
     else if (id === 'wolfBite' || id === 'tigerPounce') { c.fx.shake(6); c.fx.sound('stab', { x: ev.x }); }
   },
 
+  // 猛獸在自己的回合結束被燒死、處刑官跳下處刑台（伺服器 turnEnd 的 fx）：照它帶的起點跳。
+  // 這時候猛獸還沒照 turnFx 的角色狀態倒下，接著的 update 推出來的跳下來（起點已經被搬到地上了）就不再重新開始
+  turnFx(c, e, fx) {
+    if (fx.type !== 'descend') return false;
+    if (!c.state.hop) startHop(c, fx.x0, fx.y0);
+    return true;
+  },
+
   // 處刑官的血量停在門檻（等輪到他跳上處刑台）：多打的不算，飄「鎖血」
   showDamage(c, e, d) {
     if (e.kind !== 'executioner' || d.dmg > 0 || d.blocked || d.friendly || !e.alive) return false;
@@ -76,12 +96,13 @@ export const prison = {
     return true;
   },
 
-  // 撲過去的猛獸（飛行物畫成牠）、跳上 / 跳下處刑台的處刑官（自己照弧線畫）：一般的身體、血條、名字都不畫
+  // 撲過去的猛獸（飛行物畫成牠）、跳上 / 跳下處刑台的處刑官（自己照弧線畫；半空中不會坐著，三隻都倒下時落地才坐下來哭）：
+  // 一般的身體、血條、名字都不畫
   drawEntityBare(ctx, c, e) {
     if (c.state.running && e.id === c.state.running) return true;
-    const air = jumpAt(c, e);
+    const air = jumpAt(c, e) || hopAt(c, e);
     if (!air) return false;
-    drawExecutioner(ctx, air.x, air.y, e.facing, c.time, e.h / ART_H.executioner, poseOf(c, e), false);
+    drawExecutioner(ctx, air.x, air.y, e.facing, c.time, e.h / ART_H.executioner, { ...poseOf(c, e), sit: false }, false);
     return true;
   },
 
@@ -147,7 +168,12 @@ export const prison = {
     const e = boss;
     lines.push([`${EXEC_NAME} ${e.hp} / ${e.maxHp}${tag}`, '#fca5a5']);
     const nx = S.next;
-    if (nx && nx.action) {
+    if (nx && nx.action === 'cleaver') {   // 菜刀丟幾個人（每死一隻召喚獸多一個）：預定的那幾個，之後又死了召喚獸多出來的那幾把丟的時候才隨機挑
+      const n = cleaverCount(match);
+      const names = (nx.targetIds || (nx.targetId ? [nx.targetId] : [])).map(id => match.byId(id)).filter(p => p && p.alive).slice(0, n).map(p => p.name);
+      const more = n - names.length;
+      lines.push([`下一招：${N.cleaver}${n > 1 ? ` ×${n}` : ''} → ${names.join('、')}${more > 0 ? `${names.length ? '＋' : ''}隨機 ${more} 人` : ''}`, '#fdba74']);
+    } else if (nx && nx.action) {
       const who = nx.targetId ? match.byId(nx.targetId) : null;
       const name = nx.action === 'cry' ? '哭泣' : N[nx.action] || nx.action;
       lines.push([`下一招：${name}${who ? ` → ${who.name}` : ''}`, nx.action === 'execute' ? '#f87171' : '#fdba74']);
@@ -155,8 +181,13 @@ export const prison = {
     const b = match.enemies.find(e => isBeast(e) && e.alive);
     if (b) {
       const plan = S.beastNext[b.id] || {};
-      const t = b.kind === 'tiger' ? pounceTarget(match, plan) : null;
-      const what = b.kind === 'wolf' ? '撕咬（先咬流血的人）' : b.kind === 'tiger' ? `飛撲${t ? ` → ${t.name}` : ''}` : N[plan.action] || '';
+      // 劍齒虎：撲所有流血的人＝牠前面處刑官菜刀丟中的人（見 tigerForecast），沒人流血就撲標記的人
+      const fc = b.kind === 'tiger' ? tigerNext(c) : null;
+      const who = fc ? `${fc.targets.map(p => p.name).join('、')}${fc.extra > 0 ? `${fc.targets.length ? '＋' : ''}隨機 ${fc.extra} 人` : ''}` : '';
+      const why = fc ? { cleaver: '菜刀砍到、流血的人全撲', bleeding: '流血的人全撲', marked: '沒人流血：撲標記的人' }[fc.why] : '';
+      const what = b.kind === 'wolf' ? '撕咬（先咬流血的人）'
+        : b.kind === 'tiger' ? (fc.why === 'stunned' ? N.stunned : `飛撲${who ? ` → ${who}` : ''}（${why}）`)
+        : N[plan.action] || '';
       lines.push([`${b.name}：${what}${S.whip === b.id ? '（攻擊 +30%）' : ''}`, '#fde68a']);
     }
     const left = cageRoundsLeft(match);
@@ -176,11 +207,16 @@ function* prisonTurnScript(c, msg) {
   const actor = match.byId(msg.actorId);
   const S = prisonState(match);
   if (S && actor && S.guard === actor.id) S.guard = null;   // 上一回合的護主到這裡為止（跟伺服器一樣）
+  c.state.execDone = false;
   yield { frames: Math.round(CONFIG.TIMING.aiThink * FPS) };
   for (const step of msg.boss.steps) yield* stepScript(c, actor, step);
   Object.assign(c.state, { fx: null, guillotine: null, chain: null, whip: null, cageDrop: null });
   if (S && msg.boss.state) restorePrison(match, { prison: msg.boss.state });
+  if (actor && actor.kind === 'executioner') c.state.execDone = true;
 }
+
+// 劍齒虎的預告（準星、HUD）：這一輪處刑官出完手了沒（輪到虎、或處刑官的回合播完了）
+const tigerNext = (c) => tigerForecast(c.match, c.currentId === 'tiger' || (c.currentId === 'executioner' && !!(c.state && c.state.execDone)));
 
 const ease = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -217,7 +253,9 @@ function* stepScript(c, actor, b) {
 function announce(c, actor, b) {
   const match = c.match;
   const target = b.targetId ? match.byId(b.targetId) : null;
-  const to = target ? ` → ${target.name}` : '';
+  // 菜刀丟好幾個人（targetIds）：全部列出來
+  const named = (b.targetIds || []).map(id => match.byId(id)).filter(Boolean).map(e => e.name);
+  const to = named.length ? ` → ${named.join('、')}` : target ? ` → ${target.name}` : '';
   const who = actor ? actor.name : '';
   switch (b.action) {
     case 'release': {
@@ -272,12 +310,9 @@ function castFrame(c, actor, b, i, cast) {
     case 'descend': {
       if (i === 0) c.fx.sound('heave', { x: b.x0 });
       if (at(JUMP.descend[1]) && actor) {
+        syncPerch(match);   // 跳下來的狀態（打得到了、三隻都倒下 → 哭），同伺服器
         actor.x = b.x; actor.y = b.y; actor.vx = 0; actor.vy = 0;
-        setUp(match, false);
-        if (S && S.released >= BEASTS.length) { S.mood = 'cry'; S.cryLeft = CONFIG.EXECUTIONER.cryTurns; }
-        c.fx.shake(10);
-        c.fx.sound('stomp', { x: b.x });
-        c.fx.particles(b.x, b.y - 2, 18, { speed: 170, life: 0.6, size: 3.5, color: '#a8a29e', gravity: 600 });
+        landFx(c, b.x, b.y);
       }
       break;
     }
@@ -404,6 +439,11 @@ function* lungeScript(c, e, b) {
 // 跳上 / 跳下處刑台的時間（播到幾成起跳、幾成落地）
 const JUMP = { release: [0.12, 0.5], descend: [0.1, 0.72] };
 
+// 從 (x0, y0) 跳到 (x, y) 的弧線上、跳到 q（0 ~ 1）成的位置：直線再往上拱 90px 的拋物線
+function arcAt(x0, y0, x, y, q) {
+  return { x: lerp(x0, x, q), y: lerp(y0, y, q) - 90 * 4 * q * (1 - q) };
+}
+
 // 處刑官跳在半空中的位置（預兆裡、起跳到落地之間，沿弧線）；不在空中回傳 null
 function jumpAt(c, e) {
   const fx = c.state.fx;
@@ -412,11 +452,46 @@ function jumpAt(c, e) {
   const k = fx.t / fx.cast;
   if (k < a || k >= z) return null;
   const b = fx.step;
-  const q = (k - a) / (z - a);
-  const top = Math.min(b.y0, b.y) - 90;
-  const x = lerp(b.x0, b.x, q);
-  const base = lerp(b.y0, b.y, q);
-  return { x, y: base - (Math.min(b.y0, b.y) - top) * 4 * q * (1 - q) };
+  return arcAt(b.x0, b.y0, b.x, b.y, (k - a) / (z - a));
+}
+
+// 猛獸一倒下就跳下處刑台（不是他的招式，見 syncPerch）：跟「跳下處刑台」那一招一樣的起跳 / 落地時間（JUMP.descend × cast.descend）
+const hopTimes = () => JUMP.descend.map(q => q * CONFIG.EXECUTIONER.cast.descend);
+
+function startHop(c, x0, y0) {
+  const S = prisonState(c.match);
+  const B = S ? BEASTS[S.released - 1] : null;
+  c.state.hop = { x0, y0, t: 0 };
+  c.fx.sound('heave', { x: x0 });
+  // 跟猛獸倒下的橫幅合成一行（橫幅會互相蓋掉；猛獸倒下時看到在跳就不另外出，見 onPrisonDeath）
+  c.fx.banner(`${B ? `${B.name}倒下了！` : ''}${EXEC_NAME}跳下處刑台`, '#fdba74');
+}
+
+// 跳下來的計時：落地那一下震動、揚起塵土，之後照一般的畫法（他早就在地上了）
+function stepHop(c, dt) {
+  const h = c.state.hop;
+  if (!h) return;
+  h.t += dt;
+  if (h.t < hopTimes()[1]) return;
+  c.state.hop = null;
+  const boss = bossOf(c.match);
+  if (boss && boss.alive) landFx(c, boss.x, boss.y);
+}
+
+// 處刑官跳下來時畫在哪裡：起跳前蹲在處刑台上、半空中沿弧線落到他現在的位置；沒在跳回傳 null
+function hopAt(c, e) {
+  const h = c.state.hop;
+  if (!h || e.kind !== 'executioner') return null;
+  const [a, z] = hopTimes();
+  if (h.t < a) return { x: h.x0, y: h.y0 };
+  return arcAt(h.x0, h.y0, e.x, e.y, Math.min(1, (h.t - a) / (z - a)));
+}
+
+// 跳下處刑台落地：畫面一震、重踩聲、揚起塵土
+function landFx(c, x, y) {
+  c.fx.shake(10);
+  c.fx.sound('stomp', { x });
+  c.fx.particles(x, y - 2, 18, { speed: 170, life: 0.6, size: 3.5, color: '#a8a29e', gravity: 600 });
 }
 
 // 處刑官現在的樣子：坐在地上哭、暴怒（紅眼、手上的流星錘）、出招的起手
@@ -425,11 +500,12 @@ function poseOf(c, e) {
   const fx = c.state.fx;
   const mine = fx && fx.actorId === e.id && fx.phase === 'cast';
   const sit = !!(S && S.mood === 'cry') && !(mine && fx.action === 'rage' && fx.t / fx.cast > 0.3);
+  const hop = e.kind === 'executioner' ? c.state.hop : null;
   return {
     sit,
     rage: !!(S && S.mood === 'rage') || !!(mine && fx.action === 'rage'),
     windup: mine && (fx.action === 'cleaver' || fx.action === 'flail') ? Math.min(1, fx.t / fx.cast / 0.7) : 0,
-    crouch: mine && JUMP[fx.action] && fx.t / fx.cast < JUMP[fx.action][0] ? 1 : 0,
+    crouch: (mine && JUMP[fx.action] && fx.t / fx.cast < JUMP[fx.action][0]) || (hop && hop.t < hopTimes()[0]) ? 1 : 0,
   };
 }
 
@@ -444,7 +520,7 @@ function onPrisonDeath(c, e) {
     return true;
   }
   if (isBeast(e)) {
-    c.fx.banner(`${e.name}倒下了！`, '#fdba74');
+    if (!c.state.hop) c.fx.banner(`${e.name}倒下了！`, '#fdba74');   // 處刑官已經在跳下來了：橫幅是合在一起的那一行（見 startHop）
     c.fx.shake(8);
     c.fx.particles(e.x, e.cy, 18, { speed: 160, life: 0.9, size: 3.5, color: e.kind === 'wolf' ? '#6b7280' : e.kind === 'bear' ? '#6f4326' : '#e0812a', gravity: 450 });
     return true;
@@ -691,13 +767,15 @@ function drawLash(ctx, l, color, w, curve) {
   ctx.restore();
 }
 
-// 劍齒虎標記的獵物（玩家回合、還沒撲出去）：目標身上一圈轉動的準星 + 虎到他那一條淡淡的虛線
+// 劍齒虎要撲的人（還沒撲出去；所有流血的人，沒人流血就是標記的那個）：每個人身上一圈轉動的準星 + 虎到他那一條淡淡的虛線
 function drawTigerMark(ctx, c) {
   const S = prisonState(c.match);
   const tiger = c.match.byId('tiger');
   if (!S || !tiger || !tiger.alive || (c.state.fx && c.state.fx.actorId === tiger.id && c.state.fx.phase === 'act')) return;
-  const t = pounceTarget(c.match, S.beastNext[tiger.id]);
-  if (!t) return;
+  for (const t of tigerNext(c).targets) drawPreyMark(ctx, c, tiger, t);
+}
+
+function drawPreyMark(ctx, c, tiger, t) {
   const pulse = 0.6 + 0.25 * Math.sin(c.time * 4);
   ctx.save();
   ctx.setLineDash([6, 6]);

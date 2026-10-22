@@ -31,7 +31,7 @@ export function shotRange(weapon, power) {
 // 後座力（例如高壓水炮）：開火的當下射手被往射擊的反方向推 recoil（跟被擊退同一套，見 Entity.knockBack）。
 // vx / vy = 這一發的初速（伺服器算的、跟著 shot 送給客戶端的同一組數字）；水平速度從 0 算起（重播擺射手時也是 0），兩邊結果一致
 export function applyRecoil(actor, weapon, vx, vy) {
-  if (!(weapon.recoil > 0) || actor.fixed) return;
+  if (!(weapon.recoil > 0) || actor.fixed || actor.held) return;   // 被關住 / 被網黏住的人不會被往後推（同擊退）
   const sp = Math.sqrt(vx * vx + vy * vy);
   if (!(sp > 0)) return;
   actor.vx = 0;

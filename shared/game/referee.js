@@ -23,13 +23,22 @@ function plainValue(v) {
 
 // ---- 紀錄（LOG）用的小工具：結算前後各拍一張血量快照，一比就知道誰扣 / 回了多少血、誰倒下、誰是新召喚的 ----
 const r1 = (n) => (Number.isFinite(n) ? Math.round(n * 10) / 10 : n);
-// 一發改到的地形與場景（地圖機制附在事件上的）：掉下來的鐘乳石 falls、點燃的火把 lights（第幾根 / 第幾支），沒有就不帶
+// 一發改到的地形與場景（地圖機制附在事件上的）：掉下來的鐘乳石 falls、點燃的火把 lights（第幾根 / 第幾支），沒有就不帶；
+// 穿過地圖上的火著火的飛行物 ignited（第幾顆，例如穿過洞穴的火把）；
+// 處刑官跳下處刑台 descend（從哪裡跳到哪裡）：打倒猛獸的那一下的事件帶的，或這一波結算完地圖機制連帶的（接在結果上，見 mechanics/index.js 的 cascade）；
+// 蜘蛛女王換了狀態 queen（[{ from, to, x0, y0, x, y }]：被燒到掉下來、最後一顆蛋破了從背景回來…；事件帶的與這一波結算完連帶的，照順序）
 function sceneChanges(shot) {
   const out = {};
   for (const key of ['falls', 'lights', 'stuns']) {   // stuns = 掉下來的吊燈砸暈的敵人（處刑監獄）
     const list = shot ? shot.events.flatMap(ev => ev[key] || []) : [];
     if (list.length) out[key] = list;
   }
+  const ignited = shot ? shot.events.filter(ev => ev.ignite > 0).map(ev => ev.p) : [];
+  if (ignited.length) out.ignited = ignited;
+  const descend = shot ? shot.descend || (shot.events.find(ev => ev.descend) || {}).descend : null;
+  if (descend) out.descend = descend;
+  const queen = shot ? [...shot.events.filter(ev => ev.queen).map(ev => ev.queen), ...(shot.queen ? [shot.queen] : [])] : [];
+  if (queen.length) out.queen = queen;
   return out;
 }
 const hpOf = (match) => new Map(match.entities.map(e => [e.id, { hp: e.hp, alive: e.alive }]));
@@ -63,6 +72,10 @@ const nextOf = (next) => ({
 // 開場就抽好的第一招：地圖機制的快照裡預定的下一招（名字以 Next 結尾、帶 action 的欄位，例如 guardianNext、cyclopsNext）；沒有 = null
 function openingPlan(snapshot) {
   for (const [k, v] of Object.entries(snapshot)) if (/Next$/.test(k) && v && typeof v.action === 'string') return v;
+  // 機制的狀態整包放在一個欄位的（處刑監獄的 prison、蜘蛛巢穴的 spider）：看它的 next
+  for (const v of Object.values(snapshot)) {
+    if (v && typeof v === 'object' && !Array.isArray(v) && v.next && typeof v.next.action === 'string') return v.next;
+  }
   return null;
 }
 // 慢動作關掉的原因（客戶端送的，認得的才記）：fire 放開左鍵開火、land 落地 / 抓到藤蔓 / 掉進水裡、stamina 體力用完、release 沒開火就放開、

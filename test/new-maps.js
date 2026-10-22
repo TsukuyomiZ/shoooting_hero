@@ -114,7 +114,7 @@ test('三張新地圖都在一般地圖池（腹背受敵 / 大亂鬥 / 小心�
   for (const [id, name] of [['flanked', '腹背受敵'], ['brawl', '大亂鬥'], ['beehive', '小心擊發']]) {
     assert(normal.includes(id) && LEVELS[id].name === name, `${id} ${LEVELS[id] && LEVELS[id].name}`);
   }
-  assert(levelsInPool('boss').join() === 'treeGarden,jungleSerpent,scorpionDen,prisonYard', 'boss pool ' + levelsInPool('boss'));
+  assert(levelsInPool('boss').join() === 'treeGarden,jungleSerpent,scorpionDen,prisonYard,spiderNest', 'boss pool ' + levelsInPool('boss'));
   return { normal };
 });
 

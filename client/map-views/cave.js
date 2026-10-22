@@ -1,12 +1,13 @@
 import { CONFIG } from '../../shared/core/config.js';
-import { TORCH_H, flameOf, lightTorch, torchLevel, torchLight, lightScale, inShadow } from '../../shared/maps/cave.js';
+import { TORCH_H, torchH, flameOf, lightTorch, torchLevel, torchLight, lightScale, inShadow } from '../../shared/maps/cave.js';
 
 // 洞穴（岩穴）的地圖畫面：火把、照明（洞裡很暗，只有火光、玩家身邊、爆炸的閃光照得到）、鐘乳石掉下來的演出。
+// 關卡的火把寫 pillar 的畫成大型的石頭火柱（例如蜘蛛巢穴中間那座）：火焰照 flame 倍大、光圈裡整片照亮（不是越往外越暗）。
 // 火把的亮度與光圈照 shared/maps/cave.js（每過一輪暗一格、3 輪後熄滅；亮度照 match.round 推，伺服器的陰影判定也是同一個光圈）。
 // 規則在 shared/maps/cave.js；掛勾的說明見 index.js
 const W = CONFIG.WORLD_W, H = CONFIG.WORLD_H;
-// 照明半徑（px）：玩家自己身邊（看得到自己的角色）、爆炸的閃光。火把的光圈在 shared/maps/cave.js（torchLight）
-const LIGHT = { player: 56, burst: 120 };
+// 照明半徑（px）：玩家自己身邊（看得到自己的角色）、爆炸的閃光、穿過火把著火的子彈（飛到哪照到哪）。火把的光圈在 shared/maps/cave.js（torchLight）
+const LIGHT = { player: 56, burst: 120, fire: 80 };
 const DARK = 'rgba(5,4,10,0.92)';   // 照不到的地方（敵人、鐘乳石都幾乎看不見，但一樣打得到）
 const BURST_LIFE = 0.55;            // 爆炸照亮周圍幾秒
 const IGNITE_TIME = 0.6;            // 火把剛點燃時火焰從小到大的時間
@@ -36,10 +37,11 @@ export const cave = {
       const next = g + (want - g) * Math.min(1, dt * GLOW_RATE);
       s.glow.set(i, want === 0 && next < 0.5 ? 0 : next);   // 熄了：縮到看不見就歸零（等比縮小永遠不會剛好到 0）
       if (s.level && s.level[i] > 0 && lv === 0) snuff(c, i);
-      if (!lv || Math.random() > dt * 3 * lightScale(lv)) return;
+      const big = t.flame ?? 1;
+      if (!lv || Math.random() > dt * 3 * big * lightScale(lv)) return;
       const f = flameOf(t);
-      c.fx.particle({ x: f.x + (Math.random() - 0.5) * 4, y: f.y - 6, vx: (Math.random() - 0.5) * 20, vy: -40 - Math.random() * 30,
-        life: 0.7, maxLife: 0.7, size: 1.4, color: '#fdba74', gravity: -10 });
+      c.fx.particle({ x: f.x + (Math.random() - 0.5) * 4 * big, y: f.y - 6 * big, vx: (Math.random() - 0.5) * 20 * big, vy: (-40 - Math.random() * 30) * Math.sqrt(big),
+        life: 0.7, maxLife: 0.7, size: 1.4 * Math.sqrt(big), color: Math.random() < 0.3 ? '#fde68a' : '#fdba74', gravity: -10 });
     });
     s.level = levels;
   },
@@ -98,9 +100,11 @@ function ignite(c, i, was) {
   c.state.ignite.set(i, { t0: c.time, from });
   if (!refill) c.state.glow.set(i, 0);
   const f = flameOf(t);
+  const big = t.flame ?? 1;
   c.fx.sound('ignite', { x: f.x });
-  c.fx.particles(f.x, f.y, 18, { speed: 90, life: 0.6, size: 3, color: '#fb923c', gravity: -120 });
-  c.fx.float({ cx: f.x, y: t.y, h: TORCH_H + 10, id: `torch${i}` }, refill ? '火把補滿！' : '火把點燃！', '#fdba74', 15);
+  c.fx.particles(f.x, f.y, Math.round(18 * big), { speed: 90 * Math.sqrt(big), life: 0.6, size: 3, color: '#fb923c', gravity: -120 });
+  if (t.pillar) c.fx.shake(4);
+  c.fx.float({ cx: f.x, y: t.y, h: torchH(t) + (t.flameH ?? 0) + 10, id: `torch${i}` }, `${nameOf(t)}${refill ? '補滿' : '點燃'}！`, '#fdba74', 15);
 }
 
 // 第 i 支火把燒完了（新的一輪開始、亮度掉到 0）：冒一陣煙、飄字（光圈在 update 裡慢慢縮掉）
@@ -109,7 +113,7 @@ function snuff(c, i) {
   if (!t) return;
   const f = flameOf(t);
   c.fx.particles(f.x, f.y - 4, 12, { speed: 40, life: 1.1, size: 3, color: '#78716c', gravity: -90 });
-  c.fx.float({ cx: f.x, y: t.y, h: TORCH_H + 10, id: `torch${i}` }, '火把熄滅', '#a8a29e', 15);
+  c.fx.float({ cx: f.x, y: t.y, h: torchH(t) + (t.flameH ?? 0) + 10, id: `torch${i}` }, `${nameOf(t)}熄滅`, '#a8a29e', 15);
 }
 
 // 這個事件是不是掉下來的鐘乳石（半路才出現的飛行物，見 shared/physics/volley.js）
@@ -120,12 +124,22 @@ function isRock(c, ev) {
 
 // ---------- 繪圖 ----------
 
-// 火把：木柄 + 纏著布的頭；亮著的畫火焰（越暗火焰越小；照明在 drawShade）
+// 火把叫什麼（飄字用）：火柱 / 火把
+const nameOf = (t) => (t.pillar ? '火柱' : '火把');
+
+// 火把：木柄 + 纏著布的頭；火柱：石柱 + 頂上的鐵火盆。亮著的畫火焰（越暗火焰越小；照明在 drawShade）
 function drawTorches(ctx, c) {
   const S = c.match.mechState;
   if (!S) return;
   S.def.torches.forEach((t, i) => {
     const lv = torchLevel(c.match, i);
+    if (t.pillar) {
+      ctx.save();
+      drawPillar(ctx, t, lv > 0);
+      if (lv > 0) drawFlame(ctx, c, t, i, lv);
+      ctx.restore();
+      return;
+    }
     ctx.save();
     ctx.fillStyle = '#5b3a1e';
     ctx.fillRect(t.x - 2, t.y - TORCH_H + 6, 4, TORCH_H - 6);
@@ -146,9 +160,26 @@ function flameScale(c, i, lv, ig = c.state.ignite.get(i)) {
   return (from + (1 - from) * grow) * (0.5 + 0.5 * lightScale(lv));
 }
 
+// 火柱：一根往上微收的石柱（一節節的石塊）、底座，頂上一個鐵火盆（點著的時候盆口是燒紅的炭）
+function drawPillar(ctx, t, lit) {
+  const h = torchH(t), top = t.y - h;
+  ctx.fillStyle = '#44403c';
+  ctx.fillRect(t.x - 15, t.y - 6, 30, 6);                       // 底座
+  ctx.fillStyle = '#57534e';
+  ctx.beginPath(); ctx.moveTo(t.x - 11, t.y - 6); ctx.lineTo(t.x - 9, top + 6); ctx.lineTo(t.x + 9, top + 6); ctx.lineTo(t.x + 11, t.y - 6); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(28,25,23,0.7)';
+  ctx.lineWidth = 1;
+  for (let y = t.y - 16; y > top + 8; y -= 10) { ctx.beginPath(); ctx.moveTo(t.x - 10, y); ctx.lineTo(t.x + 10, y); ctx.stroke(); }   // 石塊的接縫
+  ctx.fillStyle = '#292524';                                      // 鐵火盆
+  ctx.beginPath(); ctx.moveTo(t.x - 18, top); ctx.lineTo(t.x + 18, top); ctx.lineTo(t.x + 12, top + 9); ctx.lineTo(t.x - 12, top + 9); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = lit ? '#c2410c' : '#1c1917';                   // 盆口（炭火）
+  ctx.beginPath(); ctx.ellipse(t.x, top + 1, 16, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+}
+
 function drawFlame(ctx, c, t, i, lv) {
   const f = flameOf(t);
-  const k = flameScale(c, i, lv) * (t.faint ? 0.75 : 1);
+  const k = flameScale(c, i, lv) * (t.faint ? 0.75 : 1) * (t.flame ?? 1);
+  if (t.pillar) { drawBlaze(ctx, c, f, i, k); return; }
   const wob = Math.sin(c.time * 13 + i * 2.1) * 1.5;
   const hgt = (16 + Math.sin(c.time * 9 + i) * 2.5) * k;
   ctx.fillStyle = 'rgba(251,146,60,0.9)';
@@ -160,6 +191,32 @@ function drawFlame(ctx, c, t, i, lv) {
   ctx.fill();
   ctx.fillStyle = 'rgba(254,240,138,0.95)';
   ctx.beginPath(); ctx.ellipse(f.x + wob * 0.4, f.y - hgt * 0.3, 3 * k, 6 * k, 0, 0, Math.PI * 2); ctx.fill();
+}
+
+// 火柱的大火：好幾條火舌交錯晃動（外圈橘紅、中間橘、芯黃白），底部一圈暖光
+function drawBlaze(ctx, c, f, i, k) {
+  const tongue = (dx, w, h, phase, color) => {
+    const wob = Math.sin(c.time * 11 + phase) * 2.2 * k;
+    const hh = h * (1 + 0.12 * Math.sin(c.time * 8 + phase * 1.7));
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(f.x + dx - w, f.y);
+    ctx.quadraticCurveTo(f.x + dx - w * 1.15, f.y - hh * 0.5, f.x + dx + wob, f.y - hh);
+    ctx.quadraticCurveTo(f.x + dx + w * 1.15, f.y - hh * 0.5, f.x + dx + w, f.y);
+    ctx.closePath();
+    ctx.fill();
+  };
+  const glow = ctx.createRadialGradient(f.x, f.y - 8 * k, 0, f.x, f.y - 8 * k, 22 * k);
+  glow.addColorStop(0, 'rgba(253,186,116,0.45)');
+  glow.addColorStop(1, 'rgba(253,186,116,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(f.x, f.y - 8 * k, 22 * k, 0, Math.PI * 2); ctx.fill();
+  tongue(-4.5 * k, 3.5 * k, 11 * k, i + 1, 'rgba(234,88,12,0.85)');
+  tongue(4.5 * k, 3.5 * k, 12 * k, i + 2.3, 'rgba(234,88,12,0.85)');
+  tongue(0, 6 * k, 17 * k, i, 'rgba(251,146,60,0.92)');
+  tongue(0, 3.4 * k, 11 * k, i + 0.7, 'rgba(253,224,71,0.95)');
+  ctx.fillStyle = 'rgba(254,252,232,0.9)';
+  ctx.beginPath(); ctx.ellipse(f.x, f.y - 3 * k, 2 * k, 3.2 * k, 0, 0, Math.PI * 2); ctx.fill();
 }
 
 // 掉下來的鐘乳石：照它原本的形狀畫，尖端在飛行物的位置
@@ -189,7 +246,7 @@ function drawFallingRock(ctx, c, p) {
 }
 
 // 照明的光源：火把（光圈照 shared/maps/cave.js 的 torchLight：出生點那支比較小、越暗越小；畫面上照 update 算的 glow 慢慢變過去，會閃爍）、
-// 活著的玩家身邊、爆炸的閃光
+// 活著的玩家身邊、著火的子彈、爆炸的閃光。flat = 光圈裡整片照亮（火柱），不是越往外越暗
 function lightsOf(c) {
   const out = [];
   const S = c.match.mechState;
@@ -198,9 +255,12 @@ function lightsOf(c) {
     const r = c.state.glow.has(i) ? c.state.glow.get(i) : L.r;
     if (!(r >= 1)) return;
     const flicker = 1 + 0.035 * Math.sin(c.time * 11 + i * 1.7) + 0.02 * Math.sin(c.time * 23 + i);
-    out.push({ x: L.x, y: L.y, r: r * flicker, warm: true });
+    out.push({ x: L.x, y: L.y, r: r * flicker, warm: true, ...(t.pillar ? { flat: true } : {}) });
   });
   for (const e of c.match.players) if (e.alive) out.push({ x: e.cx, y: e.cy, r: LIGHT.player });
+  for (const p of c.projectiles) {   // 著火的子彈（p.fire）：一團會閃的暖光跟著飛
+    if (p.fire) out.push({ x: p.x, y: p.y, r: LIGHT.fire * (1 + 0.06 * Math.sin(c.time * 31 + p.i)), warm: true });
+  }
   for (const b of c.state.bursts) {
     const age = (c.time - b.t0) / BURST_LIFE;
     if (age >= 0 && age < 1) out.push({ x: b.x, y: b.y, r: LIGHT.burst * (1 - age * age) });
@@ -228,7 +288,7 @@ export function drawShade(ctx, c, aura = () => true, more = null, hidden = () =>
   for (const l of lights) {
     const grad = g.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
     grad.addColorStop(0, 'rgba(0,0,0,1)');
-    grad.addColorStop(0.55, 'rgba(0,0,0,0.85)');
+    grad.addColorStop(l.flat ? 0.82 : 0.55, l.flat ? 'rgba(0,0,0,0.97)' : 'rgba(0,0,0,0.85)');
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = grad;
     g.beginPath(); g.arc(l.x, l.y, l.r, 0, Math.PI * 2); g.fill();
@@ -239,7 +299,7 @@ export function drawShade(ctx, c, aura = () => true, more = null, hidden = () =>
   for (const l of lights) {
     if (!l.warm) continue;
     const grad = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r * 0.8);
-    grad.addColorStop(0, 'rgba(255,170,80,0.16)');
+    grad.addColorStop(0, `rgba(255,170,80,${l.flat ? 0.1 : 0.16})`);
     grad.addColorStop(1, 'rgba(255,170,80,0)');
     ctx.fillStyle = grad;
     ctx.beginPath(); ctx.arc(l.x, l.y, l.r * 0.8, 0, Math.PI * 2); ctx.fill();
@@ -248,6 +308,12 @@ export function drawShade(ctx, c, aura = () => true, more = null, hidden = () =>
   ctx.globalAlpha = 0.5;
   S.def.torches.forEach((t, i) => {
     if (torchLevel(c.match, i) > 0 || hidden(i)) return;
+    if (t.pillar) {
+      drawPillar(ctx, t, false);
+      ctx.fillStyle = `rgba(251,146,60,${0.5 + 0.3 * Math.sin(c.time * 3 + i)})`;   // 盆裡一點點餘燼
+      ctx.beginPath(); ctx.ellipse(t.x, t.y - torchH(t) + 1, 6, 1.6, 0, 0, Math.PI * 2); ctx.fill();
+      return;
+    }
     ctx.fillStyle = '#78716c';
     ctx.fillRect(t.x - 2, t.y - TORCH_H + 6, 4, TORCH_H - 6);
     ctx.beginPath(); ctx.ellipse(t.x, t.y - TORCH_H + 4, 4.5, 6, 0, 0, Math.PI * 2); ctx.fill();

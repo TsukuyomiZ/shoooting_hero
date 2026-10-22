@@ -12,18 +12,20 @@ import { standSpot, standY } from './guardian.js';
 //   spawned（放出來的猛獸 / 召喚的囚籠的出生資料，重連時照著重建）、seq（囚籠的流水號）、fallen（掉下來的吊燈）
 //
 // 2026-10-19 使用者定的規則（數字見 config.EXECUTIONER / WOLF / BEAR / TIGER）：
-// - 處刑官從最右邊出場。三招：菜刀丟擲（流血）、訓獸者皮鞭（打自己的召喚獸、讓牠下一次攻擊加成；不疊加、打不死）、
+// - 處刑官從最右邊出場。三招：菜刀丟擲（流血；本來丟一個人，每死一隻召喚獸多丟一個人，2026-10-22 使用者，見 cleaverCount）、
+//   訓獸者皮鞭（打自己的召喚獸、讓牠下一次攻擊加成；不疊加、打不死）、
 //   處刑者囚籠（場上最多一個；把人關起來，籠子有血量，隊友打破；被關的人照樣可以開火——往哪裡射都一出砲口就打在籠子上、自己的攻擊傷不到自己（2026-10-19 使用者）；撐過 cageRounds 輪還關著 → 召喚斷頭台、鎖鏈拖過去秒殺）
 // - 血量到 phases（80 / 60 / 40%）就停住（hpFloor：多打的不算），輪到他時跳上右上的處刑台、打開下一間牢房（惡狼 → 棕熊 → 劍齒虎）。
-//   在台上打不到（Entity.intangible），照樣出招；放出來的那隻倒下後，輪到他時跳下來
+//   在台上打不到（Entity.intangible），照樣出招；放出來的那隻一倒下就馬上跳下來（2026-10-22 使用者：原本要等輪到他才跳，見 syncPerch）
 // - 三隻都倒下 → 坐在地上哭 cryTurns 個自己的回合（不行動，受到的傷害 +cryDamagePct%）→ 暴怒站起來（紅眼）、拿出流星錘
 // 我補的（使用者沒指定，回覆說明過）：
 // - 王每一招都事先抽好（next，玩家回合畫面上標出來：菜刀 / 囚籠 / 流星錘要打誰）；權重 weights，暴怒後換 rageWeights（沒有召喚獸了，沒有皮鞭）
 // - 囚籠到期的那一回合直接處刑（不出別的招）；哭的時候不處刑（籠子還在，隊友可以趁機打破）
 // - 猛獸剛放出來的那一輪不動（dormant，同古樹的樹妖）。猛獸的招式（使用者採用我的建議）：
-//     惡狼：撕咬，撲向有流血的人（層數最多的；都沒有就最近的人）
+//     惡狼：撕咬，撲向有流血的人（層數最多的；都沒有就最近的人）——只咬一個（2026-10-22 使用者：那時候菜刀也只丟一把）
 //     棕熊：熊掌拍擊（撲向最近的人、拍飛）/ 護主（場上有囚籠就擋到囚籠前面，受到的傷害 -guardCut% 到牠下一個回合）
-//     劍齒虎：一放出來就標記血最少的人，輪到牠時飛撲過去；路上第一個人先被撲到（隊友可以擋），吃掉被撲到的人的流血層數，每層再 +bleedBonus
+//     劍齒虎：輪到牠時撲咬所有有流血的玩家（2026-10-22 使用者；一個撲完再撲下一個，先撲近的，直直撲過去、路上的人擋不到）；
+//       沒人流血就撲牠標記的人（一放出來就標記血最少的人；路上第一個人先被撲到，隊友可以擋）。吃掉被撲到的人的流血層數，每層再 +bleedBonus
 // - 天花板的吊燈（關卡的 stalactites，跟洞穴的鐘乳石同一套地形）：打到 / 炸到鏈子或燈就掉下來（WEAPONS.chandelier），
 //   砸到第一個角色，砸到敵人（猛獸、在地上的王）另外暈眩一回合（stuns）
 
@@ -64,7 +66,7 @@ export const prisonState = (match) => (match.mechState && match.mechState.def &&
 export const bossOf = (match) => match.byId('executioner');
 
 // 建立處刑官（關卡的敵人之後），回傳這一場的狀態。bossScale = 王的血量倍率（人數 × 第幾個王關）：猛獸也照這個
-// （跟古樹的樹妖一樣不吃小關的「每過一關」；血量見 config：使用者選的方案 A 300 / 90 / 120 / 150）。囚籠另外算（40 × 人數，見 cageStep）
+// （跟古樹的樹妖一樣不吃小關的「每過一關」；血量見 config：使用者選的方案 A 300 / 90 / 120 / 150）。囚籠另外算（50 × 人數，見 cageStep）
 export function buildPrison(match, { bossScale }) {
   const def = match.level.mechanic;
   const E = CONFIG.EXECUTIONER;
@@ -172,6 +174,33 @@ export function syncCage(match) {
   for (const p of match.players) p.held = !!(S.cage && p.id === S.cage.prisonerId);
 }
 
+/**
+ * 放出來的猛獸倒下了 → 處刑官馬上跳下處刑台（2026-10-22 使用者：不等輪到他）：回到出生的地方、打得到了；
+ * 三隻都倒下 → 坐在地上哭（cryTurns 個自己的回合，下一招 = 哭）；預定的下一招是鞭那隻猛獸的話作廢（輪到他時重抽，同以前）。
+ * 血量已經到下一個門檻也照樣跳下來（輪到他時再跳上去打開下一間）。王倒下了就不動。
+ * 兩邊照同一個條件各自推、可以重複呼叫、不抽亂數（客戶端的亂數跟伺服器不同步）：
+ *   伺服器在打倒猛獸的那一下（地圖機制的 eventExtras：事件帶 descend，同一波後面的砲彈就打得到落地的他）、
+ *   每一波結算完（cascade，保險：沒有事件就倒下的）與回合結束（turnEnd：猛獸在自己的回合結束被燒死）；
+ *   客戶端照事件重播到那一下（replayPrison）、畫面每一步（保險，播出招動畫的時候除外，見 client/map-views/prison.js）。
+ * 回傳 { x0, y0, x, y }（從哪裡跳到哪裡，畫面照它畫弧線、紀錄照它記；三隻都倒下再帶 cry: true），沒跳 = null
+ */
+export function syncPerch(match) {
+  const S = prisonState(match);
+  const boss = bossOf(match);
+  if (!S || !S.up || !boss || !boss.alive || liveBeast(match)) return null;
+  const x0 = boss.x, y0 = boss.y;
+  placeBoss(match, boss, S.def.boss);
+  setUp(match, false);
+  boss.facing = -1;
+  const cry = S.released >= BEASTS.length;
+  if (cry) {
+    S.mood = 'cry';
+    S.cryLeft = CONFIG.EXECUTIONER.cryTurns;
+    planExecNext(match);   // 哭的時候下一招就是哭（不抽亂數）
+  } else if (S.next && S.next.action === 'whip') S.next = null;
+  return { x0, y0, x: boss.x, y: boss.y, ...(cry ? { cry: true } : {}) };
+}
+
 /** 被關的人自己的攻擊（打在籠子上的爆炸）傷不到他自己（地圖機制的 absorbHit：回傳 true = 這一下不算他） */
 export function shieldsPrisoner(e, attacker) {
   return !!e.held && attacker === e;
@@ -207,6 +236,35 @@ function randomPlayer(match) {
   return alive.length ? match.rng.pick(alive) : null;
 }
 
+/**
+ * 菜刀這一招丟幾把（每把丟不同的人）：本來一把，每死一隻召喚獸多一把（2026-10-22 使用者）；最多活著的玩家數。
+ * 死了幾隻 = 開過的牢房 − 還活著的那一隻。兩邊照同一份狀態算得出來（HUD 照它寫）
+ */
+export function cleaverCount(match) {
+  const S = prisonState(match);
+  const alive = match.players.filter(e => e.alive).length;
+  const dead = S ? S.released - (liveBeast(match) ? 1 : 0) : 0;
+  return Math.min(alive, 1 + Math.max(0, dead));
+}
+
+// 菜刀要丟誰（cleaverCount 個不同的人）：預定的那幾個（plan.targetIds；還活著的、照順序）先，不夠的話（預定之後又死了召喚獸、預定的人倒下了）
+// 從其他活著的人隨機補（match.rng，只有伺服器抽）。plan = null → 全部隨機（抽下一招的時候）
+function cleaverTargets(match, plan) {
+  const n = cleaverCount(match);
+  const alive = match.players.filter(e => e.alive);
+  const out = [];
+  for (const id of (plan && (plan.targetIds || (plan.targetId ? [plan.targetId] : []))) || []) {
+    const e = alive.find(p => p.id === id);
+    if (e && !out.includes(e) && out.length < n) out.push(e);
+  }
+  while (out.length < n) {
+    const rest = alive.filter(e => !out.includes(e));
+    if (!rest.length) break;
+    out.push(match.rng.pick(rest));
+  }
+  return out;
+}
+
 // 照權重抽一招（菜刀 / 皮鞭 / 囚籠 / 流星錘；皮鞭要有活著的猛獸、囚籠要場上沒有）
 function pickAction(match) {
   const S = prisonState(match);
@@ -233,13 +291,18 @@ export function planExecNext(match) {
     const b = liveBeast(match);
     return (S.next = { action, targetId: b.id });
   }
+  if (action === 'cleaver') {   // 丟好幾個人：targetIds（照出手的順序），targetId = 第一個
+    const ts = cleaverTargets(match, null);
+    return (S.next = ts.length ? { action, targetId: ts[0].id, targetIds: ts.map(e => e.id) } : { action });
+  }
   const t = randomPlayer(match);
   return (S.next = t ? { action, targetId: t.id } : { action });
 }
 
 /**
- * 輪到王：暈著就什麼都不做；不然先處理處刑台（放出來的猛獸倒下了 → 跳下來；血量到門檻 → 跳上去、打開下一間牢房），
- * 再出這一回合的招（哭 / 暴怒 + 流星錘 / 處刑 / 預定的那一招），最後抽下一招。回傳 { steps: [招式…], next }（格式同 Boss）
+ * 輪到王：暈著就什麼都不做；不然先處理處刑台（血量到門檻 → 跳上去、打開下一間牢房），
+ * 再出這一回合的招（哭 / 暴怒 + 流星錘 / 處刑 / 預定的那一招），最後抽下一招。回傳 { steps: [招式…], next }（格式同 Boss）。
+ * 猛獸倒下時本來就馬上跳下來了（syncPerch）；輪到他還在台上、沒有猛獸（照理不會發生）才在這裡補一招跳下來
  */
 export function resolveExecTurn(match, boss) {
   const S = prisonState(match);
@@ -248,8 +311,9 @@ export function resolveExecTurn(match, boss) {
   if (consumeStun(S, boss.id)) {
     steps.push({ action: 'stunned', cast: E.cast.stunned, still: stillResult(match) });
   } else {
-    if (S.up && !liveBeast(match)) steps.push(atThreshold(match) ? releaseStep(match, boss) : descendStep(match, boss));
-    else if (!S.up && atThreshold(match)) steps.push(releaseStep(match, boss));
+    const jump = syncPerch(match);
+    if (jump) steps.push(descendStep(match, jump));
+    if (!S.up && atThreshold(match)) steps.push(releaseStep(match, boss));
     if (match.players.some(e => e.alive)) steps.push(...actionSteps(match, boss));
   }
   planExecNext(match);
@@ -271,7 +335,7 @@ function actionSteps(match, boss) {
     S.mood = 'rage';
     const rage = { action: 'rage', cast: E.cast.rage, still: stillResult(match) };
     const t = randomPlayer(match);
-    return t ? [rage, throwStep(match, boss, t, 'flail')] : [rage];
+    return t ? [rage, throwStep(match, boss, [t], 'flail')] : [rage];
   }
   if (cageDue(match)) return [executeStep(match, boss)];
   const plan = S.next || {};
@@ -280,11 +344,15 @@ function actionSteps(match, boss) {
   if (action === 'cage' && S.cage) action = null;
   if (!['cleaver', 'whip', 'cage', 'flail'].includes(action)) action = pickAction(match);
   if (action === 'whip') return [whipStep(match, boss, liveBeast(match))];
+  if (action === 'cleaver') {
+    const ts = cleaverTargets(match, plan.action === 'cleaver' ? plan : null);
+    return ts.length ? [throwStep(match, boss, ts, action)] : [{ action: 'idle', still: stillResult(match) }];
+  }
   const marked = plan.action === action && plan.targetId ? match.players.find(e => e.id === plan.targetId && e.alive) : null;
   const target = marked || randomPlayer(match);
   if (!target) return [{ action: 'idle', still: stillResult(match) }];
   if (action === 'cage') return [cageStep(match, boss, target)];
-  return [throwStep(match, boss, target, action)];
+  return [throwStep(match, boss, [target], action)];
 }
 
 // 王站到 spot（處刑台上 / 出生的地方；spot.y = 那裡的地面，腳底放在站得住的高度，見 standY）
@@ -315,15 +383,9 @@ function releaseStep(match, boss) {
   return { action: 'release', cell: k, beast: B.kind, x0, y0, x: boss.x, y: boss.y, cast: CONFIG.EXECUTIONER.cast.release, spawns: [spec], still: stillResult(match) };
 }
 
-// 放出來的猛獸倒下了：跳下處刑台、回到出生的地方（打得到了）。三隻都倒下 → 坐在地上哭
-function descendStep(match, boss) {
-  const S = prisonState(match);
-  const x0 = boss.x, y0 = boss.y;
-  placeBoss(match, boss, S.def.boss);
-  setUp(match, false);
-  boss.facing = -1;
-  if (S.released >= BEASTS.length) { S.mood = 'cry'; S.cryLeft = CONFIG.EXECUTIONER.cryTurns; }
-  return { action: 'descend', x0, y0, x: boss.x, y: boss.y, cast: CONFIG.EXECUTIONER.cast.descend, still: stillResult(match) };
+// 跳下處刑台這一招（syncPerch 已經跳下來了，jump = 它回傳的從哪裡跳到哪裡）
+function descendStep(match, jump) {
+  return { action: 'descend', ...jump, cast: CONFIG.EXECUTIONER.cast.descend, still: stillResult(match) };
 }
 
 // 出手的位置：面向那邊的手（肩膀的高度）
@@ -331,17 +393,26 @@ export function handOf(boss) {
   return { x: boss.x + boss.facing * (boss.hw + 4), y: boss.y - boss.h * 0.62 };
 }
 
-// 菜刀丟擲 / 流星錘：從手上直直丟向 target（其他人都不會擋到，一定打中他）
-function throwStep(match, boss, target, action) {
+// 菜刀丟擲 / 流星錘：從手上直直丟向 targets 的每一個人（一人一把，其他人都不會擋到，一定打中他），
+// 照順序每把間隔 cleaverGap 幀出手；面向第一個人。菜刀另外帶 targetIds（照出手的順序；紀錄照它記）
+function throwStep(match, boss, targets, action) {
   const W = CONFIG.WEAPONS[action === 'flail' ? 'execFlail' : 'execCleaver'];
-  if (target.x !== boss.x) boss.facing = target.x > boss.x ? 1 : -1;
+  const first = targets[0];
+  if (first.x !== boss.x) boss.facing = first.x > boss.x ? 1 : -1;
   const o = handOf(boss);
-  const dx = target.cx - o.x, dy = target.cy - o.y;
-  const d = Math.sqrt(dx * dx + dy * dy) || 1;
-  const p = bossProjectile(boss, W, o.x, o.y, dx / d * W.speed, dy / d * W.speed);
-  for (const e of match.entities) if (e !== target) p.ignore.add(e);
-  p.stopAt = target;
-  return { action, targetId: target.id, cast: CONFIG.EXECUTIONER.cast[action], shot: bossShot(match, boss, W, [p], boss.facing) };
+  const projs = targets.map((target, k) => {
+    const dx = target.cx - o.x, dy = target.cy - o.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const p = bossProjectile(boss, W, o.x, o.y, dx / d * W.speed, dy / d * W.speed);
+    p.spawn = 1 + k * CONFIG.EXECUTIONER.cleaverGap;
+    for (const e of match.entities) if (e !== target) p.ignore.add(e);
+    p.stopAt = target;
+    return p;
+  });
+  return {
+    action, targetId: first.id, ...(action === 'cleaver' ? { targetIds: targets.map(e => e.id) } : {}),
+    cast: CONFIG.EXECUTIONER.cast[action], shot: bossShot(match, boss, W, projs, boss.facing),
+  };
 }
 
 // 訓獸者皮鞭：打自己的猛獸 whipDamage（打不死，最多剩 1 血），牠下一次攻擊 +whipPct%（不疊加：已經鞭過的再鞭一次也一樣）
@@ -465,15 +536,16 @@ export function planBeast(match, e) {
   return plan;
 }
 
-/** 輪到猛獸：暈著就不動；不然出預定的那一招並直接結算好，再抽下一招。回傳 { steps: [招式], next } */
+/** 輪到猛獸：暈著就不動；不然出預定的那一招並直接結算好（劍齒虎一回合可能撲好幾個人 = 好幾招），再抽下一招。回傳 { steps: [招式…], next } */
 export function resolveBeastTurn(match, e) {
   const S = prisonState(match);
   const C = CONFIG[BEAST_BY_KIND[e.kind].cfg];
   if (S.guard === e.id) S.guard = null;   // 上一回合的護主到這裡為止
-  let step;
-  if (consumeStun(S, e.id)) step = { action: 'stunned', cast: C.cast, still: stillResult(match) };
+  let steps;
+  if (consumeStun(S, e.id)) steps = [{ action: 'stunned', cast: C.cast, still: stillResult(match) }];
   else {
     const plan = S.beastNext[e.id] || planBeast(match, e) || {};
+    let step = null;
     if (e.kind === 'wolf') {
       const t = biteTarget(match, e);
       step = t ? lungeStep(match, e, t, 'wolfBite', 'bite') : null;
@@ -482,16 +554,16 @@ export function resolveBeastTurn(match, e) {
     } else if (e.kind === 'bear') {
       const t = nearestPlayerAt(match, e.cx, e.cy);
       step = t ? lungeStep(match, e, t, 'bearSwipe', 'swipe') : null;
-    } else {
-      step = pounceStep(match, e, plan);
     }
-    if (!step) step = { action: 'idle', still: stillResult(match) };
-    if (step.shot && S.whip === e.id) S.whip = null;   // 鞭出來的加成用在這一下了
+    steps = e.kind === 'tiger' ? pounceSteps(match, e, plan) : step ? [step] : [];
+    if (!steps.length) steps = [{ action: 'idle', still: stillResult(match) }];
+    if (steps.some(st => st.shot) && S.whip === e.id) S.whip = null;   // 鞭出來的加成用在這一下了（劍齒虎撲好幾個人：只加在第一下）
   }
   planBeast(match, e);
-  const res = step.shot || step.still;
+  const last = steps[steps.length - 1];
+  const res = last.shot || last.still;
   res.results = match.entities.map(f => f.toState());
-  return { steps: [step], next: S.beastNext[e.id] ? { ...S.beastNext[e.id] } : null, state: prisonSnapshot(match).prison };
+  return { steps, next: S.beastNext[e.id] ? { ...S.beastNext[e.id] } : null, state: prisonSnapshot(match).prison };
 }
 
 // 撲過去（撕咬 / 熊掌拍擊 / 飛撲）：飛行物就是猛獸自己（從身體中間出發、判定半徑 = 半寬），直直撲向 victim（其他人都不碰），
@@ -518,6 +590,7 @@ function lungeStep(match, e, victim, weaponId, action, weapon = CONFIG.WEAPONS[w
   e.vx = 0;
   e.vy = 0;
   e.onGround = true;
+  shot.results = match.entities.map(f => f.toState());   // 撲到之後的樣子（牠站到的位置）：客戶端撲完照這一份放（一回合撲好幾下時每一下都要對）
   const C = CONFIG[BEAST_BY_KIND[e.kind].cfg];
   return { action, targetId: victim.id, x0, y0, x: e.x, y: e.y, cast: C.cast, ...extra, shot };
 }
@@ -538,12 +611,70 @@ function guardStep(match, bear) {
   return { action: 'guard', x0, y0, x: bear.x, y: bear.y, cast: CONFIG.BEAR.cast, ...(cage ? { cageId: cage.id } : {}), still: stillResult(match) };
 }
 
-// 飛撲：撲向標記的人（pounceTarget），路上第一個玩家先被撲到（firstInPath）。吃掉被撲到的人的流血層數，每層 +bleedBonus 傷害
-function pounceStep(match, tiger, plan) {
-  const target = pounceTarget(match, plan);
-  if (!target) return null;
+/** 劍齒虎這一回合要撲的人：所有有流血的活著的玩家（2026-10-22 使用者）；沒人流血 = 標記的那個人（pounceTarget）。畫面的標記、HUD 照它 */
+export function pounceTargets(match, plan) {
+  const bleeding = match.players.filter(e => e.alive && e.bleed > 0);
+  if (bleeding.length) return bleeding;
+  const t = pounceTarget(match, plan);
+  return t ? [t] : [];
+}
+
+/**
+ * 畫面預告劍齒虎下一次會撲誰（準星、HUD）。一輪的順序固定是 玩家 → 處刑官 → 猛獸，流血在每個人自己的回合結束就止住、
+ * 玩家身上的流血只會來自處刑官的菜刀：所以虎會撲的，是牠前面那一回合處刑官菜刀丟中的人，不是玩家回合裡正在流血的人。
+ * execActed = 這一輪處刑官已經出完手了（或現在就是虎的回合）。回傳 { targets, extra, why }：
+ *   why 'stunned'  虎被吊燈砸暈了，這一回合不撲（targets 空的）
+ *   why 'bleeding' 處刑官出完手了（虎剛放出來、這一輪不動的除外）→ 照現在誰在流血（pounceTargets）
+ *   why 'cleaver'  處刑官還沒出手、預定丟菜刀（沒被砸暈、沒在哭、囚籠沒到期）→ 菜刀要丟的人（預定的；extra = 丟的時候還要隨機補幾個）
+ *   why 'marked'   其他 → 標記的那個人（沒人會流血）
+ */
+export function tigerForecast(match, execActed) {
+  const S = prisonState(match);
+  const tiger = match.byId('tiger');
+  if (!S || !tiger || !tiger.alive) return { targets: [], extra: 0, why: null };
+  if (S.stuns.includes(tiger.id)) return { targets: [], extra: 0, why: 'stunned' };
+  const plan = S.beastNext[tiger.id];
+  if (execActed && !tiger.dormant) {
+    const ts = pounceTargets(match, plan);
+    return { targets: ts, extra: 0, why: ts.some(e => e.bleed > 0) ? 'bleeding' : 'marked' };
+  }
+  const boss = bossOf(match);
+  const nx = S.next;
+  if (boss && boss.alive && nx && nx.action === 'cleaver' && !S.stuns.includes(boss.id) && S.mood !== 'cry' && !cageDue(match)) {
+    const n = cleaverCount(match);
+    const planned = (nx.targetIds || (nx.targetId ? [nx.targetId] : [])).map(id => match.byId(id)).filter(e => e && e.alive).slice(0, n);
+    return { targets: planned, extra: n - planned.length, why: 'cleaver' };
+  }
+  const t = pounceTarget(match, plan);
+  return { targets: t ? [t] : [], extra: 0, why: 'marked' };
+}
+
+// 劍齒虎的回合：撲咬所有有流血的人（輪到牠那一刻有流血的；一個撲完再撲下一個，每次先撲離牠現在最近的），
+// 直直撲過去、路上的人擋不到（大家都站在同一條地面上：撲完的人被擊退到下一個人前面，會一直擋到後面的人）；倒下了就跳過。
+// 沒人流血就撲標記的人（只撲一個；路上第一個人先被撲到，隊友可以擋）。回傳每一撲一招
+function pounceSteps(match, tiger, plan) {
+  const S = prisonState(match);
+  const left = pounceTargets(match, plan);
+  const bleedingTurn = left.some(e => e.bleed > 0);
+  const steps = [];
+  while (left.length && tiger.alive) {
+    let k = 0;
+    for (let i = 1; i < left.length; i++) {
+      const d = (e) => (e.cx - tiger.cx) * (e.cx - tiger.cx) + (e.cy - tiger.cy) * (e.cy - tiger.cy);
+      if (d(left[i]) < d(left[k])) k = i;
+    }
+    const [target] = left.splice(k, 1);
+    if (!target.alive) continue;
+    steps.push(pounceStep(match, tiger, target, !bleedingTurn));
+    if (S.whip === tiger.id) S.whip = null;   // 鞭出來的加成只加在第一撲
+  }
+  return steps;
+}
+
+// 飛撲：撲向 target（canBlock = 路上第一個玩家先被撲到，firstInPath；markedId = 本來要撲的人）。吃掉被撲到的人的流血層數，每層 +bleedBonus 傷害
+function pounceStep(match, tiger, target, canBlock) {
   const W = CONFIG.WEAPONS.tigerPounce;
-  const victim = firstInPath(match, tiger.x, tiger.cy, target, W.hitRadius);
+  const victim = canBlock ? firstInPath(match, tiger.x, tiger.cy, target, W.hitRadius) : target;
   const stacks = victim.bleed || 0;
   const weapon = stacks > 0 ? { ...W, damage: W.damage + stacks * CONFIG.TIGER.bleedBonus } : W;
   const step = lungeStep(match, tiger, victim, 'tigerPounce', 'pounce', weapon, {
@@ -551,7 +682,10 @@ function pounceStep(match, tiger, plan) {
   });
   const ev = step.shot.events.find(x => x.target === victim.id);
   const blocked = ev && ev.damages && ev.damages.some(dd => dd.id === victim.id && dd.blocked);
-  if (stacks > 0 && victim.alive && !blocked) victim.bleed = 0;   // 流血被吃掉了（無敵擋下這一下就沒吃到）
+  if (stacks > 0 && victim.alive && !blocked) {   // 流血被吃掉了（無敵擋下這一下就沒吃到）
+    victim.bleed = 0;
+    step.shot.results = match.entities.map(f => f.toState());
+  }
   return step;
 }
 
@@ -589,12 +723,23 @@ export function stunExtras(match, info) {
   return stuns.length ? { stuns } : {};
 }
 
-/** 客戶端照事件播（重播的 replayEvent）：伺服器在這一下掉下來的吊燈、砸暈的敵人。重連時快照已經套過的就跳過 */
+/**
+ * 一個有傷害的事件（地圖機制的 eventExtras）：吊燈砸暈的（stunExtras），與這一下打倒了放出來的猛獸 → 處刑官馬上跳下處刑台
+ * （syncPerch；這一波後面的砲彈就打得到落地的他）。回傳 { stuns?, descend? }
+ */
+export function prisonEventExtras(match, info) {
+  const out = stunExtras(match, info);
+  const descend = syncPerch(match);
+  return descend ? { ...out, descend } : out;
+}
+
+/** 客戶端照事件播（重播的 replayEvent）：伺服器在這一下掉下來的吊燈、砸暈的敵人、跳下處刑台（這一下的角色狀態已經套過、猛獸倒下了）。重連時快照已經套過的就跳過 */
 export function replayPrison(match, ev) {
   const S = prisonState(match);
   if (!S) return;
   for (const k of ev.falls || []) if (match.terrain.dropStalactite(k)) S.fallen.push(k);
   for (const id of ev.stuns || []) if (!S.stuns.includes(id)) S.stuns.push(id);
+  if (ev.descend) syncPerch(match);
 }
 
 // ---------- 快照 ----------

@@ -26,7 +26,7 @@ const stickers = new StickerUi(canvas, {
   },
 });
 
-// 聊天：Enter 打字，字跟貼圖走同一條彈幕軌道；打字時放掉按住的移動鍵，角色才不會一直走
+// 聊天：Enter 打字，字跟貼圖共用三排彈幕軌道；打字時放掉按住的移動鍵，角色才不會一直走
 const chat = new ChatUi(stickers, {
   send: (msg) => transport && transport.send(msg),
   onOpen: () => { view.keys = {}; },

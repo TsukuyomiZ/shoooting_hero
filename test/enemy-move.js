@@ -197,7 +197,7 @@ test('古樹、巨蟒、蜜蜂不走動（由地圖機制出招）；斷線代�
 
 // ---------------- 飄移 ----------------
 
-test('蝙蝠在出生點周圍的框框裡飄：每回合都換位置，路上每一幀身體都不碰地形（岩台、鐘乳石、天花板），終點跟另一隻隔開 allyGap', () => base(() => {
+test('蝙蝠在出生點周圍的框框裡飄：每回合都換位置，路上每一幀身體都不碰地形（岩台、鐘乳石、天花板），一直待在岩台的同一邊（上面那隻在上、下面那隻在下），終點跟另一隻隔開 allyGap', () => base(() => {
   let turns = 0, far = 0;
   for (let seed = 1; seed <= 25; seed++) {
     const m = make('cave', 2, { seed });
@@ -213,7 +213,9 @@ test('蝙蝠在出生點周圍的框框裡飄：每回合都換位置，路上�
         if (d >= CONFIG.AI_MOVE.minDist) far++;
         assert(!r.walk && r.glide && Number.isInteger(r.glide.dx) && Number.isInteger(r.glide.dy) && r.glide.frames > 0, `${at}: glide ${J(r.glide)}`);
         assert(b.x === x0 + r.glide.dx && b.y === y0 + r.glide.dy, `${at}: server put it at the end of the glide`);
-        assert(Math.abs(b.x - s.x) <= 120 && Math.abs(b.y - s.y) <= 40 && b.y < 340, `${at}: left its box (${b.x}, ${b.y})`);
+        // 岩台頂面 340、底面最低 369：上面那隻的腳不低於頂面，下面那隻的頭不高於底面
+        const side = s.y < 340 ? b.y < 340 : b.y - b.h > 369;
+        assert(Math.abs(b.x - s.x) <= 120 && Math.abs(b.y - s.y) <= 40 && side, `${at}: left its box (${b.x}, ${b.y})`);
         for (let i = 1; i <= r.glide.frames; i++) {
           const p = glideAt(x0, y0, r.glide, i);
           assert(!touchesTerrain(m.terrain, b, p.x, p.y, 4), `${at}: frame ${i} touches terrain at (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);

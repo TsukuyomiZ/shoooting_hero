@@ -112,7 +112,7 @@ const OLD_DEFAULT_MODS = {
 // 效果自己的角色狀態（以前直接寫在 Entity 上）與同步欄位
 const COUNTERS = { readyStacks: 'rd', huntStacks: 'hu', extraTurnCd: 'xcd', soulPct: 'soul' };
 const OLD_TOSTATE = ['id', 'x', 'y', 'hp', 'mhp', 'stamina', 'alive', 'cause', 'facing', 'weapon',
-  'burn', 'shield', 'soul', 'turns', 'xcd', 'sx', 'sy', 'wf', 'ps', 'lk', 'bl', 'vn', 'rd', 'hu'];   // bl = 流血（2026-10-14，狀態不是效果）
+  'burn', 'shield', 'soul', 'turns', 'xcd', 'sx', 'sy', 'wf', 'ps', 'lk', 'bl', 'eg', 'vn', 'rd', 'hu'];   // bl = 流血（2026-10-14）、eg = 糾纏（2026-10-22），狀態不是效果
 const OLD_EXTRA_MODS = ['stageDamagePct'];
 const OLD_STAT_FIELDS = ['maxHp', 'maxStamina', 'moveSpeed', 'jumpSpeed', 'size'];
 

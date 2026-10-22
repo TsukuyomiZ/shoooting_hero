@@ -74,7 +74,7 @@ const BASE = {
   RUN: { stageCount: 10, bossStages: [5, 10], eliteStages: [3, 8], bossHpPerStage: 0.15 },
   SCORPION: { hp: { shell: 180, pincer: 140, stinger: 100 }, pinchReach: 260, cast: { emerge: 0.9, attack: 0.75, burrow: 0.9 } },
   // 陰影的加成另外測：這裡關掉，招式的傷害照原本的數字（× 敵人倍率 0.7）
-  CAVE: { torchReach: 24, torchPass: 10, torchRounds: 3, torchLight: 270, faintLight: 150, dimLight: 0.45, shadowDamagePct: 0 },
+  CAVE: { torchReach: 24, torchPass: 10, torchRounds: 3, torchLight: 270, faintLight: 150, dimLight: 0.45, shadowDamagePct: 0, torchBurn: 20 },
   POISON: { pctPerStack: 1, persist: true },
   PLAYER: { hp: 150 }, WATER: { damagePct: 30, enemiesDrown: true }, FEVER: { everyRounds: 10, damagePct: 50, inBoss: false },
   WEAPONS: {
@@ -647,9 +647,9 @@ await test('裁判流程：玩家都斷線（AI 代打）時一直打到結束�
 
 // ---------------- 冒險 ----------------
 
-await test('一場冒險：Boss 池有四隻王（2026-10-19 加了處刑監獄），第 5、10 關抽兩隻不一樣的；巨蠍巢穴抽得到', () => base(() => {
+await test('一場冒險：Boss 池有五隻王（2026-10-19 加了處刑監獄、10-22 加了蜘蛛巢穴），第 5、10 關抽兩隻不一樣的；巨蠍巢穴抽得到', () => base(() => {
   const pool = levelsInPool('boss');
-  assert(J(pool) === '["treeGarden","jungleSerpent","scorpionDen","prisonYard"]', 'pool ' + pool);
+  assert(J(pool) === '["treeGarden","jungleSerpent","scorpionDen","prisonYard","spiderNest"]', 'pool ' + pool);
   const seen = new Set();
   for (let seed = 1; seed <= 30; seed++) {
     const run = new Run({ players: mkPlayers(1), seed, io: new FakeIo(), cards: CARDS.cards });

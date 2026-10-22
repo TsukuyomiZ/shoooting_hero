@@ -542,6 +542,7 @@ function runTenStages(config) {
     jungleSerpent: ['snake', () => CONFIG.SNAKE_BOSS.hp],
     scorpionDen: ['scorpionShell', () => CONFIG.SCORPION.hp.shell],
     prisonYard: ['executioner', () => CONFIG.EXECUTIONER.hp],
+    spiderNest: ['spiderQueen', () => CONFIG.SPIDER_QUEEN.hp],
   };
   for (const k of [4, 9]) {
     const bossStart = starts[k];

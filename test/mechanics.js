@@ -32,8 +32,8 @@ function test(name, fn) {
 const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
 const J = JSON.stringify;
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
-const HOOKS = ['build', 'ready', 'cascade', 'moved', 'hazardStart', 'hazardStep', 'hazardFinish', 'turnStart', 'turnEnd', 'roundStart', 'attackMult', 'defenseMult', 'hurt', 'struck', 'passed', 'absorbHit', 'eventExtras', 'replayEvent', 'aiTurn', 'snapshot', 'restore'];
-const WANT = { treeGarden: 'tree', jungleSerpent: 'snake', beehive: 'hive', cave: 'cave', depths: 'cyclops', forestGuard: 'guardian', scorpionDen: 'scorpion', prisonYard: 'prison', wanderer: 'swordsman', tenguPeak: 'tengu' };
+const HOOKS = ['build', 'ready', 'cascade', 'moved', 'hazardStart', 'hazardStep', 'hazardFinish', 'turnStart', 'turnEnd', 'roundStart', 'attackMult', 'defenseMult', 'hurt', 'struck', 'passed', 'fireSources', 'absorbHit', 'eventExtras', 'replayEvent', 'aiTurn', 'snapshot', 'restore'];
+const WANT = { treeGarden: 'tree', jungleSerpent: 'snake', beehive: 'hive', cave: 'cave', depths: 'cyclops', forestGuard: 'guardian', scorpionDen: 'scorpion', prisonYard: 'prison', wanderer: 'swordsman', tenguPeak: 'tengu', spiderNest: 'spider' };
 // 每個機制的狀態（match.mechState）的欄位：跟搬進來之前的 match.tree / snake / hive 一樣，巨蟒多了場上的蛇血（items，原本的 match.items）
 const STATE_KEYS = {
   tree: ['def', 'hpScale', 'minions', 'seq', 'next'],
@@ -46,6 +46,7 @@ const STATE_KEYS = {
   swordsman: ['def', 'next', 'qi', 'parry', 'flying', 'roam'],
   tengu: ['def', 'next', 'hover', 'flying', 'flyingTurn', 'seq', 'clock', 'roam'],
   prison: ['def', 'hpScale', 'released', 'up', 'mood', 'cryLeft', 'next', 'beastNext', 'whip', 'guard', 'stuns', 'cage', 'spawned', 'seq', 'fallen'],
+  spider: ['def', 'lit', 'fallen', 'hpScale', 'mode', 'cleansed', 'next', 'eggs', 'stuck', 'spawned', 'seq'],
 };
 
 // 一個關卡暫時加進 LEVELS，建 Match 看會不會丟錯
@@ -132,6 +133,7 @@ test('plain 的掛勾什麼都不做、回傳預設值', () => {
   assert(J(P.eventExtras(m)) === '{}', 'eventExtras → {}');
   assert(P.struck(m, m.byId('p1'), { type: 'terrain', x: 200, y: 450, blast: 40 }) === null, 'struck → null');
   assert(P.passed(m, m.byId('p1'), { x0: 0, y0: 0, x1: 500, y1: 500, r: 5 }) === null, 'passed → null');
+  assert(Array.isArray(P.fireSources(m, m.byId('p1'))) && P.fireSources(m, m.byId('p1')).length === 0, 'fireSources → []');
   assert(P.defenseMult(m, m.byId('e1')) === 1 && P.defenseMult(m, p) === 1, 'defenseMult → 1');
   const r1 = P.replayEvent(m, { drops: [{ id: 'a1', type: 'snakeBlood', x: 1, y: 2 }], bees: [{ id: 'b1' }] });
   const r2 = P.replayEvent(m, {});

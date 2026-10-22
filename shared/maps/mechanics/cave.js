@@ -1,4 +1,4 @@
-import { buildCave, struckCave, passCave, touchTorch, replayCave, caveSnapshot, restoreCave, roundCave, shadowMult } from '../cave.js';
+import { buildCave, struckCave, passCave, caveFireSources, touchTorch, replayCave, caveSnapshot, restoreCave, roundCave, shadowMult } from '../cave.js';
 
 // 洞穴（岩穴）的地圖機制：什麼時候、照什麼順序呼叫 cave.js（規則本身在那裡）。狀態在 match.mechState（buildCave 建的）。
 // 鐘乳石是地形（level.stalactites），掉下來的時機在這裡；火把第幾輪點燃的也是這裡的狀態（亮度照輪數推），照明怎麼畫在 client/map-views/cave.js
@@ -17,6 +17,11 @@ export const cave = {
   // 玩家方的飛行物從火把旁邊飛過去就點燃（寫成 pass 事件）
   passed(match, owner, seg) {
     return passCave(match, owner, seg);
+  },
+
+  // 火把是火源：飛行物穿過亮著的火把就著火（玩家的子彈也算熄著的：飛過去就點燃了；著火的規則在 shared/physics/fire.js）
+  fireSources(match, owner) {
+    return caveFireSources(match, owner);
   },
 
   // 玩家走過去碰到火把就點燃（裁判廣播成 pickup）

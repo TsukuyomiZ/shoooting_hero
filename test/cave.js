@@ -1,8 +1,11 @@
 // node test/cave.js
 // 2026-10-08：新地圖「岩穴」（洞穴地形：鐘乳石、火把照明）、新敵人蝙蝠（聲波）、小心擊發的樹枝改成擋玩家的子彈。
-// 地圖池與站位（蝙蝠飄在岩台上方、只有出生點的火把亮著）、蝙蝠（飄在空中、每回合在出生點附近飄一段（見 enemy-move.js）、不會被擊退、只用聲波、照狙擊槍的打法、擊退 120）、
+// 地圖池與站位（蝙蝠岩台上方、下方各一隻，只有出生點的火把亮著）、蝙蝠（飄在空中、每回合在出生點附近飄一段（見 enemy-move.js）、不會被擊退、只用聲波、照狙擊槍的打法、擊退 120）、
+// 岩台是蝙蝠的掩體（2026-10-22：玩家的子彈打不穿、拋物線打得到上面那隻、聲波照樣穿過、玩家打下來的鐘乳石落在岩台上）、
 // 鐘乳石（直擊 / 爆炸碰到就整根掉下來、砸到人 30、砸到隊友 ×誤傷、落地就碎、炸不壞）、火把（打在旁邊 / 飛過去 / 走過去點燃，只有玩家方）、
 // 火把燒完（每過一輪暗一格、3 輪後熄滅、隨時都能補滿、round.start 的紀錄）、陰影（不在光圈裡的敵人傷害 ×1.3，含獨眼巨人）、
+// 火把是火源（2026-10-22：子彈穿過火把著火 → 打中的對方附加燃燒；玩家的穿過熄著的也算、敵人的只有亮著的；同一幀穿過又打中；蝙蝠著火的聲波燒玩家；
+// 每支火把自己的 burn；帶不了火的武器；跟燃燒子彈相加、燒不到隊友；地心探險 / 巨蠍巢穴；紀錄 ignited。著火本身的規則在 test/fire.js）、
 // 快照重建、客戶端照事件重播一致（含半路才出現的鐘乳石）、裁判流程與紀錄、真的 GameView 播一段（含遮光、照輪數變暗）、
 // 火把的畫面（沒點過 / 燒完的飄「點燃」、變暗的飄「補滿」、補滿時火焰不會先變小）；
 // 小心擊發：玩家的子彈打不穿樹枝（直線打不到狙擊手、拋物線落在樹枝上炸得到），狙擊手的子彈照樣穿過樹枝
@@ -15,6 +18,8 @@ import { simulateShot } from '../shared/physics/weapons.js';
 import { STALACTITE, PLATFORM, HARD } from '../shared/physics/terrain.js';
 import { TORCH_H, torchLevel, torchLight, lightTorch, inShadow } from '../shared/maps/cave.js';
 import { replayChecked } from './replay-check.js';
+import { replayVolley } from '../shared/physics/volley.js';
+import { catchFire } from '../shared/physics/fire.js';
 
 const results = [];
 async function test(name, fn) {
@@ -70,7 +75,7 @@ const BASE = {
   ENEMY: { hp: 45, damageMult: 0.7, lateFromStage: 6, damageMultLate: 1 },
   SNIPER: { hp: 30, sniperSpread: 3, moveChance: 1, weapons: ['sniper'] },
   BAT: { hp: 45, fixed: true, hw: 14, h: 22, sniperSpread: 3, sniperChance: 1, moveChance: 1, roam: { x: 120, y: 40, speed: 60 }, weapons: ['sonic'] },
-  CAVE: { torchReach: 24, torchPass: 10, torchRounds: 3, torchLight: 270, faintLight: 150, dimLight: 0.45, shadowDamagePct: 30 },
+  CAVE: { torchReach: 24, torchPass: 10, torchRounds: 3, torchLight: 270, faintLight: 150, dimLight: 0.45, shadowDamagePct: 30, torchBurn: 20 },
   PLAYER: { hp: 150 }, WATER: { damagePct: 30, enemiesDrown: true }, FEVER: { everyRounds: 10, damagePct: 50 },
   WEAPONS: {
     cannon: { ...CONFIG.WEAPONS.cannon, damage: 30, radius: 42, knockback: 180 },
@@ -115,13 +120,16 @@ await test('岩穴在一般地圖池；地面、天花板（炸不壞）、右�
   return { stalactites: t.stalactites.map(s => s.tip) };
 }));
 
-await test('蝙蝠：岩台上方飄著兩隻（fixed：不會掉下來、不會被擊退）；血量照一般敵人放大；只有聲波', () => base(() => {
+await test('蝙蝠：岩台上方、下方各飄著一隻（fixed：不會掉下來、不會被擊退）；血量照一般敵人放大；只有聲波', () => base(() => {
   for (const n of [1, 3]) {
     const m = make('cave', n);
     const bs = bats(m);
     assert(bs.length === 2, 'two bats');
+    const [a, b] = bs;
+    assert(a.y < 340 && m.terrain.at(a.x, a.y + 45) === PLATFORM, `${a.name} floats above the ledge: ${a.y}`);
+    assert(b.y - b.h > 370 && m.terrain.at(b.x, b.y - b.h - 60) === PLATFORM, `${b.name} floats under the ledge: ${b.y}`);
     for (const b of bs) {
-      assert(b.fixed && b.y === LEVELS.cave.enemySpawns.find(s => s.name === b.name).y && b.y < 340, `${b.name} floats above the ledge: ${b.y}`);
+      assert(b.fixed && b.y === LEVELS.cave.enemySpawns.find(s => s.name === b.name).y, `${b.name} at its spawn: ${b.y}`);
       assert(b.hp === Math.round(45 * (1 + 0.5 * (n - 1))) || b.hp === Math.round(45 * m.rules.enemyHp), `${b.name} hp ${b.hp}`);
       assert(J(b.weapons) === '["sonic"]' && b.weapons.every(w => !CONFIG.WEAPONS[w].gravity), 'sonic only');
     }
@@ -134,7 +142,7 @@ await test('蝙蝠：岩台上方飄著兩隻（fixed：不會掉下來、不會
   assert(b.x === x0 && b.y === y0 && b.hp < b.maxHp, 'a direct cannon hit hurts but does not move it');
 }));
 
-await test('蝙蝠的 AI：每回合先在空中飄一段（不走路）再用聲波；不加誤差時打得到每個出生點的玩家；聲波的擊退 120（比狙擊槍大）', () => base(() => {
+await test('蝙蝠的 AI：每回合先在空中飄一段（不走路）再用聲波；不加誤差時上面那隻打得到每個出生點的玩家（隔著岩台）、下面那隻打得到最前面的；聲波的擊退 120（比狙擊槍大）', () => base(() => {
   const roam = make('cave', 4, { seed: 3 });
   for (const b of bats(roam)) {
     for (let k = 0; k < 6; k++) {
@@ -144,8 +152,11 @@ await test('蝙蝠的 AI：每回合先在空中飄一段（不走路）再用�
     }
   }
   const m = make('cave', 4, { seed: 3 });
-  for (const b of bats(m)) for (const p of m.players) assert(lineBlocker(m.world, b, p) === null, `${b.name} sees ${p.id} through the ledge`);
-  const shooter = bats(m)[0];
+  const [up, low] = bats(m);
+  for (const p of m.players) assert(lineBlocker(m.world, up, p) === null, `${up.name} sees ${p.id} through the ledge`);
+  // 下面那隻的高度跟玩家差不多：後面的玩家被前面的擋住，最前面那個（P4）一定打得到
+  assert(lineBlocker(m.world, low, m.byId('p4')) === null, `${low.name} sees the front player`);
+  const shooter = up;
   const target = m.byId('p3');
   const shot = m.resolveShot(shooter, 'sonic', angleTo(shooter, target.cx, target.cy), 100);
   const hit = shot.events.find(ev => ev.target === 'p3');
@@ -162,6 +173,52 @@ await test('蝙蝠的 AI：每回合先在空中飄一段（不走路）再用�
   };
   assert(Math.abs(kick('sonic') / kick('sniper') - 120 / 90) < 1e-9, 'knockback 120 vs 90');
   return { kick: { sonic: kick('sonic'), sniper: kick('sniper') } };
+}));
+
+await test('岩台是蝙蝠的掩體（2026-10-22）：玩家直線打不到上面那隻（子彈停在岩台上）、拋物線打得到；聲波照樣穿過岩台；玩家打下來的鐘乳石落在岩台上碎掉，砸不到下面那隻', () => base(() => {
+  const m = make('cave', 4);
+  const [up, low] = bats(m);
+  assert(m.terrain.platformCover === 'enemies', 'the ledge is enemy cover');
+  for (const p of m.players) assert(lineBlocker(m.world, p, up) === 'terrain' && lineBlocker(m.world, up, p) === null, `${p.id} vs ${up.name}: blocked one way only`);
+  // 直線：P1 的狙擊槍瞄上面那隻，子彈停在岩台上
+  const p = m.byId('p1');
+  const hp = up.hp;
+  const shot = m.resolveShot(p, 'sniper', angleTo(p, up.cx, up.cy), 100);
+  const ev = shot.events.find(e => e.type === 'explode');
+  assert(ev && !ev.target && ev.y >= 338 && ev.y <= 370 && up.hp === hp, 'the bullet stops in the ledge: ' + J(shot.events));
+  // 拋物線：找一發大砲直接砸中上面那隻
+  let lob = null;
+  for (let a = 30; a <= 85 && !lob; a++) for (let pw = 40; pw <= 100 && !lob; pw++) {
+    const r = simulateShot(m.world, p, CONFIG.WEAPONS.cannon, a, pw);
+    if (r.hit.type === 'entity' && r.hit.entity === up) lob = { a, pw };
+  }
+  assert(lob, 'a cannon lob drops onto the upper bat');
+  const m2 = make('cave', 4);
+  const shot2 = m2.resolveShot(m2.byId('p1'), 'cannon', lob.a, lob.pw);
+  assert(shot2.events.some(e => e.target === bats(m2)[0].id && e.damages.some(d => d.id === bats(m2)[0].id && d.dmg > 0)), 'the lob hurts it: ' + J(shot2.events));
+  const c2 = make('cave', 4);
+  replayInto(c2, shot2, 'lob');
+  assertSame(m2, c2, 'lob');
+  // 下面那隻：直線打得到
+  const m3 = make('cave', 4);
+  const p4 = m3.byId('p4'), lo = bats(m3)[1];
+  const shot3 = m3.resolveShot(p4, 'sniper', angleTo(p4, lo.cx, lo.cy), 100);
+  assert(shot3.events.some(e => e.target === lo.id), 'the lower bat takes a straight shot: ' + J(shot3.events));
+  // 鐘乳石：下面那隻擺到最右邊那根的正下方，P1 把它打下來 → 落在岩台上碎掉，下面那隻沒事
+  const m4 = make('cave', 1);
+  const q = m4.byId('p1'), b4 = bats(m4)[1];
+  const s4 = m4.terrain.stalactites[4];
+  b4.x = s4.tip.x;
+  const hp4 = b4.hp;
+  const drop = m4.resolveShot(q, 'sniper', angleTo(q, s4.tip.x + 1, s4.tip.y - 14), 100);
+  const rock = drop.events.find(e => e.p === 1);
+  assert(J(drop.events[0].falls) === '[4]' && rock && rock.type === 'explode' && !rock.target && rock.y >= 338 && rock.y <= 350 && b4.hp === hp4,
+    'the rock shatters on the ledge: ' + J(rock));
+  const c4 = make('cave', 1);
+  bats(c4)[1].x = s4.tip.x;
+  replayInto(c4, drop, 'rock on ledge');
+  assertSame(m4, c4, 'rock on ledge');
+  return { lob, rockY: Math.round(rock.y) };
 }));
 
 // ---------------- 鐘乳石 ----------------
@@ -260,6 +317,209 @@ await test('火把：玩家的砲彈打在旁邊、子彈從旁邊飛過去、�
   assert(got && got.type === 'torch' && got.torch === 1 && torchLevel(m4, 1) === 3, 'walking past lights it: ' + J(got));
   const back = m4.applyPositionReport(q, { x: q.x - 20, y: q.y, facing: -1, stamina: 200 });
   assert(back.ok && !back.pickup, 'no second pickup');
+}));
+
+// ---------------- 穿過火把著火（2026-10-22） ----------------
+// P1 的狙擊槍瞄準第 i 支火把的火焰，蝙蝠 A 擺在火焰後面 d px（同一條線上、身體中心）：子彈先穿過火把再打中牠
+const flameAim = (m, i) => { const t = LEVELS[m.levelId].mechanic.torches[i]; return { x: t.x, y: t.y - TORCH_H + 4 }; };
+function batBehindTorch(m, i, d) {
+  const p = m.byId('p1'), a = flameAim(m, i), mz = p.muzzle();
+  const len = Math.hypot(a.x - mz.x, a.y - mz.y);
+  const bat = bats(m)[0];
+  bat.x = a.x + (a.x - mz.x) / len * d;
+  bat.y = a.y + (a.y - mz.y) / len * d + bat.h / 2;
+  return bat;
+}
+
+await test('穿過火把著火：玩家的子彈穿過火把 → 那一幀的 pass 事件帶 ignite（CAVE.torchBurn 20）、熄著的火把同時點燃；之後打中的敵人附加 20 層燃燒；客戶端重播飛行物也著火、狀態一致', () => base(() => {
+  const m = make('cave', 1);
+  const p = m.byId('p1');
+  const bat = batBehindTorch(m, 2, 90);
+  const shot = m.resolveShot(p, 'sniper', angleTo(p, flameAim(m, 2).x, flameAim(m, 2).y), 100);
+  const pass = shot.events.find(ev => ev.type === 'pass');
+  assert(pass && pass.ignite === 20 && J(pass.lights) === '[2]', 'catches fire passing the (unlit) ledge torch and lights it: ' + J(pass));
+  assert(shot.events.filter(ev => ev.ignite).length === 1, 'catches fire once: ' + J(shot.events));
+  const hit = shot.events.find(ev => ev.target === bat.id);
+  assert(hit && hit.f > pass.f && !hit.ignite && hit.damages[0].burn === 20 && bat.burn === 20 && bat.burnSource === 'p1', 'the burning bullet sets the bat on fire: ' + J(hit));
+  // 客戶端：照事件重播一樣（角色狀態含燃燒層數），飛行物在 pass 那一幀著火、一直燒到打中
+  const c = make('cave', 1);
+  batBehindTorch(c, 2, 90);
+  replayInto(c, shot, 'fire');
+  assertSame(m, c, 'fire');
+  const c2 = make('cave', 1);
+  batBehindTorch(c2, 2, 90);
+  const seen = [];
+  replayVolley(c2, JSON.parse(J(shot))).run({ event: (ev, q) => seen.push(`${ev.type}:${q.fire}`), frame: (live) => { for (const q of live) if (q.fire) seen.push('live'); } });
+  assert(seen[0] === 'pass:20' && seen.includes('live') && seen[seen.length - 1] === 'explode:20', 'client projectile on fire from the pass on: ' + J(seen.filter(s => s !== 'live')));
+  // 沒穿過火把的一槍（蝙蝠擺到洞穴中間的半空中，路上沒有火把）：沒有著火、沒有燃燒
+  const m2 = make('cave', 1);
+  const b2 = bats(m2)[0];
+  b2.x = 400; b2.y = 440;
+  const p2 = m2.byId('p1');
+  const plain = m2.resolveShot(p2, 'sniper', angleTo(p2, b2.cx, b2.cy), 100);
+  assert(!plain.events.some(ev => ev.ignite) && b2.burn === 0, 'a shot that misses the torches does not burn: ' + J(plain.events));
+  return { pass: pass.f, hit: hit.f };
+}));
+
+await test('穿過火把著火：穿過火把跟打中敵人在同一幀（狙擊槍一幀飛 40px）也算——結算傷害前就著火，事件帶 ignite、火把也點燃；掃過各種距離都燒得到', () => base(() => {
+  // 直接結算一下：這一幀從火把左邊 30px 飛過來、打中火把右邊 40px 的蝙蝠（撞擊點離火把超過「打在旁邊」的範圍 24 + 爆炸半徑 10：
+  // 火把是被這一小段飛過去點燃的）
+  const m = make('cave', 1);
+  const p = m.byId('p1');
+  const bat = bats(m)[0];
+  const a = flameAim(m, 2);
+  bat.x = a.x + 40 + bat.hw; bat.y = a.y + bat.h / 2;
+  const proj = () => ({ ignore: new Set(), owner: p, hitRadius: CONFIG.WEAPONS.sniper.hitRadius, fire: 0 });
+  const ev = m.resolveHit(p, CONFIG.WEAPONS.sniper, proj(), 0, { type: 'entity', x: bat.x - bat.hw, y: a.y, entity: bat }, 1, 0, { x: a.x - 30, y: a.y });
+  assert(ev.ignite === 20 && ev.damages[0].burn === 20 && bat.burn === 20 && J(ev.lights) === '[2]', 'same-frame pass + hit: ' + J(ev));
+  // 沒給這一幀從哪裡來（迴力鏢回程掃到的）：不會在這一下著火
+  const m2 = make('cave', 1);
+  const bat2 = bats(m2)[0];
+  bat2.x = a.x + 40 + bat2.hw; bat2.y = a.y + bat2.h / 2;
+  const ev2 = m2.resolveHit(m2.byId('p1'), CONFIG.WEAPONS.sniper, proj(), 0, { type: 'entity', x: bat2.x - bat2.hw, y: a.y, entity: bat2 }, 1, 0);
+  assert(!ev2.ignite && !ev2.damages[0].burn && bat2.burn === 0, 'no segment, no fire: ' + J(ev2));
+  // 整發掃過去：蝙蝠擺在火焰後面 28 ~ 100px（一幀 40px，各種相位都有），每一發都燒到；其中有的是同一幀穿過火把又打中
+  let same = 0;
+  for (let d = 28; d <= 100; d += 3) {
+    const mm = make('cave', 1);
+    const b = batBehindTorch(mm, 2, d);
+    const q = mm.byId('p1');
+    const shot = mm.resolveShot(q, 'sniper', angleTo(q, flameAim(mm, 2).x, flameAim(mm, 2).y), 100);
+    const hit = shot.events.find(e => e.target === b.id);
+    assert(hit && b.burn === 20 && hit.damages[0].burn === 20, `d ${d}: ` + J(shot.events));
+    if (hit.ignite) same++;
+    const c = make('cave', 1);
+    batBehindTorch(c, 2, d);
+    replayInto(c, shot, `d ${d}`);
+    assertSame(mm, c, `d ${d}`);
+  }
+  assert(same > 0, 'some distances pass the torch and hit in the same frame');
+  return { sameFrame: same };
+}));
+
+await test('火把是火源（共同設定）：亮著的火把每一方都算、熄著的只有玩家的子彈算（飛過去就點燃了）；每支火把可以有自己的 burn；帶不了火的武器（水、震波、吼聲、用身體撞）不會著火', () => base(() => {
+  const m = make('cave', 3);
+  const p = m.byId('p1'), bat = bats(m)[0];
+  const t1 = LEVELS.cave.mechanic.torches[1];
+  const through = { x0: t1.x - 30, y0: t1.y - 10, x1: t1.x + 30, y1: t1.y - 10, r: 3 };
+  const fire = (owner, w, seg = through, q = {}) => catchFire(m, owner, CONFIG.WEAPONS[w], q, seg);
+  // 地上那支一開始熄著：玩家的子彈穿過去就著火（同時點燃它），敵人的聲波穿過去不會（敵人點不燃）
+  assert(torchLevel(m, 1) === 0 && fire(p, 'sniper') === 20 && fire(bat, 'sonic') === 0, 'unlit: players only');
+  assert(fire(p, 'sniper', { ...through, y0: t1.y - 80, y1: t1.y - 80 }) === 0, 'passing far above the torch does not');
+  // 點燃之後：敵人的子彈也會著火
+  lightTorch(m, 1);
+  assert(fire(bat, 'sonic') === 20 && fire(p, 'sniper') === 20, 'lit: everyone');
+  // 燒完了（3 輪後熄滅）：敵人的又不會了
+  m.round = 4;
+  assert(torchLevel(m, 1) === 0 && fire(bat, 'sonic') === 0 && fire(p, 'sniper') === 20, 'burnt out: players only again');
+  m.round = 1;
+  // 帶不了火的：高壓水炮、沿地面跑的震波、吼聲（noFire），用身體撞的招式（bodyHit），半路才出現的（掉下來的鐘乳石）
+  for (const w of ['waterCannon', 'cyclopsShock', 'cyclopsRoar', 'scorpionBurst', 'scorpionQuake', 'snakeQuake']) {
+    assert(CONFIG.WEAPONS[w].noFire && fire(bat, w) === 0 && fire(p, w) === 0, `${w} cannot carry fire`);
+  }
+  assert(CONFIG.WEAPONS.beeSting.bodyHit && fire(bat, 'beeSting') === 0, 'body hits cannot carry fire');
+  assert(fire(p, 'stalactite', through, { added: true }) === 0, 'falling rocks cannot carry fire');
+  // 已經著火的（一樣大的火）不再著火；每支火把自己的 burn（關卡資料）：穿過更大的火換成那個大小
+  assert(fire(p, 'sniper', through, { fire: 20 }) === 0, 'already burning: nothing new');
+  const t = LEVELS.cave.mechanic.torches[1];
+  t.burn = 35;
+  try {
+    assert(fire(p, 'sniper') === 35 && fire(p, 'sniper', through, { fire: 20 }) === 35 && fire(p, 'sniper', through, { fire: 40 }) === 0, 'per-torch burn, bigger fire wins');
+  } finally { delete t.burn; }
+}));
+
+await test('敵人的子彈穿過亮著的火把也會著火：蝙蝠的聲波穿過岩台的火把打中玩家 → 玩家附加 20 層燃燒（算蝙蝠的）；火把熄著就不會；客戶端重播一致；打到自己人不燒', () => base(() => {
+  const shoot = (lit) => {
+    const m = make('cave', 3);
+    if (lit) lightTorch(m, 2);
+    const b = bats(m)[0], p = m.byId('p1');
+    const shot = m.resolveShot(b, 'sonic', angleTo(b, p.cx, p.cy), 100);
+    return { m, b, p, shot };
+  };
+  const { m, b, p, shot } = shoot(true);
+  const lit = shot.events.find(ev => ev.ignite);
+  const hit = shot.events.find(ev => ev.target === 'p1');
+  assert(lit && lit.ignite === 20 && !lit.lights, 'the sonic catches fire passing the lit ledge torch (enemies never light torches): ' + J(lit));
+  assert(hit && hit.damages[0].burn === 20 && p.burn === 20 && p.burnSource === b.id, 'the player is set on fire by the bat: ' + J(hit));
+  const c = make('cave', 3);
+  lightTorch(c, 2);
+  replayInto(c, shot, 'enemy fire');
+  assertSame(m, c, 'enemy fire');
+  // 岩台的火把熄著（出生點那支亮著，但 B 打 P1 不經過它）：沒有著火、沒有燃燒
+  const dark = shoot(false);
+  assert(!dark.shot.events.some(ev => ev.ignite) && dark.p.burn === 0, 'unlit torch: no fire: ' + J(dark.shot.events));
+  // 著火的聲波打到另一隻蝙蝠（自己人）：不上燃燒
+  const m2 = make('cave', 1);
+  const [a, b2] = bats(m2);
+  const ev = m2.resolveHit(a, CONFIG.WEAPONS.sonic, { ignore: new Set(), owner: a, hitRadius: 3, fire: 20 }, 0, { type: 'entity', x: b2.cx, y: b2.cy, entity: b2 }, 1, 0);
+  assert(ev.damages[0].friendly && !ev.damages[0].burn && b2.burn === 0, 'a burning sonic does not set another bat on fire: ' + J(ev));
+  return { ignite: lit.f, hit: hit.f };
+}));
+
+await test('穿過火把著火：pass 事件（只帶 ignite、已經著火的不再寫）；高壓水炮整發穿過火把不著火；跟燃燒子彈的層數相加；燒不到隊友', () => base(() => {
+  const m = make('cave', 3);
+  const p = m.byId('p1');
+  const t1 = LEVELS.cave.mechanic.torches[1];
+  const seg = { x0: t1.x - 30, y0: t1.y - 10, x1: t1.x + 30, y1: t1.y - 10 };
+  lightTorch(m, 1);
+  // 飛過去（火把這一輪已經點過，不會再記 lights）：還沒著火的寫一個只帶 ignite 的 pass 事件；已經著火的（慢慢飛過火把的好幾幀）不再寫
+  const flying = (fire) => ({ x: seg.x1, y: seg.y1, hitRadius: 3, weapon: CONFIG.WEAPONS.sniper, fire });
+  const ev0 = m.resolvePass(p, flying(0), 0, 5, seg.x0, seg.y0);
+  assert(ev0 && ev0.type === 'pass' && ev0.ignite === 20 && !ev0.lights, 'pass event with ignite only: ' + J(ev0));
+  assert(m.resolvePass(p, flying(20), 0, 6, seg.x0, seg.y0) === null, 'already burning: no second event');
+  // 整發：高壓水炮穿過出生點的火把（亮著）不會著火。單人（隊友不會擋在中間）；先拿掉 noFire 確認這一發真的穿過火把（會著火），再照原樣射
+  const water = (noFire) => {
+    const mw = make('cave', 1);
+    const pw = mw.byId('p1');
+    const t0 = flameAim(mw, 0);
+    const w = CONFIG.WEAPONS.waterCannon, was = w.noFire;
+    w.noFire = noFire;
+    try { return mw.resolveShot(pw, 'waterCannon', angleTo(pw, t0.x, t0.y), 100); } finally { w.noFire = was; }
+  };
+  const wet = water(false), dry = water(true);
+  assert(wet.events.some(ev => ev.ignite === 20), 'control: without noFire the same shot passes the torch and catches fire: ' + J(wet.events));
+  assert(!dry.events.some(ev => ev.ignite), 'no fire: ' + J(dry.events));
+  // 疊加：P1 有燃燒子彈（30 層）→ 著火的子彈打中蝙蝠 50 層；打中隊友不上燃燒
+  const m2 = make('cave', 3);
+  const q = m2.byId('p1');
+  q.mods.burnStacks = 30;
+  const bat = batBehindTorch(m2, 2, 90);
+  const shot = m2.resolveShot(q, 'sniper', angleTo(q, flameAim(m2, 2).x, flameAim(m2, 2).y), 100);
+  const hit = shot.events.find(ev => ev.target === bat.id);
+  assert(hit && hit.damages[0].burn === 50 && bat.burn === 50, 'fire rounds 30 + torch 20: ' + J(hit));
+  const m3 = make('cave', 3);
+  const r1 = m3.byId('p1'), mate = m3.byId('p2');
+  const ev = m3.resolveHit(r1, CONFIG.WEAPONS.sniper, { ignore: new Set(), owner: r1, hitRadius: 3, fire: 20 }, 0, { type: 'entity', x: mate.cx, y: mate.cy, entity: mate }, 1, 0);
+  assert(ev.damages[0].friendly && !ev.damages[0].burn && mate.burn === 0, 'a burning bullet does not set teammates on fire: ' + J(ev));
+}));
+
+await test('地心探險 / 巨蠍巢穴也是洞穴的火源：巨人的巨石、巨蠍的毒刺 / 巨鉗穿過亮著的火把會著火，猛捶的衝擊、震盪獅吼、震擊、地鳴不會；巨蠍巢穴多人颳風吹熄的火把，敵人不會從那裡著火', () => base(() => {
+  for (const [levelId, boss, ok, no] of [['depths', 'cyclops', ['cyclopsBoulder'], ['cyclopsShock', 'cyclopsRoar']],
+    ['scorpionDen', 'scorpionStinger', ['scorpionSting', 'scorpionPinch'], ['scorpionBurst', 'scorpionQuake']]]) {
+    const m = make(levelId, 1);
+    const e = m.byId(boss);
+    const t = LEVELS[levelId].mechanic.torches[1];
+    const seg = { x0: t.x - 30, y0: t.y - 10, x1: t.x + 30, y1: t.y - 10, r: 3 };
+    const fire = (w) => catchFire(m, e, CONFIG.WEAPONS[w], {}, seg);
+    assert(torchLevel(m, 1) === 0 && ok.every(w => fire(w) === 0), `${levelId}: unlit torch, no fire`);
+    lightTorch(m, 1);
+    for (const w of ok) assert(fire(w) === 20, `${levelId}: ${w} catches fire`);
+    for (const w of no) assert(fire(w) === 0, `${levelId}: ${w} does not`);
+  }
+  // 巨蠍巢穴的多人會颳風：每一輪開始火把全部吹熄，上一輪點的這一輪就不算亮著——巨蠍的毒刺不會從那裡著火（玩家的照樣會：飛過去就點燃了）；這一輪再點就又會
+  const m = make('scorpionDen', 2);
+  assert(m.mechState.windy, 'multiplayer scorpion den is windy');
+  const t = LEVELS.scorpionDen.mechanic.torches[1];
+  const seg = { x0: t.x - 30, y0: t.y - 10, x1: t.x + 30, y1: t.y - 10, r: 3 };
+  const sting = () => catchFire(m, m.byId('scorpionStinger'), CONFIG.WEAPONS.scorpionSting, {}, seg);
+  m.round = 1;
+  lightTorch(m, 1);
+  assert(torchLevel(m, 1) === 3 && sting() === 20, 'lit this round: the sting catches fire');
+  m.round = 2;
+  assert(torchLevel(m, 1) === 0 && sting() === 0, 'blown out by the wind: no fire for the sting');
+  assert(catchFire(m, m.byId('p1'), CONFIG.WEAPONS.sniper, {}, seg) === 20, 'a player bullet still catches fire (it relights the torch)');
+  lightTorch(m, 1);
+  assert(sting() === 20, 'relit this round: fire again');
 }));
 
 // ---------------- 火把燒完、陰影 ----------------
@@ -408,11 +668,23 @@ await test('裁判流程：玩家都不動（超時）時蝙蝠每回合用聲�
   const pk = io.take('pickup');
   assert(pk.length === 1 && pk[0].type === 'torch' && pk[0].torch === 1, 'pickup broadcast: ' + J(pk));
   assert(io.records.some(r => r.ev === 'pickup' && r.type === 'torch' && r.torch === 1), 'pickup logged');
-  // 開火打下鐘乳石、子彈從岩台的火把旁邊飛過去：shot 的紀錄帶 falls / lights
-  const s3 = m.terrain.stalactites[3];
-  ref.handle('p1', { t: 'fire', weapon: 'sniper', angle: angleTo(p, s3.tip.x + 1, s3.tip.y - 14), power: 100, x: p.x, y: p.y, facing: 1, stamina: p.stamina });
+  // 開火打下鐘乳石：shot 的紀錄帶 falls。P1 站在岩台底下（玩家的子彈打不穿岩台），轉身往左上打出生點那邊的一根
+  ref.handle('p1', { t: 'move', x: p.x, y: p.y, facing: -1, stamina: 200 });
+  const s1 = m.terrain.stalactites[1];
+  ref.handle('p1', { t: 'fire', weapon: 'sniper', angle: angleTo(p, s1.tip.x, s1.tip.y - 14), power: 100, x: p.x, y: p.y, facing: -1, stamina: p.stamina });
   const rec = io.records.filter(r => r.ev === 'shot').pop();
-  assert(rec && J(rec.falls) === '[3]' && !rec.lights, 'shot record has falls: ' + J(rec));
+  assert(rec && J(rec.falls) === '[1]' && !rec.lights, 'shot record has falls: ' + J(rec));
+  // 子彈穿過岩台的火把著火：shot 的紀錄帶 lights 與 ignited（第幾顆著火）
+  const m2 = make('cave', 1);
+  const io2 = new FakeIo();
+  const ref2 = new Referee({ match: m2, humans: mkPlayers(1), io: io2 });
+  ref2.start();
+  io2.advance(CONFIG.TIMING.startDelay * 1000 + 50);
+  const q = m2.byId('p1');
+  const a = flameAim(m2, 2);
+  ref2.handle('p1', { t: 'fire', weapon: 'sniper', angle: angleTo(q, a.x, a.y), power: 100, x: q.x, y: q.y, facing: 1, stamina: q.stamina });
+  const rec2 = io2.records.filter(r => r.ev === 'shot').pop();
+  assert(rec2 && J(rec2.lights) === '[2]' && J(rec2.ignited) === '[0]', 'shot record has ignited: ' + J(rec2));
   return out;
 }));
 
@@ -517,7 +789,7 @@ await test('真的 GameView：岩穴從開場播一段（P1 先打下一根鐘�
   const errors = [];
   console.error = (...a) => errors.push(a.join(' '));
   const plan = ['stalactite', 'torch'];
-  let rocks = 0;
+  let rocks = 0, burning = 0;
   try {
     for (let k = 0; k < 160 && ref.phase !== 'over'; k++) {
       io.advance(250);
@@ -534,6 +806,7 @@ await test('真的 GameView：岩穴從開場播一段（P1 先打下一根鐘�
         view.update(CONFIG.FIXED_DT);
         view.render();
         if (view.projectiles.some(q => q.added)) rocks++;
+        if (view.projectiles.some(q => q.fire)) burning++;
       }
     }
     feed();
@@ -541,10 +814,11 @@ await test('真的 GameView：岩穴從開場播一段（P1 先打下一根鐘�
   } finally { console.error = err; }
   assert(!errors.length, 'script errors ' + errors[0]);
   assert(rocks > 0, 'the falling rock was drawn');
+  assert(burning > 0, 'the sniper bullet through the ledge torch was drawn on fire');
   assert(view.match.terrain.fallen.has(3) && J(view.match.mechState.fallen) === J(m.mechState.fallen), 'client fallen = server');
   assert(J(view.match.mechState.lit) === J(m.mechState.lit) && m.mechState.lit[2], 'client torches = server: ' + J(view.match.mechState.lit));
   { const a = m.terrain.mask, b = view.match.terrain.mask; const d = []; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) d.push([i % 1024, Math.floor(i / 1024), a[i], b[i]]); assert(!d.length, 'client terrain = server: ' + d.length + ' ' + J(d.slice(0, 5)) + J(m.terrain.holes.length) + '/' + J(view.match.terrain.holes.length)); }
-  return { rocksDrawnFrames: rocks, time: Math.round(view.time) };
+  return { rocksDrawnFrames: rocks, burningFrames: burning, time: Math.round(view.time) };
 }));
 
 await test('裁判流程：每一輪記 round.start（出生點的火把第 2、3 輪 torchDim、第 4 輪 torchOut）；真的 GameView 照輪數算的亮度跟伺服器一樣，光圈縮掉、燒完那一刻飄「火把熄滅」', () => base(() => {

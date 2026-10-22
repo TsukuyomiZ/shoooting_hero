@@ -442,7 +442,8 @@ export class Renderer {
     ctx.restore();
   }
 
-  // 血條旁的狀態標記排成一排：燃燒 → 中毒（每個自己的回合開始都會結算，喝蛇血才解除）→ 流血（自己移動就扣血，自己的回合結束時止血），
+  // 血條旁的狀態標記排成一排：燃燒 → 中毒（每個自己的回合開始都會結算，喝蛇血才解除）→ 流血（自己移動就扣血，自己的回合結束時止血）
+  // → 糾纏（體力消耗變多，數字是還剩幾個自己的回合），
   // 有的才畫，一格 26 px，層數寫在圖示右邊（從圖示中心 +6 開始，11 px 粗體的數字一個抓 7 px 寬）。
   // 平常從血條右邊往右排；排到畫面右邊外面（站在最右邊的角色，例如出生在最右邊的菁英）就整排改放到血條左邊，
   // 有攜手之伴的連結標記就再往外排到它左邊，順序一樣
@@ -451,6 +452,7 @@ export class Renderer {
     if (e.burn > 0) marks.push([this.drawBurn, e.burn]);
     if (e.poison > 0) marks.push([this.drawPoisonMark, e.poison]);
     if (e.bleed > 0) marks.push([this.drawBleedMark, e.bleed]);
+    if (e.entangle > 0) marks.push([this.drawEntangleMark, e.entangle]);
     if (!marks.length) return;
     const GAP = 26;
     const tail = 6 + 7 * String(marks[marks.length - 1][1]).length;   // 最後一個圖示的中心到它的層數的右端
@@ -516,6 +518,24 @@ export class Renderer {
     ctx.beginPath(); ctx.arc(x - 0.8, y + 1, 1, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
     text(ctx, String(stacks), x + 6, y + 5, { size: 11, bold: true, color: '#fecaca', outline: 'rgba(0,0,0,0.9)' });
+  }
+
+  // 血條旁的糾纏標記：一小張蜘蛛網 + 還剩幾個回合
+  drawEntangleMark(x, y, turns) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, 5.5, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = '#e5e7eb';
+    ctx.lineWidth = 1.1;
+    for (let k = 0; k < 6; k++) {   // 放射狀的六根絲 + 兩圈
+      const a = k * Math.PI / 3;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * 6, y + Math.sin(a) * 6); ctx.stroke();
+    }
+    for (const r of [2.8, 5.5]) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.restore();
+    text(ctx, String(turns), x + 6, y + 5, { size: 11, bold: true, color: '#f3f4f6', outline: 'rgba(0,0,0,0.9)' });
   }
 
   // 抓著藤蔓的人：兩隻手往上握住藤蔓（在角色座標裡，跟身體一起縮放）
@@ -636,11 +656,41 @@ export class Renderer {
     }
   }
 
+  // 著火的飛行物（穿過場上的火源，例如洞穴的火把；見 shared/physics/fire.js）：身上一團火光，往飛來的方向拖一條會閃的火舌
+  // （黃 → 橘 → 紅，越後面越細越淡；長度固定，飛得快的狙擊槍也不會拖成一長條）。火星由 GameView 每一幀噴（fireEmbers）
+  drawFire(p) {
+    const ctx = this.ctx;
+    const prev = p.trail.length > 1 ? p.trail[p.trail.length - 2] : null;   // 尾跡最後一點是現在的位置：前一點才看得出往哪飛
+    let dx = prev ? p.x - prev.x : p.vx, dy = prev ? p.y - prev.y : p.vy;
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len; dy /= len;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 16);
+    glow.addColorStop(0, 'rgba(254,240,138,0.85)');
+    glow.addColorStop(0.45, 'rgba(251,146,60,0.45)');
+    glow.addColorStop(1, 'rgba(220,38,38,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 16, 0, Math.PI * 2); ctx.fill();
+    const N = 9;
+    for (let j = N - 1; j >= 0; j--) {
+      const k = j / (N - 1);   // 0 = 頭、1 = 尾
+      const wob = (Math.random() - 0.5) * 3 * k;
+      const x = p.x - dx * j * 3.6 - dy * wob, y = p.y - dy * j * 3.6 + dx * wob;
+      const r = (6.5 - 4.5 * k) * (0.85 + Math.random() * 0.3);
+      const [cr, cg, cb] = k < 0.35 ? [254, 215, 90] : k < 0.7 ? [251, 146, 60] : [239, 68, 68];
+      ctx.fillStyle = `rgba(${cr},${cg},${cb},${0.75 - 0.55 * k})`;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
   drawProjectiles() {
     const { ctx, view } = this;
     const mv = view.mapView, c = view.mapCtx;
     for (const p of view.projectiles) {
       const w = p.weapon;
+      if (p.fire) this.drawFire(p);   // 著火了（敵我都會，見 shared/physics/fire.js）：火舌畫在飛行物下面，地圖畫面畫的招式也一樣
       if (mv.drawProjectile(ctx, c, p)) continue;   // 地圖畫面的招式（例如古樹撞擊、巨蟒的毒液、蜜蜂的衝刺螫擊）
       if (w.id === 'cannon') {
         this.drawTrail(p, '255,200,120', 0.5, 2, 3);
@@ -944,6 +994,7 @@ export class Renderer {
     if (me.burn > 0) status.push([`燃燒 ${me.burn} 層`, '#fb923c']);
     if (me.poison > 0) status.push([`中毒 ${me.poison} 層`, '#c084fc']);
     if (me.bleed > 0) status.push([`流血 ${me.bleed} 層`, '#ef4444']);
+    if (me.entangle > 0) status.push([`糾纏 ${me.entangle} 回合（體力消耗 +${CONFIG.ENTANGLE.staminaPct}%）`, '#e5e7eb']);
     if (me.poisonLock > 0) status.push([`生命鎖 -${me.poisonLock}`, '#9ca3af']);
     const effects = effectChips(me, { match: this.view.match });
     const chips = [

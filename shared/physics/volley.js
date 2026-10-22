@@ -1,5 +1,6 @@
 import { CONFIG } from '../core/config.js';
 import { advanceProjectile, stepReturn, sweepReturn, makeProjectile, applyRecoil } from './weapons.js';
+import { applyIgnite } from './fire.js';
 
 // 一波（Volley）：一次開火 / 轟炸 / Boss 招式的飛行物，從第 1 幀飛到全部結束，再沉降到大家站穩。
 // 伺服器（runVolley）與客戶端重播（replayVolley）走同一個幀迴圈（loop），差別只在「撞到東西」那一步：
@@ -17,6 +18,10 @@ import { advanceProjectile, stepReturn, sweepReturn, makeProjectile, applyRecoil
 //
 // 飛過去（pass）：飛行物這一幀沒撞到東西，但地圖機制要它留下記號（例如玩家的子彈從火把旁邊飛過去 → 點燃）。
 // 伺服器寫成一個 type 'pass' 的事件（位置 = 這一幀結束的位置），狀態機不變（繼續飛），客戶端照事件套用地圖機制帶的欄位
+//
+// 著火：事件帶 ignite = 燃燒層數（飛行物穿過場上的火源，例如洞穴的火把；規則在 shared/physics/fire.js。飛過去的寫在 pass 事件、
+// 撞到東西那一幀穿過的寫在那個事件上）→ 兩邊都在套用那個事件時把飛行物的 fire 設成它（applyIgnite），之後一直燒到這顆結束（彈射、穿透、迴力鏢回程都還燒著）。
+// 伺服器結算著火的飛行物打中的人時，除了這一波的燃燒再附加 fire 層（Match.resolveHit）；客戶端照 fire 畫火焰
 
 const FDT = CONFIG.FIXED_DT;
 const SETTLE_CAP = 360;   // 伺服器沉降的上限幀數（Match.resolveVolley 一直是 360）；剛好到上限時客戶端不檢查有沒有站穩
@@ -84,11 +89,12 @@ export function replayVolley(match, shot) {
  * @property {{x: number, y: number}[]} trail  最近 18 個位置（事件之後才記）
  * @property {number} spin  每幀 +0.45
  * @property {'pending'|'flying'|'returning'|'done'} state
+ * @property {number} fire  著火了：之後打中的人附加幾層燃燒（0 = 沒著火；見最上面的說明）。畫面照它畫火焰
  * @property {boolean} [added]  半路才出現的（事件的 adds，例如被打下來的鐘乳石）；k = 第幾根（地圖畫面照它畫）
  */
 
 /**
- * 伺服器結算一波（Match.resolveVolley 用）：碰撞 → match.resolveHit(owner, weapon, p, i, hit, f, burn) 結算並回傳事件；
+ * 伺服器結算一波（Match.resolveVolley 用）：碰撞 → match.resolveHit(owner, weapon, p, i, hit, f, burn, from) 結算並回傳事件；
  * 狀態機由這裡套用（resolveHit 不寫 p.state / retIdx）；超時的算飛出場外（out）；最後沉降到站穩（最多 360 幀）。
  * @param {import('../game/match.js').Match} match
  * @param {import('./entities.js').Entity} owner
@@ -116,7 +122,7 @@ export function runVolley(match, owner, weapon, projs, burn) {
         if (caught) out.push({ f, p: i, type: 'catch', x: p.x, y: p.y });
       } else {
         const ev = caught ? { f, p: i, type: 'catch', x: p.x, y: p.y }
-          : hit ? match.resolveHit(owner, p.added ? p.weapon : weapon, p, i, hit, f, p.added ? 0 : burn)
+          : hit ? match.resolveHit(owner, p.added ? p.weapon : weapon, p, i, hit, f, p.added ? 0 : burn, { x: x0, y: y0 })
             : p.added ? null : match.resolvePass(owner, p, i, f, x0, y0);
         if (ev) out.push(ev);
       }
@@ -188,7 +194,7 @@ function* loop(match, actor, weapon, projs, side) {
         if (side.launched) side.launched(p);
       }
       let hit = null, caught = false;
-      const x0 = p.x, y0 = p.y;   // 這一幀出發的位置（飛過去的判定用）
+      const x0 = p.x, y0 = p.y;   // 這一幀出發的位置（飛過去、著火的判定用）
       if (p.state === 'returning') {
         caught = stepReturn(p, weapon.returnSpeed || 1, home(), weapon.homingSpeed);
         if (side.sweep) hit = side.sweep(p, x0, y0);   // 伺服器：回程路上碰到的敵人（陣列）；客戶端照事件播
@@ -199,6 +205,7 @@ function* loop(match, actor, weapon, projs, side) {
         const before = side.gate(p, ev, f);
         if (!before) continue;
         transition(p, ev);
+        applyIgnite(p, ev);   // 著火（見最上面的說明）
         if (side.made) side.made(p, ev, before);
       }
       if (!evs.length && p.state === 'flying' && p.path) p.path.push({ x: p.x, y: p.y });
@@ -253,7 +260,7 @@ function* replay(match, shot, weapon, live, drift, end, look) {
   const F = shot.flightFrames, S = shot.settleFrames;
   const projs = shot.projectiles.map((s, i) => ({
     i, weapon, x: s.x, y: s.y, x0: s.x, y0: s.y, vx: s.vx, vy: s.vy, gravity: weapon.gravity, wind: s.wind || 0, age: 0,
-    spawn: s.spawn, follow: !!s.follow, state: 'pending', path: null, retIdx: 0, trail: [], spin: 0,
+    spawn: s.spawn, follow: !!s.follow, state: 'pending', path: null, retIdx: 0, trail: [], spin: 0, fire: 0,
   }));
   // 事件照 f → p 分桶（保留陣列順序）；unreached = 還沒輪到的（飛行結束還在的就是對不上）
   const byFrame = new Map();
@@ -290,7 +297,7 @@ function* replay(match, shot, weapon, live, drift, end, look) {
         if (!w) { drift.push(`${where(ev)} adds: unknown weapon ${a.w}`); continue; }
         projs.push({
           i: projs.length, weapon: w, x: a.x, y: a.y, x0: a.x, y0: a.y, vx: a.vx, vy: a.vy, gravity: w.gravity, age: 0,
-          spawn: ev.f + 1, follow: false, state: 'pending', path: null, retIdx: 0, trail: [], spin: 0, added: true, k: a.k,
+          spawn: ev.f + 1, follow: false, state: 'pending', path: null, retIdx: 0, trail: [], spin: 0, fire: 0, added: true, k: a.k,
         });
       }
       const rect = ev.type === 'explode' && ev.carve ? match.terrain.carve(ev.carve.x, ev.carve.y, ev.carve.r) : null;

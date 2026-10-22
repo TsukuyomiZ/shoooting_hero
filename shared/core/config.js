@@ -101,6 +101,10 @@ export const CONFIG = {
   // 被打中幾次就疊幾次（沒有上限），自己的回合結束時整個止血（層數歸零）
   BLEED: { pctPerPx: 0.01 },
 
+  // 「糾纏」狀態（蜘蛛女王的蜘蛛吐絲）：還剩幾個自己的回合（turns 回合，自己的回合結束時少 1），期間消耗的體力 +staminaPct%
+  // （走路、跳、爬 / 掛藤蔓、空中慢動作都算）。再被吐一次不疊加，只把回合數補回 turns；金剛不壞免疫
+  ENTANGLE: { turns: 3, staminaPct: 50 },
+
   ENEMY: {
     hp: 45,              // 基礎血量（會依人數放大）
     damageMult: 0.7,     // 敵人（含 Boss）造成的傷害 = 武器傷害 × 這個倍率（再吃狂熱）。這是第一輪（第 1 ~ 5 關）的
@@ -193,8 +197,11 @@ export const CONFIG = {
   // 再加上飛行物的判定半徑）、或玩家自己走過去碰到，就點燃（還亮著但變暗了的就補回最亮）。
   // 火把會燒完：點燃的那一輪最亮，之後每一輪開始暗一格，一直沒人去點就 torchRounds 輪後熄滅（3：3 → 2 → 1 → 熄），熄了可以再點。
   // 光圈半徑：最亮時 torchLight px（出生點那支微弱的 faintLight），最暗那一格乘 dimLight，中間照比例。
-  // 陰影 = 不在任何一支亮著的火把的光圈裡：站在陰影裡的敵人造成的傷害 +shadowDamagePct%（跟敵人傷害倍率、狂熱相乘；掉下來的鐘乳石不算）
-  CAVE: { torchReach: 24, torchPass: 10, torchRounds: 3, torchLight: 270, faintLight: 150, dimLight: 0.45, shadowDamagePct: 30 },
+  // 陰影 = 不在任何一支亮著的火把的光圈裡：站在陰影裡的敵人造成的傷害 +shadowDamagePct%（跟敵人傷害倍率、狂熱相乘；掉下來的鐘乳石不算）。
+  // 火把是火源：任何一方的子彈穿過亮著的火把（判定同上面的「飛過去」）就著火，之後打中的對方附加 torchBurn 層燃燒（關卡可以給每支火把自己的 burn）；
+  // 玩家的子彈穿過熄著的也算（穿過去就點燃了），敵人的點不燃、也就不會從那裡著火。著火是共同設定，見 shared/physics/fire.js
+  // （跟燃燒子彈等牌的層數相加；隊友不會燒到；武器寫 noFire 的帶不了火，例如高壓水炮、震波）
+  CAVE: { torchReach: 24, torchPass: 10, torchRounds: 3, torchLight: 270, faintLight: 150, dimLight: 0.45, shadowDamagePct: 30, torchBurn: 20 },
 
   // ---- 小關「小心擊發」：樹枝最左邊掛著的蜂巢，與它放出來的蜜蜂（規則在 shared/maps/hive.js）----
   // 蜂巢打不打都可以（不用打掉也能過關，狙擊手全倒就贏）；不管用什麼打、打多重都只扣 1，每被玩家打到一次就飛出一隻蜜蜂。
@@ -375,7 +382,7 @@ export const CONFIG = {
   // ---- Boss 關：處刑監獄的處刑官（規則在 shared/maps/prison.js）----
   // 2026-10-19 使用者定的：hp 400 → 300（同日看了模擬的通關率選方案 A：血量 300 / 90 / 120 / 150、招式傷害打 6 折、流血 10 → 5 層）；
   // 菜刀丟擲 20 + 10 層流血（→ 12 + 5 層）、訓獸者皮鞭（打自己的召喚獸 20、牠的攻擊 +30%，不疊加、打不死）、
-  // 處刑者囚籠（場上最多一個、血量 40 × 人數、3 回合後還關著就斷頭台處刑（原本 2）；被關的人開火一定打在籠子上）；血量到 80 / 60 / 40% 跳上處刑台（打不到）、依序打開三間牢房；
+  // 處刑者囚籠（場上最多一個、血量 50 × 人數、3 回合後還關著就斷頭台處刑（原本 2）；被關的人開火一定打在籠子上）；血量到 80 / 60 / 40% 跳上處刑台（打不到）、依序打開三間牢房；
   // 召喚獸全倒 → 坐在地上哭兩回合（不行動、受到的傷害加成）→ 暴怒拿出流星錘（50、擊退 200）。
   // 我補的（使用者沒給）：權重、哭的時候受傷 ×1.5、暴怒後的招式（流星錘 / 菜刀 / 囚籠）、各招的預兆秒數
   EXECUTIONER: {
@@ -385,7 +392,8 @@ export const CONFIG = {
     phases: [80, 60, 40],   // 血量剩幾 % 時跳上處刑台、打開下一間牢房（照順序：惡狼、棕熊、劍齒虎）
     whipDamage: 20,
     whipPct: 30,            // 被鞭過的召喚獸下一次攻擊的傷害 +30%（用掉就沒了）
-    cageHpPerPlayer: 40,    // 囚籠的血量 = 這個 × 玩家人數（2026-10-19 使用者：原本 80 照人數放大，2 回合內打不破，改成 40 × 人數）
+    cleaverGap: 8,          // 菜刀丟好幾個人時（每死一隻召喚獸多丟一個人，2026-10-22 使用者），每把間隔幾幀出手
+    cageHpPerPlayer: 50,    // 囚籠的血量 = 這個 × 玩家人數（2026-10-19 使用者：原本 80 照人數放大，2 回合內打不破，改成 40 × 人數；10-22 4 人局順手波及就破，改成 50 × 人數）
     cageRounds: 3,          // 關進去之後撐過幾輪還沒出來就處刑（2026-10-19 使用者從 2 改 3）
     cryTurns: 2,            // 召喚獸全倒之後哭幾個自己的回合
     cryDamagePct: 50,       // 哭的時候受到的傷害 +50%
@@ -401,6 +409,37 @@ export const CONFIG = {
     cast: 0.9,
   },
   TIGER: { hp: 150, hw: 30, h: 42, bleedBonus: 2, cast: 0.8 },         // 血量 250 → 150（方案 A）。標記血最少的人 → 飛撲（路上第一個人先被撲到）、吃掉流血層數每層 +2
+
+  // ---- Boss 關：蜘蛛巢穴的蜘蛛女王（規則在 shared/maps/spider.js）----
+  // 2026-10-22 使用者定的：hp 400，一開始懸吊在右上角。招式：
+  //   蜘蛛吐絲（全體玩家「糾纏」三回合：體力消耗 +50%，見 ENTANGLE；金剛不壞免疫）、
+  //   召喚蛛卵（活著的玩家人數 × eggsPerPlayer 顆，下在四周的平台上；蛛卵還在時女王退到背景（陰影 + 紅眼）、每回合回 regenPct% 血；
+  //            蛛卵 3 點血、武器打到只扣 1、燃燒 +100%（最少扣 1；10-22 使用者改，原本是武器傷害 -90%），hatchTurns 回合後孵出小蜘蛛）、
+  //   毒液注射（隨機一名玩家 10 層中毒、不扣血；10-22 使用者改：原本 10 傷害 + 20 層）、撲網（每回合都放 websPerTurn 張蜘蛛網；碰到的玩家被黏住不能移動，射破才放開；
+  //            網被打到一下就破（10-22 使用者改，原本 hp 60、燃燒 +100%））、撲咬（30 傷害 + 10 層中毒，只有在地上才用）。
+  //   被燒到（身上有燃燒）就掉到地上、只會撲咬，燃燒沒了就爬回天上；血量第一次掉到 50% 以下（cleansePct）：移除身上所有負面狀態、強制召喚蛛卵（一場一次）。
+  // 我補的（使用者沒給）：招式權重、蛛卵的燃燒什麼時候算（女王的回合開始）、網的上限、預兆秒數
+  SPIDER_QUEEN: {
+    hp: 400,
+    hw: 46,
+    h: 52,
+    regenPct: 1,            // 躲在背景時每個自己的回合回多少 % 最大血量
+    cleansePct: 50,         // 血量第一次到這個 % 以下：移除負面狀態、強制召喚蛛卵（到之前血量停在這裡，等輪到她）
+    eggsPerPlayer: 1,       // 一次下幾顆蛋 = 活著的玩家人數 × 這個（最多到巢的數量）
+    websPerTurn: 2,         // 撲網：每個回合放幾張（掛在天上 / 躲在背景時；在地上不放）
+    maxWebs: 6,             // 場上最多幾張網（滿了就不再放）
+    biteBack: 100,          // 在地上撲咬完往後跳開多遠（下一回合再撲過來：一直有在動，燃燒才甩得掉；不然貼著人咬就永遠燒不完、爬不回去）
+    weights: { silk: 30, summon: 30, venom: 40 },   // 掛在天上時抽主要的那一招（蛛卵還在 → 不會召喚）
+    cast: { silk: 1.0, summon: 1.2, venom: 0.8, web: 0.6, bite: 0.8, drop: 0.7, climb: 0.9, cleanse: 1.2, hatch: 1.0, regen: 0.7, burn: 0.7 },
+  },
+  // 蛛卵（2026-10-22 使用者改：3 點血、武器打都只扣 1、燃燒最低也扣 1）：被武器打到（直擊、爆炸波及都算一次，不管傷害多少）扣 hitDamage；
+  // 燃燒照一般的算法（每層扣最大血量 EQUIP.burn.pctPerStack%）再 +burnTakenPct%、最少扣 burnMin，在每個女王的回合開始結算（蛋不會輪到、不會動，層數不掉）。
+  // hatchTurns 個女王的回合之後孵出小蜘蛛。火打中一次（1）+ 之後兩個女王回合各燒 1 = 孵化前燒掉
+  SPIDER_EGG: { hp: 3, hw: 14, h: 22, hitDamage: 1, burnTakenPct: 100, burnMin: 1, hatchTurns: 3 },
+  // 蜘蛛網：被武器打到一下就破（直擊、爆炸波及都算，不管傷害多少；2026-10-22 使用者改，原本 hp 60、燃燒 +100%）。hw / h = 網的大小
+  SPIDER_WEB: { hp: 1, hw: 30, h: 44 },
+  // 小蜘蛛（蛛卵孵出來的）：hp 80（照王的倍率），只會撲咬（10 傷害 + 5 層中毒，撲向最近的人）
+  SPIDERLING: { hp: 80, hw: 16, h: 18, cast: 0.7 },
 
   // 樹妖：古樹之口召喚出來，每回合慢慢走一段（2026-10-08 起，原本站著不動），投擲長矛
   TREANT: {
@@ -420,7 +459,8 @@ export const CONFIG = {
   // 武器。radius = 爆炸 / 挖地半徑（0 = 只打直接命中的角色、不挖地）；noCarve = 照樣爆炸（範圍傷害、擊退）但不挖地形。
   // 有 speedPerPower 的武器用 minSpeed + 力量 × speedPerPower 當初速，沒有的用固定的 speed（例如飛鏢：有一點重力，但跟力量無關）。
   // range = 飛行路徑最長幾 px（超過就消散，例如高壓水炮）；rangeMin + 力量 × rangePerPower = 看力量的最長路徑（迴力鏢：到了就折返）。
-  // recoil = 開火時射手被往反方向推的力道（跟被擊退同一套）；shotsPerTurn = 一回合可以分開射幾次（例如飛鏢，見 Referee）
+  // recoil = 開火時射手被往反方向推的力道（跟被擊退同一套）；shotsPerTurn = 一回合可以分開射幾次（例如飛鏢，見 Referee）；
+  // noFire = 穿過火源（例如洞穴的火把）也不會著火（水、沿地面跑的震波、吼聲；用身體撞的 bodyHit 本來就不會，見 shared/physics/fire.js）
   WEAPONS: {
     cannon: {
       id: 'cannon', name: '大砲',
@@ -507,6 +547,7 @@ export const CONFIG = {
       hitRadius: 3,
       knockback: 200,
       recoil: 100,          // 開炮的同時自己被往後推（後座力）
+      noFire: true,         // 水柱穿過火把也不會著火（見 shared/physics/fire.js）
       shellRadius: 5,
       color: '#7dd3fc',
       desc: '往前方開出一個高壓水炮，攻擊距離短，但擊退力強',
@@ -534,6 +575,8 @@ export const CONFIG = {
       damage: 50,
       radius: 30,
       noCarve: true,
+      maxHits: 3,           // 同一次轟炸每個目標最多被炸到 3 次（大體積的怪物不會被整排飛彈炸滿；2026-10-22 使用者）
+
       gravity: 0,
       speed: 1100,          // 垂直落下的速度
       hitRadius: 4,
@@ -623,6 +666,7 @@ export const CONFIG = {
       speed: 1500,
       hitRadius: 6,
       pierce: true, passTerrain: true, passAllies: true,
+      noFire: true,         // 震波穿過火把不會著火（見 shared/physics/fire.js）
       shellRadius: 6,
       color: '#a16207',
     },
@@ -691,6 +735,7 @@ export const CONFIG = {
       speed: 1400,
       hitRadius: 8,
       pierce: true, passTerrain: true, passAllies: true,
+      noFire: true,         // 震波穿過火把不會著火（見 shared/physics/fire.js）
       shellRadius: 8,
       color: '#a8a29e',
     },
@@ -703,13 +748,14 @@ export const CONFIG = {
       speed: 1500,
       hitRadius: 6,
       passTerrain: true, passAllies: true,
+      noFire: true,         // 吼聲的震波穿過火把不會著火（見 shared/physics/fire.js）
       shellRadius: 0,
       color: '#fde68a',
     },
     cyclopsBoulder: {     // 巨石投擲：拋物線，每顆只砸它瞄的那個人（一定砸中，見 shared/maps/cyclops.js 的 aimBoulder）、不挖地；砸不到巨人自己（passOwner）
       id: 'cyclopsBoulder', name: '巨石投擲', enemyOnly: true, passOwner: true,
       windFactor: 0,        // 不吃風（共用的風向機制）：軌跡是先解好、一定砸中的，被風吹偏就不準了
-      damage: 30,           // 使用者定的（2026-10-19 從 40 下調；再吃敵人傷害倍率：第 1 ~ 5 關 ×0.7 = 21）
+      damage: 20,           // 使用者定的（2026-10-19 從 40 下調到 30、10-22 再下調到 20：配上流血掉血太快；再吃敵人傷害倍率：第 1 ~ 5 關 ×0.7 = 14）
       bleed: 5,             // 使用者定的（2026-10-14）：砸中的人流血 5 層
       radius: 0,            // 0 = 不挖地（一波裡後面的巨石照算好的軌跡飛，地形不能被前面的改掉）
       gravity: 600,
@@ -850,6 +896,7 @@ export const CONFIG = {
       speed: 900,
       hitRadius: 22,        // 地面上方一個人高（站在岩台上、半空中的打不到）
       pierce: true, passTerrain: true, passAllies: true,
+      noFire: true,         // 震波穿過火把不會著火（見 shared/physics/fire.js）
       shellRadius: 22,
       color: '#a16207',
     },
@@ -874,6 +921,7 @@ export const CONFIG = {
       speed: 1500,
       hitRadius: 6,
       pierce: true, passTerrain: true, passAllies: true,
+      noFire: true,         // 震波穿過火把不會著火（見 shared/physics/fire.js）
       shellRadius: 6,
       color: '#a8a29e',
     },
@@ -976,6 +1024,49 @@ export const CONFIG = {
       passTerrain: true, passAllies: true,
       shellRadius: 30,
       color: '#e0812a',
+    },
+
+    // ---- 蜘蛛巢穴：蜘蛛女王與小蜘蛛的招式（enemyOnly；規則見 shared/maps/spider.js）。再吃敵人傷害倍率 ----
+    spiderVenom: {        // 毒液注射：從女王的口器直直射向隨機一名玩家（其他人不會擋到），只上 10 層中毒、不扣血、不擊退
+      // （使用者 10-22：原本 10 傷害 + 20 層 → 20 層改 10 層（這張圖沒有蛇血，毒解不掉）→ 改成不扣血，只上中毒）
+      id: 'spiderVenom', name: '毒液注射', enemyOnly: true,
+      damage: 0,
+      poison: 10,
+      knockback: 0,
+      noFire: true,         // 毒液穿過火柱 / 火把不會著火（使用者 10-22；見 shared/physics/fire.js）
+      radius: 0,
+      gravity: 0,
+      speed: 900,
+      hitRadius: 9,
+      passTerrain: true, passAllies: true,
+      shellRadius: 8,
+      color: '#a3e635',
+    },
+    spiderBite: {         // 蜘蛛女王撲咬（在地上才用）：飛行物就是女王自己，撲向最近的人。使用者定的 30 + 10 層中毒
+      id: 'spiderBite', name: '撲咬', enemyOnly: true, passOwner: true, bodyHit: true,
+      damage: 30,
+      poison: 10,
+      knockback: 120,
+      radius: 0,
+      gravity: 0,
+      speed: 700,
+      hitRadius: 30,
+      passTerrain: true, passAllies: true,
+      shellRadius: 30,
+      color: '#3f1d38',
+    },
+    spiderlingBite: {     // 小蜘蛛撲咬：撲向最近的人。使用者定的 10 + 5 層中毒
+      id: 'spiderlingBite', name: '撲咬', enemyOnly: true, passOwner: true, bodyHit: true,
+      damage: 10,
+      poison: 5,
+      knockback: 50,
+      radius: 0,
+      gravity: 0,
+      speed: 760,
+      hitRadius: 16,        // = 小蜘蛛的半寬
+      passTerrain: true, passAllies: true,
+      shellRadius: 16,
+      color: '#4a2a3a',
     },
   },
 

@@ -403,6 +403,145 @@ test('無差別轟炸：不挖地形（沒有坑、遮罩不變，爆炸事件�
   return out;
 });
 
+test('無差別轟炸：同一次轟炸每個目標最多被炸到 maxHits（3）次：叢林巨蟒（大體積）沒有上限會被炸 4 次以上，有上限剛好 3 次、之後的飛彈穿過他；小的目標不受影響；重播一致', () => {
+  const max = W.bombard.maxHits;
+  assert(max === 3, 'maxHits ' + max);
+  const hitsOn = (shot, id) => shot.events.filter(ev => (ev.damages || []).some(d => d.id === id && !d.shared));
+  const bomb = (levelId, cap) => {
+    const m = matchWith({}, { players: 2, levelId });
+    W.bombard.maxHits = cap;
+    try {
+      return { m, shot: J(m.resolveBombard(m.players[0])) };
+    } finally {
+      W.bombard.maxHits = max;
+    }
+  };
+  // 沒有上限：巨蟒被整排飛彈炸到好幾次
+  const free = bomb('jungleSerpent', 0);
+  const before = hitsOn(free.shot, 'snake').length;
+  assert(before > max, 'without the cap the serpent takes more than 3 hits: ' + before);
+  // 有上限：剛好 3 次，扣的血 = 那 3 下；第 3 下之後沒有飛彈撞上他（穿過去）、也沒有爆炸波及他
+  const { m, shot } = bomb('jungleSerpent', max);
+  const hits = hitsOn(shot, 'snake');
+  assert(hits.length === max, 'capped at 3: ' + hits.length);
+  const dealt = hits.reduce((s, ev) => s + ev.damages.find(d => d.id === 'snake').dmg, 0);
+  assert(dealt > 0 && m.byId('snake').maxHp - m.byId('snake').hp === dealt, `hp lost ${m.byId('snake').maxHp - m.byId('snake').hp}, events ${dealt}`);
+  const third = shot.events.indexOf(hits[max - 1]);
+  assert(!shot.events.slice(third + 1).some(ev => ev.target === 'snake'), 'later missiles fly through the serpent');
+  assert(shot.projectiles.length === free.shot.projectiles.length, 'same number of missiles');
+  // 客戶端照事件重播：位置、血量跟伺服器一致
+  const cm = clientOf(matchWith({}, { players: 2, levelId: 'jungleSerpent' }));
+  const run = replayVolley(cm, shot);
+  const drift = run.run();
+  assert(drift.length === 0 && !run.settle, `drift ${drift.join('; ')} ${run.settle || ''}`);
+  for (const s of shot.results) {
+    const e = cm.byId(s.id);
+    assert(e.x === s.x && e.y === s.y && e.hp === s.hp, `${s.id} client ${[e.x, e.y, e.hp]} vs server ${[s.x, s.y, s.hp]}`);
+  }
+  // 小關的敵人、隊友本來就炸不到 3 次：有沒有上限結果一模一樣
+  for (const levelId of ['level1', 'grove']) {
+    const a = bomb(levelId, 0).shot, b = bomb(levelId, max).shot;
+    assert(JSON.stringify(a.events) === JSON.stringify(b.events), `${levelId}: same events with or without the cap`);
+  }
+  return { serpent: { before, after: hits.length, dealt } };
+});
+
+test('無差別轟炸：好幾個部位的怪物整隻算——洞穴巨蠍（背甲 / 巨鉗 / 毒針）同一次轟炸合起來最多被炸 3 次（沒有上限會超過）；被轟炸打下來的鐘乳石不算轟炸；重播一致', () => {
+  const max = W.bombard.maxHits;
+  const out = {};
+  let over = 0, stones = 0;
+  for (let seed = 1; seed <= 10; seed++) {
+    const bomb = (cap) => {
+      const m = matchWith({}, { players: 2, levelId: 'scorpionDen', seed });
+      W.bombard.maxHits = cap;
+      try {
+        return { m, shot: J(m.resolveBombard(m.players[0])) };
+      } finally {
+        W.bombard.maxHits = max;
+      }
+    };
+    // 轟炸飛彈（shot.projectiles 裡的；半路掉下來的鐘乳石是它自己的武器）打在巨蠍任何一個部位的每一筆傷害
+    const entries = ({ m, shot }) => {
+      const ids = m.entities.filter(e => e.body === 'scorpion').map(e => e.id);
+      assert(ids.length === 3, 'three parts share one body: ' + ids);
+      return shot.events.filter(ev => ev.p < shot.projectiles.length)
+        .flatMap(ev => (ev.damages || []).filter(d => ids.includes(d.id) && !d.shared).map(d => ({ ev, d })));
+    };
+    const free = entries(bomb(0));
+    const capped = bomb(max);
+    const hits = entries(capped);
+    // 上限之前兩邊一模一樣，到上限的那一下只留剩下的次數
+    assert(hits.length === Math.min(free.length, max), `seed ${seed}: capped ${hits.length}, uncapped ${free.length}`);
+    if (free.length > max) {
+      over++;
+      const last = capped.shot.events.indexOf(hits[max - 1].ev);
+      const ids = new Set(hits.map(h => h.d.id).concat(['scorpionShell', 'scorpionPincer', 'scorpionStinger']));
+      const later = capped.shot.events.slice(last + 1).filter(ev => ev.p < capped.shot.projectiles.length);
+      assert(!later.some(ev => ids.has(ev.target) || (ev.damages || []).some(d => ids.has(d.id))), `seed ${seed}: later missiles leave every part alone`);
+      const sum = (list) => list.reduce((s, h) => s + h.d.dmg, 0);
+      assert(sum(hits) < sum(free), `seed ${seed}: less damage ${sum(hits)} < ${sum(free)}`);
+      // 客戶端照事件重播：位置、血量跟伺服器一致
+      const cm = clientOf(matchWith({}, { players: 2, levelId: 'scorpionDen', seed }));
+      const run = replayVolley(cm, capped.shot);
+      const drift = run.run();
+      assert(drift.length === 0 && !run.settle, `seed ${seed}: drift ${drift.join('; ')} ${run.settle || ''}`);
+      for (const s of capped.shot.results) {
+        const e = cm.byId(s.id);
+        assert(e.x === s.x && e.y === s.y && e.hp === s.hp, `seed ${seed}: ${s.id} client ${[e.x, e.y, e.hp]} vs server ${[s.x, s.y, s.hp]}`);
+      }
+    }
+    // 鐘乳石（半路掉下來的，ev.p 在 shot.projectiles 之後）砸到部位：不算轟炸，到了上限照樣砸得到
+    const ids = capped.m.entities.filter(e => e.body === 'scorpion').map(e => e.id);
+    const rock = capped.shot.events.filter(ev => ev.p >= capped.shot.projectiles.length && (ev.damages || []).some(d => ids.includes(d.id)));
+    if (rock.length && hits.length === max) stones++;
+    out[seed] = `${free.length}→${hits.length}${rock.length ? `+${rock.length} stalactite` : ''}`;
+  }
+  assert(over > 0, 'some seed hits the scorpion more than 3 times without the cap: ' + JSON.stringify(out));
+  assert(stones > 0, 'some seed has a stalactite land on the scorpion after the 3 missile hits: ' + JSON.stringify(out));
+  return out;
+});
+
+test('無差別轟炸的上限：一發同時波及同一隻的好幾個部位、只剩 1 次時，先留直擊的、再留離爆炸點近的（跟角色順序無關），到了整隻放進這一波共用的 ignore；不同隻各算各的', () => {
+  const max = W.bombard.maxHits;
+  // 兩隻敵人站在爆炸點兩邊（離 dl / dr px），near = 'e1' | 'e2'；body = 同一隻的名字（null = 不同隻）
+  const blastAt = ({ near, body, count, direct = false }) => {
+    const m = matchWith({}, { players: 1 });
+    const [e1, e2] = m.enemies;
+    const p1 = m.players[0];
+    const x0 = Math.round(CONFIG.WORLD_W / 2);
+    const [a, b] = near === 'e1' ? [e1, e2] : [e2, e1];
+    placeAt(m, a, direct ? x0 : x0 + a.hw + 3);
+    placeAt(m, b, direct ? x0 : x0 - b.hw - 10);
+    for (const f of m.entities) if (f !== e1 && f !== e2) assert(f.distanceTo(x0, a.y - 5) > 80, `${f.id} is far away`);
+    if (body) e1.body = e2.body = body;
+    const p = makeProjectile(p1, W.bombard, x0, 0, 0, W.bombard.speed);
+    p.ignore = new Set([p1]);
+    p.hitCount = new Map(count);
+    const hit = direct ? { type: 'entity', entity: a, x: x0, y: a.y - 5 } : { type: 'terrain', x: x0, y: Math.min(e1.y, e2.y) - 5 };
+    const ev = m.resolveHit(p1, W.bombard, p, 0, hit, 1, 0);
+    return { ev, p, e1, e2, ids: (ev.damages || []).map(d => d.id).sort().join() };
+  };
+  const out = {};
+  for (const near of ['e1', 'e2']) {
+    // 同一隻、只剩 1 次：留離爆炸點近的那個；之後整隻（兩個部位）都在 ignore、計數到上限
+    const r = blastAt({ near, body: 'x', count: [['body:x', max - 1]] });
+    assert(r.ids === near, `near ${near}: kept ${r.ids}`);
+    assert(r.p.hitCount.get('body:x') === max && r.p.ignore.has(r.e1) && r.p.ignore.has(r.e2), `near ${near}: the whole body is ignored now`);
+    // 兩個疊在一起（一樣近）：留直擊的那個，不管它排在前面還是後面
+    const d = blastAt({ near, body: 'x', count: [['body:x', max - 1]], direct: true });
+    assert(d.ev.target === near && d.ids === near, `direct ${near}: kept ${d.ids}`);
+    // 還剩 2 次：兩個都炸得到
+    const two = blastAt({ near, body: 'x', count: [['body:x', max - 2]] });
+    assert(two.ids === 'e1,e2' && two.p.hitCount.get('body:x') === max, `two left: ${two.ids}`);
+    out[near] = r.ids;
+  }
+  // 不同隻：各算各的，e1 到上限、e2 只算 1 次
+  const sep = blastAt({ near: 'e1', body: null, count: [['e1', max - 1]] });
+  assert(sep.ids === 'e1,e2' && sep.p.hitCount.get('e1') === max && sep.p.hitCount.get('e2') === 1, `separate: ${sep.ids} ${J([...sep.p.hitCount])}`);
+  assert(sep.p.ignore.has(sep.e1) && !sep.p.ignore.has(sep.e2), 'only e1 is ignored');
+  return out;
+});
+
 // ---------- 飛鏢 ----------
 
 test('飛鏢：初速固定 2400（力量 10 跟 100 一樣），有一點重力（往下彎一點點）；傷害 10、不挖地形；飛鏢與高壓水炮都能裝備', () => {

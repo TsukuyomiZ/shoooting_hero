@@ -1,7 +1,7 @@
 import { CHAT_MAX, cleanChat, allowChat } from '../shared/social/chat.js';
 
 // 聊天：遊戲中按 Enter（或貼圖列最左邊的 💬）打開輸入框，Enter 送出、Esc 取消；
-// 送出的字跟反應貼圖走同一條彈幕軌道（StickerUi.spawnText），所有人都看得到
+// 送出的字跟反應貼圖共用頂部的三排彈幕軌道（StickerUi.spawnText），所有人都看得到
 // 輸入框只在打字時出現（左下角、底部狀態列上方），上面順便列出最近幾則，漏看的彈幕可以回頭看
 const HISTORY_KEEP = 20;     // 留幾則
 const HISTORY_SHOW = 6;      // 打開時列幾則

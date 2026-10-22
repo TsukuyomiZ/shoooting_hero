@@ -84,7 +84,7 @@ const BASE = {
   RUN: { stageCount: 10, bossStages: [5, 10], eliteStages: [3, 8], enemyHpPerStage: 0.15, eliteRarityBonus: { white: 0, green: 10, purple: 5, gold: 1 } },
   CYCLOPS: { hp: 150, weights: { pound: 40, throw: 60 }, poundBareFactor: 0.5, throwGap: 6, sealEvery: 2, sealCast: 2.1, roarCast: 1.3 },
   // 陰影的傷害加成在 test/cave.js 測（含巨人）：這裡關掉，巨人的傷害照原本的數字
-  CAVE: { torchReach: 24, torchPass: 10, torchRounds: 3, torchLight: 270, faintLight: 150, dimLight: 0.45, shadowDamagePct: 0 },
+  CAVE: { torchReach: 24, torchPass: 10, torchRounds: 3, torchLight: 270, faintLight: 150, dimLight: 0.45, shadowDamagePct: 0, torchBurn: 20 },
   PLAYER: { hp: 150 }, WATER: { damagePct: 30, enemiesDrown: true }, FEVER: { everyRounds: 10, damagePct: 50, inBoss: false },
   WEAPONS: {
     cannon: { ...CONFIG.WEAPONS.cannon, damage: 30, radius: 42, knockback: 180 },
@@ -749,17 +749,25 @@ await test('玩家打下巨人頭上的鐘乳石：砸到巨人 30（玩家的�
 // ---------------- 巨石投擲 ----------------
 
 // 巨石投擲的檢查（一波的結果）：每個活著的玩家剛好挨一顆、第 k 顆打的是 targetIds[k]（爆炸在他身上），沒有別的事件（沒落地、沒落水、沒打到巨人）。
+// 例外：巨石飛過亮著的火把會著火（著火是共同設定，見 shared/physics/fire.js）——只帶 ignite 的 pass 事件，那一顆打中的人多附加火把的燃燒層數。
 // 回傳 { id: 那一顆的事件 }
 function throwHits(m, step, label) {
   const alive = m.players.filter(p => p.alive || step.shot.events.some(ev => ev.target === p.id)).map(p => p.id);
   const shot = step.shot;
   assert(step.action === 'throw' && shot.weapon === 'cyclopsBoulder' && Array.isArray(step.targetIds), `${label}: throw step ` + J(step.action));
   assert(J([...step.targetIds].sort()) === J([...alive].sort()) && shot.projectiles.length === alive.length, `${label}: one boulder each: ${J(step.targetIds)} vs ${J(alive)}`);
-  assert(shot.events.length === alive.length, `${label}: only the hits: ` + J(shot.events.map(ev => [ev.p, ev.type, ev.target])));
+  const fires = shot.events.filter(ev => ev.type === 'pass');
+  assert(fires.every(ev => ev.ignite === CONFIG.CAVE.torchBurn && J(Object.keys(ev).sort()) === J(['f', 'ignite', 'p', 'type', 'x', 'y'])),
+    `${label}: pass events only carry the torch fire: ` + J(fires));
+  assert(shot.events.length - fires.length === alive.length, `${label}: only the hits: ` + J(shot.events.map(ev => [ev.p, ev.type, ev.target])));
   const out = {};
   step.targetIds.forEach((id, k) => {
     const evs = shot.events.filter(ev => ev.target === id);
     assert(evs.length === 1 && evs[0].type === 'explode' && evs[0].p === k, `${label}: ${id} is hit exactly once by boulder #${k}: ` + J(evs.map(ev => [ev.p, ev.type])));
+    // 這一顆著火了（飛過火把、或同一幀穿過火把又砸到）：砸到的人多附加火把的燃燒（巨石本身不帶燃燒）
+    const burning = fires.some(ev => ev.p === k) || evs[0].ignite > 0;
+    const d = evs[0].damages.find(x => x.id === id);
+    assert(d && (burning ? d.burn === CONFIG.CAVE.torchBurn || d.immune || d.blocked : !d.burn), `${label}: boulder #${k} burn ${burning}: ` + J(d));
     out[id] = evs[0];
   });
   assert(!shot.events.some(ev => ev.target === 'cyclops'), `${label}: hit himself`);

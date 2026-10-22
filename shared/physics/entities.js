@@ -25,6 +25,8 @@ export class Entity {
 
     this.boss = !!o.boss;        // 首領（弒神者的加成對它有效）
     this.part = o.part || null;  // 古樹之庭：'eye' | 'mouth'（古樹身上可以打的部位）
+    // 同一隻怪物的好幾個部位共用的名字（巨蠍的背甲 / 巨鉗 / 毒針、古樹之眼 / 之口）：武器的 maxHits（無差別轟炸每一隻最多被炸幾次）整隻合起來算
+    this.body = o.body || null;
     this.fixed = !!o.fixed;      // 固定在原地：不受重力、不會被擊退（古樹的部位）
     this.noTurn = !!o.noTurn;    // 不會輪到它行動（古樹之口）
     this.minion = !!o.minion;    // Boss 召喚出來的小怪（樹妖）
@@ -123,6 +125,7 @@ export class Entity {
     this.bleedSource = null;     // 最後一個讓他流血的人（流血扣的血算他造成的、流血倒下算他的擊殺；只有伺服器有，不同步）
     this.bleedFrac = 0;          // 流血不足 1 點的小數先存著（不同步：套快照時歸零，伺服器與客戶端從同一個起點重播 AI 走路）
     this.bledThisTurn = 0;       // 這回合流血扣了幾點（Match.beginTurn 歸零；回合結束止血的 fx、算流血來源的傷害用）
+    this.entangle = 0;           // 糾纏：還剩幾個自己的回合（期間消耗的體力變多，見 staminaMult；自己的回合結束時少 1，見 Match.endTurn）
     this.shield = 0;             // 無敵次數（神佑之石給的）
     this.turnCount = 0;          // 這一關輪到自己幾次了（狂戰之斧、神佑之石用）
     this.movedThisTurn = 0;      // 這回合移動的距離（甩掉燃燒層數用）
@@ -135,6 +138,8 @@ export class Entity {
   }
 
   get isPlayer() { return this.team === 'players'; }
+  // 體力消耗的倍率：糾纏中 ×(1 + ENTANGLE.staminaPct%)（走路、跳、爬 / 掛藤蔓；客戶端的空中慢動作也乘這個）
+  get staminaMult() { return this.entangle > 0 ? 1 + CONFIG.ENTANGLE.staminaPct / 100 : 1; }
   get cx() { return this.x; }
   get cy() { return this.y - this.h / 2; }
 
@@ -246,7 +251,8 @@ export class Entity {
 
   // 站在地上（或抓著藤蔓）跳；在空中的話，有雲霧之瓶（extraJumps）的次數就能再跳一次。每次都一樣消耗跳躍體力
   jump(terrain) {
-    if (this.stamina < this.jumpCost) return false;
+    const cost = this.jumpCost * this.staminaMult;
+    if (this.stamina < cost) return false;
     if (this.onVine >= 0 || (terrain ? this.nearGround(terrain) : this.onGround)) {
       this.airJumpsLeft = this.mods.extraJumps;   // 從地面 / 藤蔓起跳：空中的次數一定是滿的（落地前一幀起跳也一樣）
       this.letGoVine();
@@ -255,7 +261,7 @@ export class Entity {
       this.airJumpsLeft--;
     }
     this.vy = -this.jumpSpeed;
-    this.stamina -= this.jumpCost;
+    this.stamina -= cost;
     this.onGround = false;
     this.jumped = true;
     return true;
@@ -289,7 +295,7 @@ export class Entity {
 
     // 主動移動（消耗耐力；耐力歸零就動不了）。流血照這一步實際走了多少水平距離扣（跳在空中按方向也算；爬坡往上那一點不算）
     if (this.moveDir !== 0 && this.stamina > 0 && !this.held) {
-      this.stamina = Math.max(0, this.stamina - this.moveCost * dt);
+      this.stamina = Math.max(0, this.stamina - this.moveCost * this.staminaMult * dt);
       const x0 = this.x;
       this.tryMove(terrain, this.moveDir, this.moveSpeed * dt);
       if (!this.aiming) this.facing = this.moveDir;
@@ -394,10 +400,10 @@ export class Entity {
     this.vy = 0;
     this.onGround = false;
     if (this.vineDir === 0 || this.stamina <= 0) {
-      if (this.hangDrain) this.stamina = Math.max(0, this.stamina - this.vineHangCost * dt);
+      if (this.hangDrain) this.stamina = Math.max(0, this.stamina - this.vineHangCost * this.staminaMult * dt);
       return true;
     }
-    this.stamina = Math.max(0, this.stamina - this.moveCost * dt);
+    this.stamina = Math.max(0, this.stamina - this.moveCost * this.staminaMult * dt);
     let rem = this.vineSpeed * dt;
     if (this.vineDir < 0) {
       const top = Math.max(v.top + this.h - VINE_HAND, this.h);
@@ -548,7 +554,7 @@ export class Entity {
   }
 
   // ---- 同步用 ----
-  // ps = 中毒層數、lk = 被中毒鎖住的上限、bl = 流血層數、vn = 抓著第幾條藤蔓（-1 = 沒有；不帶的話客戶端會以為他在半空中、自己掉下去）、
+  // ps = 中毒層數、lk = 被中毒鎖住的上限、bl = 流血層數、eg = 糾纏還剩幾個回合、vn = 抓著第幾條藤蔓（-1 = 沒有；不帶的話客戶端會以為他在半空中、自己掉下去）、
   // wt = 蜜蜂還要待機幾個回合。效果自己的狀態（soul、xcd、rd、hu…）由 writeState 照各效果宣告的位置插進去
   toState() {
     return writeState(this, this.baseState());
@@ -559,7 +565,7 @@ export class Entity {
       id: this.id, x: this.x, y: this.y, hp: this.hp, mhp: this.maxHp, stamina: this.stamina,
       alive: this.alive, cause: this.deathCause, facing: this.facing, weapon: this.weapon,
       burn: this.burn, shield: this.shield, turns: this.turnCount,
-      sx: this.safeX, sy: this.safeY, wf: this.waterFalls, ps: this.poison, lk: this.poisonLock, bl: this.bleed, vn: this.onVine,
+      sx: this.safeX, sy: this.safeY, wf: this.waterFalls, ps: this.poison, lk: this.poisonLock, bl: this.bleed, eg: this.entangle, vn: this.onVine,
     };
     if (this.closeOnHit) s.closed = this.closedTurns;
     if (this.kind === 'bee') s.wt = this.waitTurns;
@@ -613,6 +619,7 @@ export class Entity {
     if (s.ps !== undefined) this.poison = s.ps;
     if (s.lk !== undefined) this.poisonLock = s.lk;
     if (s.bl !== undefined) this.bleed = s.bl;
+    if (s.eg !== undefined) this.entangle = s.eg;
     if (s.vn !== undefined) this.onVine = s.vn;
     if (s.wt !== undefined) this.waitTurns = s.wt;
     // 流血的小數不同步：套快照就從 0 開始（伺服器的 AI 回合也先套同一份快照再走，客戶端重播走路時扣的血才一樣）

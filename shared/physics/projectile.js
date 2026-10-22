@@ -17,5 +17,6 @@ export function makeProjectile(owner, weapon, x, y, vx, vy) {
     range: weapon.range ?? Infinity,  // 最長飛多遠（路徑長度；看力量的由開火的地方照 shotRange 設），dist = 已經飛了多遠
     dist: 0,
     leftOwner: false,               // 已經離開過射手的身體（之後才打得到他）
+    fire: 0,                        // 著火了：之後打中的人附加幾層燃燒（穿過場上的火源，例如洞穴的火把；見 fire.js）
   };
 }

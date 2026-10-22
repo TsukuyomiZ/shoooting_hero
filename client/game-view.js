@@ -18,6 +18,7 @@ const inRect = (p, r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= 
 const SLOT_KEYS = { Digit1: 0, Digit2: 1, Digit3: 2 };
 const STEP_STRIDE = 34;   // 走多少 px 踩一步（移動速度 130 px/s ≈ 每秒 4 步）
 const LAUNCH_SOUNDS = { sniper: 'sniper', sonic: 'sonic', darts: 'dart', waterCannon: 'waterJet', rapier: 'stab' };   // 開火的聲音（沒列的都是大砲聲）
+const EMBER_COLORS = ['#fde047', '#fb923c', '#f97316', '#ef4444'];   // 著火的飛行物噴出來的火星
 
 // 客戶端的遊戲畫面：
 // - 自己的回合：本地物理即時操作，定時把位置回報給裁判，放開滑鼠送 fire
@@ -607,7 +608,7 @@ export class GameView {
         // 半路才出現的飛行物（例如被打下來的鐘乳石）不是開火：沒有砲聲，它的演出由地圖畫面的 showEvent 播
         spawn: (p) => { if (shot.kind === 'weapon' && !p.added) this.showLaunch(weapon, p); },
         event: (ev, p, made) => this.showShotEvent(shot, p.weapon, ev, made),   // 照這顆飛行物自己的武器（半路才出現的不是這一波的武器）
-        frame: extra.frame,
+        frame: (live, f) => { this.fireEmbers(live); if (extra.frame) extra.frame(live, f); },
       });   // 剛好 flightFrames + settleFrames 幀（沉降也照伺服器的幀數）
       played = true;
     } finally {
@@ -628,6 +629,21 @@ export class GameView {
       for (const [str, color] of killFloats(actor, shot)) this.floatText(actor, str, color);
     }
     yield { frames: CONFIG.TIMING.settleDelay * FPS * 0.5 };
+  }
+
+  // 每個飛行幀：著火的飛行物（p.fire）往後噴火星（慢慢往上飄、很快熄掉）；火舌本身由 Renderer.drawFire 畫
+  fireEmbers(live) {
+    for (const p of live) {
+      if (!p.fire) continue;
+      for (let k = 0; k < 2; k++) {
+        const life = 0.3 + Math.random() * 0.25;
+        this.particles.push({
+          x: p.x + (Math.random() - 0.5) * 6, y: p.y + (Math.random() - 0.5) * 6,
+          vx: (Math.random() - 0.5) * 50, vy: -20 - Math.random() * 40, life, maxLife: life,
+          size: 1.5 + Math.random() * 1.8, color: EMBER_COLORS[(Math.random() * EMBER_COLORS.length) | 0], gravity: -60,
+        });
+      }
+    }
   }
 
   // 一顆飛行物出發（自己 / 隊友 / AI 開火）：砲聲、砲口的火花、震一下
@@ -704,6 +720,11 @@ export class GameView {
         if (weapon.poison) this.spawnParticles(ev.x, ev.y, 10, { speed: 120, life: 0.5, size: 3, color: '#a855f7', gravity: 300 });   // 毒液濺開
         break;
       }
+    }
+    if (ev.ignite > 0) {   // 穿過場上的火源著火了（例如洞穴的火把，敵我都會；見 shared/physics/fire.js）：「呼」一聲、竄出一團火
+      sfx.play('ignite', { x: ev.x });
+      this.spawnParticles(ev.x, ev.y, 14, { speed: 130, life: 0.45, size: 3, color: '#fb923c', gravity: -90 });
+      this.flashes.push({ x: ev.x, y: ev.y, r: 22, life: 0.22, maxLife: 0.22, tint: '251,146,60' });
     }
     this.mapView.showEvent(this.mapCtx, ev, made);   // 例如打到巨蟒跨過門檻掉蛇血、打到蜂巢飛出蜜蜂
     this.showDamages(ev.damages);
@@ -791,6 +812,8 @@ export class GameView {
         if (fx.shaken > 0) this.floatText(e, `甩掉 ${fx.shaken} 層燃燒`, '#fdba74', 14);
       } else if (fx.type === 'bleed') {   // 流血：自己的回合結束時止血（層數清掉，快照的 bl 也是 0）
         this.floatText(e, '止血', '#9ca3af', 14);
+      } else if (fx.type === 'untangle') {   // 糾纏的回合數用完了（快照的 eg 也是 0）
+        this.floatText(e, '糾纏解除', '#e5e7eb', 14);
       } else if ((ops = turnFxOps(fx, e))) {   // 效果的（例如神佑之石、噬魂、時間扭曲）
         this.playEffectOps(ops, banners);
       } else if (!this.mapView.turnFx(this.mapCtx, e, fx)) {   // 地圖畫面的（例如古樹之口又張開了、巨蟒被燒到掉出蛇血）
@@ -1032,7 +1055,7 @@ export class GameView {
       const why = want || !acting ? null : me.stamina <= 0 ? 'stamina' : this.mouse.down ? 'land' : 'release';
       this.setSlowMo(want, why);
     }
-    if (this.slowMo) me.stamina = Math.max(0, me.stamina - S.cost * realDt);
+    if (this.slowMo) me.stamina = Math.max(0, me.stamina - S.cost * me.staminaMult * realDt);   // 糾纏中消耗變多
     this.timeScale = this.slowMo ? Math.max(S.scale, this.timeScale - (1 - S.scale) * realDt / Math.max(0.001, S.rampIn)) : 1;
   }
 
