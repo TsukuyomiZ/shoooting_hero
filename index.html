@@ -15,9 +15,23 @@
     <div class="panel lobby-panel">
       <div class="lobby-main">
         <h1>Shooting Hero <span id="version-badge" class="version-badge"></span></h1>
-        <p class="sub">彈彈堂風格 PVE 共鬥，最多 4 人</p>
+        <p class="sub">彈彈堂風格 · PVE 共鬥最多 4 人 · 勝者為王 3v3 對戰</p>
+        <div id="gpu-hint" class="gpu-hint" role="status" hidden>
+          <p class="gpu-hint-title">瀏覽器好像沒有開「硬體加速」</p>
+          <p class="gpu-hint-text">沒開的話，選牌畫面和打中敵人時會很卡。<span id="gpu-hint-steps"></span></p>
+          <p class="gpu-hint-note">設定已經是開的話，可能是顯示卡驅動沒裝好，或正在用遠端桌面、虛擬機。</p>
+          <div class="gpu-hint-actions">
+            <span id="gpu-hint-link" class="gpu-hint-link"><code id="gpu-hint-url"></code><button id="gpu-hint-copy" type="button">複製網址</button></span>
+            <button id="gpu-hint-close" class="gpu-hint-close" type="button">知道了</button>
+          </div>
+        </div>
         <label class="row">暱稱 <input id="name" maxlength="12" placeholder="你的名字"></label>
         <div id="menu">
+          <div class="row mode-row">
+            <span class="mode-heading">模式</span>
+            <div id="mode" class="mode-pick" role="radiogroup" aria-label="模式"></div>
+          </div>
+          <p id="mode-desc" class="mode-desc" hidden></p>
           <div class="row difficulty-row">
             <span class="difficulty-heading">難度</span>
             <div id="difficulty" class="difficulty-pick" role="radiogroup" aria-label="難度"></div>
@@ -48,6 +62,7 @@
             <label id="privacy-toggle" class="private-check" hidden><input type="checkbox" id="room-private"> 設為私人房間</label>
           </div>
           <ul id="players"></ul>
+          <div id="teams" class="teams" hidden></div>
           <div class="row">
             <button id="btn-ready" class="primary">準備</button>
             <button id="btn-start" hidden>開始遊戲</button>

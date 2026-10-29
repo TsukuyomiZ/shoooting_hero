@@ -455,7 +455,8 @@ test('壓力：4 人（2 人斷線）打到結束，不能有例外，AI 規劃�
     if (ref.phase === 'turn') {
       const a = m.byId(ref.currentId);
       const t0 = performance.now();
-      const plan = rng.chance(0.7) ? planShot(m.world, a, rng) : { weapon: 'cannon', angle: rng.range(20, 160), power: rng.range(20, 100) };
+      // planShot 也可能不開火（玩家角色每一發都會炸到自己人時，見 ai.js）：這裡當成真人，照樣隨便開一砲
+      const plan = (rng.chance(0.7) ? planShot(m.world, a, rng) : null) || { weapon: 'cannon', angle: rng.range(20, 160), power: rng.range(20, 100) };
       maxPlanMs = Math.max(maxPlanMs, performance.now() - t0);
       ref.handle(a.id, { t: 'fire', weapon: plan.weapon, angle: plan.angle, power: plan.power, x: a.x, y: a.y, facing: a.facing, stamina: a.stamina });
       humanShots++;
@@ -699,22 +700,24 @@ test('肉鴿流程：全隊倒下 → runOver lose；血量在關卡間帶著走
   return { hpAfterClear: hp1, reviveHp: p2e.hp };
 });
 
-test('結算畫面：runOver 帶每個人整場的造成傷害（不含誤傷）、承受傷害、開槍 / 命中次數（跨關加總）與拿到的牌', () => {
+test('結算畫面：runOver 帶每個人整場的造成傷害（不含誤傷）、誤傷隊友（不含自己）、承受傷害、開槍 / 命中次數（跨關加總）與拿到的牌', () => {
   const io = new FakeIo();
   const run = new Run({ players: mkPlayers(2), seed: 8, io, cards: CARDS.cards });
   run.start();
   io.advance(2000);
   const w = CONFIG.WEAPONS.cannon;
-  const want = { dealt: 0, taken: 0 };   // 照實際扣的血算（隨機拿到的牌可能改變傷害）
+  const want = { dealt: 0, taken: 0, self: 0 };   // 照實際扣的血算（隨機拿到的牌可能改變傷害）
   const stage = () => {
     const m = run.match;
     for (const e of m.entities) e.hp = e.maxHp = 10000;
     const [p1, p2] = m.players;
-    const e0 = m.enemies[0].hp, h2 = p2.hp;
+    const e0 = m.enemies[0].hp, h1 = p1.hp, h2 = p2.hp;
     m.applyExplosion(m.enemies[0].cx, m.enemies[0].cy, w, p1, m.enemies[0]);   // p1 打敵人：全額算造成傷害
-    m.applyExplosion(p2.cx, p2.cy, w, p1, p2);                                  // 誤傷 p2：不算 p1 的造成傷害、算 p2 的承受傷害
+    m.applyExplosion(p2.cx, p2.cy, w, p1, p2);                                  // 誤傷 p2：不算 p1 的造成傷害、算 p1 的誤傷隊友與 p2 的承受傷害
+    m.applyExplosion(p1.cx, p1.cy, w, p1, p1, { directOnly: true });          // 打到自己：不算誤傷隊友
     want.dealt += e0 - m.enemies[0].hp;
-    want.taken += h2 - p2.hp;
+    want.taken += h2 - p2.hp;   // p2 扣的血全是 p1 打的（含攜手之伴分過去的份）= p1 的誤傷隊友
+    want.self += h1 - p1.hp;
     p1.shots += 2; p1.hits += 1;
     for (const e of m.enemies) e.die('hit');
   };
@@ -726,11 +729,11 @@ test('結算畫面：runOver 帶每個人整場的造成傷害（不含誤傷）
   io.advance(31_000);
   const msg = io.take('runOver').at(-1);
   const [s1, s2] = msg.summary;
-  assert(want.dealt > 0 && want.taken > 0, 'want ' + JSON.stringify(want));
-  assert(s1.dealt === want.dealt && s1.shots === 4 && s1.hits === 2, 'p1 ' + JSON.stringify(s1));
-  assert(s2.dealt === 0 && s2.taken === want.taken && s2.shots === 0, 'p2 ' + JSON.stringify(s2));
+  assert(want.dealt > 0 && want.taken > 0 && want.self > 0, 'want ' + JSON.stringify(want));
+  assert(s1.dealt === want.dealt && s1.friendlyDealt === want.taken && s1.shots === 4 && s1.hits === 2, 'p1 ' + JSON.stringify(s1));
+  assert(s2.dealt === 0 && s2.friendlyDealt === 0 && s2.taken === want.taken && s2.shots === 0, 'p2 ' + JSON.stringify(s2));
   assert(s1.cards.length === 1 && s1.cards[0].count === 1 && s1.cards[0].name, 'cards ' + JSON.stringify(s1.cards));
-  return { p1: { dealt: s1.dealt, taken: s1.taken }, p2: { taken: s2.taken } };
+  return { p1: { dealt: s1.dealt, friendly: s1.friendlyDealt, taken: s1.taken }, p2: { taken: s2.taken } };
 });
 
 test('牌的加成會進戰鬥：大砲傷害 +%、爆炸半徑 +%、減傷 %', () => {

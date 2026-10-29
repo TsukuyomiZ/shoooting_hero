@@ -6,7 +6,7 @@
 //   2. 在 CHANGELOG 最上面加一筆同版本號的紀錄（還沒改版前的改動，就加在最上面那一筆裡）
 //   3. package.json 的 version 跟著改（1.2 BETA → "1.2.0-beta"、正式版 1.2 → "1.2.0"）
 // test/version.js 會檢查這三個地方對得上。
-export const VERSION = { channel: 'BETA', number: '1.5' };
+export const VERSION = { channel: 'BETA', number: '1.6' };
 
 // 每一筆改動的種類（面板上的標籤，照這個順序列）
 export const CHANGE_TYPES = [
@@ -17,6 +17,22 @@ export const CHANGE_TYPES = [
 
 // 版本履歷：新的在最上面。每一筆 { version, channel, date, title, new: [...], change: [...], fix: [...] }，沒有的種類可以省略
 export const CHANGELOG = [
+  {
+    version: '1.6', channel: 'BETA', date: '2026-10-29',
+    title: '新模式「勝者為王」3 對 3 對戰',
+    new: [
+      '新模式「勝者為王」：3 對 3 對戰，打倒對方全隊就贏，人不夠可以加電腦玩家',
+      '勝者為王：每人 300 血，每一輪結束每個人選一張牌，第 11 輪起進入狂熱',
+      '勝者為王的對戰地圖「王者擂台」「雙峰谷」，單人練習可以跟電腦玩家對戰',
+      '大廳偵測瀏覽器有沒有開硬體加速，沒開會提醒怎麼打開（沒開時選牌、打中敵人會卡）',
+      '結算畫面多一格「誤傷隊友」：整場打在隊友身上的傷害',
+    ],
+    change: [
+      '處刑監獄：處刑官跳上處刑台的時機調整，並新增兩項能力',
+      '處刑監獄：處刑官會挑一名玩家當「罪人」，他和猛獸的攻擊都先找罪人；棕熊換了新招式「熊抱」',
+      '斷線代打的 AI 不再往自己人身上打：每一發都會炸到隊友時改用狙擊槍或先不開火',
+    ],
+  },
   {
     version: '1.5', channel: 'BETA', date: '2026-10-22',
     title: '新 Boss「蜘蛛巢穴」與會著火的子彈',

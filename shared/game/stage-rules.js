@@ -21,7 +21,9 @@ import { CONFIG } from '../core/config.js';
 export function stageRules({ stage = 1, players = 1, pool = 'normal', feverFrom = 0 } = {}, config = CONFIG) {
   const playerScale = 1 + config.ENEMY_HP_PER_EXTRA_PLAYER * Math.max(0, players - 1);
   const E = config.ENEMY;
-  const every = pool === 'boss' && !config.FEVER.inBoss ? 0 : feverEvery(players, config);
+  // 勝者為王（pool 'versus'）不分人數：每 VERSUS.feverEvery 輪疊一層（10 = 第 11 輪起）
+  const every = pool === 'versus' ? (config.VERSUS ? config.VERSUS.feverEvery : 0)
+    : pool === 'boss' && !config.FEVER.inBoss ? 0 : feverEvery(players, config);
   const first = every > 0 ? (feverFrom > 1 ? Math.min(feverFrom, every + 1) : every + 1) : 0;
   return {
     stage, players, pool,

@@ -18,8 +18,9 @@ export class Entity {
   constructor(o) {
     this.id = o.id;
     this.name = o.name;
-    this.team = o.team;                     // 'players' | 'enemies'
-    this.controller = o.controller || 'ai'; // 'human' | 'ai'
+    this.team = o.team;                     // 'players' | 'enemies'；勝者為王（3v3 對戰）是兩隊玩家 'blue' | 'red'
+    // 'human' = 玩家角色（不管現在是人在操作、斷線代打還是電腦玩家）| 'ai' = 敵人。「是不是玩家角色」看這個（isPlayer），敵我看 team
+    this.controller = o.controller || (o.team === 'players' ? 'human' : 'ai');
     this.slot = o.slot ?? 0;
     this.color = o.color || CONFIG.ENEMY.color;
 
@@ -93,7 +94,7 @@ export class Entity {
 
     // 武器欄（最多 EQUIP.maxWeapons 把），weapon 是目前拿在手上的那把
     // 玩家只能拿可裝備的武器；敵人可以用專屬武器（樹妖的長矛）
-    const ws = (o.weapons || []).filter(o.team === 'players' ? isEquippable : (id => !!CONFIG.WEAPONS[id]));
+    const ws = (o.weapons || []).filter(this.controller === 'human' ? isEquippable : (id => !!CONFIG.WEAPONS[id]));
     this.weapons = (ws.length ? ws : CONFIG.EQUIP.startWeapons).slice(0, CONFIG.EQUIP.maxWeapons);
     this.weapon = this.weapons[0];
     this.aimAngle = this.facing < 0 ? 135 : 45;   // 數學角度：0=右, 90=上
@@ -110,8 +111,9 @@ export class Entity {
     this.waterFalls = 0;         // 這一關掉進水裡幾次
     // 最近一次落水 { n, x, y, dmg, died, sx, sy, hp }：給畫面播水花 / 飄字，玩家回報給伺服器（hp = 落水扣血之前的血量，見 fallInWater）
     this.splash = null;
-    // 結算畫面的統計（這一關；Run 打完一關加進整場總計）：造成傷害（打敵方）、承受傷害（含落水）、開槍次數、命中次數
+    // 結算畫面的統計（這一關；Run 打完一關加進整場總計）：造成傷害（打敵方）、誤傷隊友（不含自己）、承受傷害（含落水）、開槍次數、命中次數
     this.dealt = 0;
+    this.friendlyDealt = 0;
     this.taken = 0;
     this.shots = 0;
     this.hits = 0;
@@ -137,7 +139,8 @@ export class Entity {
     initState(this, o);
   }
 
-  get isPlayer() { return this.team === 'players'; }
+  // 玩家角色（冒險的 players 那一隊、勝者為王的兩隊都是）；敵人（含 Boss、召喚物）不是
+  get isPlayer() { return this.controller === 'human'; }
   // 體力消耗的倍率：糾纏中 ×(1 + ENTANGLE.staminaPct%)（走路、跳、爬 / 掛藤蔓；客戶端的空中慢動作也乘這個）
   get staminaMult() { return this.entangle > 0 ? 1 + CONFIG.ENTANGLE.staminaPct / 100 : 1; }
   get cx() { return this.x; }
@@ -485,7 +488,7 @@ export class Entity {
   // 扣完沒血（或整張圖都沒地方站）就淹死，撐得住就回到 respawnSpot 站好。
   // splash 記下這一次（畫面播水花 / 飄字，玩家自己掉下去時回報給伺服器）
   fallInWater(terrain) {
-    const drown = this.team === 'enemies' && CONFIG.WATER.enemiesDrown;
+    const drown = !this.isPlayer && CONFIG.WATER.enemiesDrown;
     const dmg = drown ? this.hp : Math.min(this.hp, Math.round(this.maxHp * CONFIG.WATER.damagePct / 100));
     const spot = this.hp > dmg ? this.respawnSpot(terrain) : null;
     this.waterFalls++;

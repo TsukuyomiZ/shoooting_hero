@@ -3,7 +3,7 @@ import { LEVELS } from '../maps/level.js';
 import { Rng } from '../core/rng.js';
 import { Terrain } from '../physics/terrain.js';
 import { Entity, poisonTick } from '../physics/entities.js';
-import { launchVelocity, makeProjectile, hitAction, bounceProjectile, shotTraits, blastRadius, shotRange, applyRecoil } from '../physics/weapons.js';
+import { launchVelocity, makeProjectile, hitAction, bounceProjectile, shotTraits, blastRadius, shotRange, applyRecoil, isEquippable } from '../physics/weapons.js';
 import { runVolley } from '../physics/volley.js';
 import { windMaxOf, rollWind, windAccel } from '../physics/wind.js';
 import { catchFire, burnOf } from '../physics/fire.js';
@@ -49,14 +49,21 @@ export class Match {
     this.windMax = windMaxOf(this.level);
     this.wind = 0;
 
+    // 勝者為王（3v3 對戰，關卡的 pool 'versus'）：玩家分兩隊（players[i].team，照 CONFIG.VERSUS.teams 的順序：第一隊在左邊、第二隊在右邊），
+    // 從 teamSpawns 照隊裡的順序出生、面向場中央、顏色照隊伍（players[i].color）；沒有敵人。陣列順序（= 回合順序）照 players 給的
+    this.versus = this.level.pool === 'versus';
+    const teamSeen = {};
     players.forEach((p, i) => {
-      const spawn = this.level.playerSpawns[i % this.level.playerSpawns.length];
+      const side = this.versus ? Math.max(0, CONFIG.VERSUS.teams.indexOf(p.team)) : 0;
+      const k = teamSeen[side] = (teamSeen[side] ?? -1) + 1;
+      const spots = this.versus && this.level.teamSpawns ? this.level.teamSpawns[side] : this.level.playerSpawns;
+      const spawn = spots[(this.versus ? k : i) % spots.length];
       const c = carry[p.id] || {};
       this.entities.push(new Entity({
         ...CONFIG.PLAYER,
-        id: p.id, name: p.name, team: 'players', controller: 'human', slot: i,
-        color: CONFIG.PLAYER_COLORS[i % CONFIG.PLAYER_COLORS.length],
-        x: spawn.x, y: spawn.y, facing: 1,
+        id: p.id, name: p.name, team: this.versus ? CONFIG.VERSUS.teams[side] : 'players', controller: 'human', slot: i,
+        color: (this.versus && p.color) || CONFIG.PLAYER_COLORS[i % CONFIG.PLAYER_COLORS.length],
+        x: spawn.x, y: spawn.y, facing: side === 1 ? -1 : 1,
         hp: c.hp ?? CONFIG.PLAYER.hp, maxHp: c.maxHp ?? CONFIG.PLAYER.hp,
         stamina: c.maxStamina ?? CONFIG.PLAYER.stamina, maxStamina: c.maxStamina ?? CONFIG.PLAYER.stamina,
         moveSpeed: c.moveSpeed ?? CONFIG.PLAYER.moveSpeed, jumpSpeed: c.jumpSpeed ?? CONFIG.PLAYER.jumpSpeed,
@@ -103,12 +110,19 @@ export class Match {
   get world() {
     return { terrain: this.terrain, entities: this.entities, w: CONFIG.WORLD_W, h: CONFIG.WORLD_H, wind: this.wind };
   }
-  get players() { return this.entities.filter(e => e.team === 'players'); }
-  get enemies() { return this.entities.filter(e => e.team === 'enemies'); }
+  // 玩家角色（勝者為王是兩隊加起來）/ 敵人（勝者為王沒有）
+  get players() { return this.entities.filter(e => e.isPlayer); }
+  get enemies() { return this.entities.filter(e => !e.isPlayer); }
   byId(id) { return this.entities.find(e => e.id === id) || null; }
 
+  // 勝負：冒險 'win' / 'lose' / null（還沒分出來）。
+  // 勝者為王：只剩一隊有人活著 = 那一隊的 id（例如 'blue'）；同一下兩隊最後的人一起倒下 = 'draw'
   result() {
     this.mechanic.cascade(this);   // 地圖機制連帶的死亡（例如古樹之眼倒下、包括回合結束被燒死 → 整棵樹枯萎）
+    if (this.versus) {
+      const standing = CONFIG.VERSUS.teams.filter(t => this.players.some(e => e.team === t && e.alive));
+      return standing.length === 1 ? standing[0] : standing.length ? null : 'draw';
+    }
     if (!this.players.some(e => e.alive)) return 'lose';
     // 打不打都可以的敵人（蜂巢、蜜蜂）不算：小心擊發的狙擊手全倒就過關
     if (!this.enemies.some(e => e.alive && !e.optional)) return 'win';
@@ -160,7 +174,7 @@ export class Match {
       const px = e.x, py = e.y, falls = e.waterFalls;
       if (dry) e.update(CONFIG.FIXED_DT, this.world); else this.step();
       e.movedThisTurn += Math.hypot(e.x - px, e.y - py);
-      if (dry || e.team !== 'players' || !e.alive) return;   // 這一幀流血倒下的不撿（走路也就此停下：die 放開了方向鍵）
+      if (dry || !e.isPlayer || !e.alive) return;   // 這一幀流血倒下的不撿（走路也就此停下：die 放開了方向鍵）
       const s = e.waterFalls !== falls ? e.splash : null;   // 這一幀掉進水裡（已經被放回岸上）：線段只算到落水的那一點
       const fx = this.mechanic.moved(this, e, px, py, s ? s.x : e.x, s ? s.y : e.y);
       if (fx) pickups.push({ f: n + fall, ...fx, hp: e.hp, mhp: e.maxHp, lk: e.poisonLock });
@@ -314,9 +328,13 @@ export class Match {
   // - 地圖機制的回合結束效果（例如巨蟒被燒到跨過門檻掉蛇血、古樹的嘴巴張開）
   // - 效果的回合結束（照 shared/cards/effects/ 登記的順序：神佑之石給全隊無敵 → 時間扭曲給額外回合）。
   //   isExtra = 這是時間扭曲給的額外回合
+  // 在自己的回合倒下了（走路流血、淹死、被自己炸死…）：只跑地圖機制的回合結束（例如處刑監獄的罪人倒下 → 馬上換新的罪人）
   endTurn(e, isExtra = false) {
     const fx = [];
-    if (!e.alive) return fx;
+    if (!e.alive) {
+      this.mechanic.turnEnd(this, e, fx);
+      return fx;
+    }
     this.burnTick(e, fx);
     this.stopBleeding(e, fx);
     this.untangle(e, fx);
@@ -443,7 +461,7 @@ export class Match {
   damageMult(attacker, weapon) {
     if (!attacker) return 1;
     const map = this.mechanic.attackMult(this, attacker, weapon);
-    if (attacker.team === 'enemies') return this.rules.enemyDamage * map;
+    if (!attacker.isPlayer) return this.rules.enemyDamage * map;
     const c = { match: this, weaponId: weapon.id, allies: this.alliesAlive(attacker) };
     const pct = (slot) => Effects.effectSum(slot, attacker, c);
     return Math.max(0, 1 + (pct('damage') + pct('damageSituation') + pct('damageState')) / 100) * map;
@@ -531,8 +549,14 @@ export class Match {
       for (const s of h.shares) if (s.entry.dmg > 0) Effects.onHurt(this, s.q, s.entry.dmg);
     }
     for (const f of later) f();   // 這時候才出現的角色（蜜蜂）不會被這一下打到
-    // 結算統計：打在敵方身上的傷害（含分給連結對象的份、地圖機制寫的那幾筆）算攻擊者造成的；誤傷不算
-    if (attacker) for (const d of damages) if (!d.friendly) attacker.dealt += d.dmg;
+    // 結算統計：打在敵方身上的傷害（含分給連結對象的份、地圖機制寫的那幾筆）算攻擊者造成的；
+    // 誤傷另外記成誤傷隊友（含分給連結對象的份），打到自己（含分回自己身上的份）不算
+    if (attacker) {
+      for (const d of damages) {
+        if (!d.friendly) attacker.dealt += d.dmg;
+        else if (d.id !== attacker.id) attacker.friendlyDealt += d.dmg;
+      }
+    }
     // 3. 燃燒、中毒、流血、擊退（分到的份不會擊退、不會中毒、不會流血）。
     // 免疫異常狀態的人（immuneTo，例如金剛不壞）這三種都不上：這一下本來會上的話記 immune（客戶端飄「免疫」）
     const poison = weapon.poison || 0;
@@ -799,6 +823,29 @@ export class Match {
     // 地圖機制的欄位（含場上的道具）：先建出快照裡有、這邊還沒有的角色（召喚 / 放出來的），角色狀態才套得上
     this.mechanic.restore(this, s);
     this.applyEntities(s.entities);
+  }
+
+  // 勝者為王：戰鬥中選完牌，把新算的 carry（跟建場時同一個格式）套到場上的玩家角色 e 身上——
+  // 上限（最大血量、體力）、速度、體型、mods、武器欄、連結對象、效果帶著走的狀態；血量照 carry（選牌回的血、加上限補的血），倒下的人不復活。
+  // 伺服器與客戶端各套一次同一份（roundPicks 帶的 carry），位置之後照快照；也記進 this.carry（重連的人照它建一樣的角色）
+  refit(e, c) {
+    if (!e || !e.isPlayer || !c) return;
+    this.carry[e.id] = c;
+    e.maxHp = Math.max(1, c.maxHp - e.poisonLock);
+    if (e.alive) e.hp = clamp(c.hp, 1, e.maxHp);
+    e.maxStamina = c.maxStamina;
+    e.stamina = Math.min(e.stamina, e.maxStamina);
+    e.moveSpeed = c.moveSpeed;
+    e.jumpSpeed = c.jumpSpeed;
+    const size = clamp(c.size ?? 1, 0.5, 2);   // 同 Entity 建構子（玩家沒有自己的 hw / h，用預設的 9 / 30）
+    e.hw = (CONFIG.PLAYER.hw ?? 9) * size;
+    e.h = (CONFIG.PLAYER.h ?? 30) * size;
+    e.mods = Object.assign({ ...Effects.DEFAULT_MODS }, c.mods || {});
+    const ws = (c.weapons || []).filter(isEquippable).slice(0, CONFIG.EQUIP.maxWeapons);
+    if (ws.length) e.weapons = ws;
+    if (!e.weapons.includes(e.weapon)) e.weapon = e.weapons[0];
+    e.links = (c.links || []).filter(id => id !== e.id && this.entities.some(f => f.id === id && f.team === e.team));
+    Object.assign(e, Effects.carriedState(c));
   }
 }
 

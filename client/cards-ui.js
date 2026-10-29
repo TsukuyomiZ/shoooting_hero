@@ -5,6 +5,7 @@ import { stageType } from '../shared/game/stage-rules.js';
 import { STAGE_LOOK } from './stage-look.js';
 
 // 過關選牌畫面（DOM）：三張牌選一張，顯示倒數與其他玩家是否已選。
+// 勝者為王（versus）：每一輪打完也用這個畫面選牌，只換標題 / 副標（第 N 輪結束），「其他玩家」是我還活著的隊友
 // 武器牌：武器欄滿了（最多 EQUIP.maxWeapons 把）要先選一把丟掉才能拿，也可以取消改選別張
 // 要指定隊友的牌（效果的 target，例如攜手之伴）：要先選一位隊友當對象（同一個面板），也可以取消改選別張；文字由效果給（pickText）
 const isLinkCard = (card) => !!teammateEffect(card);
@@ -23,27 +24,36 @@ export class CardsUi {
     this.myId = null;
     this.weapons = [];
     this.linkTargets = [];
+    this.versus = null;   // 勝者為王的選牌：{ round }
     this.$('#discard-cancel').addEventListener('click', () => this.hideDiscard());
   }
 
   // offers: 我的三張牌；players: [{id,name}]；pickTime: 秒；weapons: 我目前的武器欄；
   // linkTargets: 攜手之伴能選的隊友 id；links: 每個人現在跟誰連結著（id → [id]）；
   // type / nextType = 剛打完的 / 下一關是哪一種關卡（伺服器給；沒給就照本地的設定算）；bonus = 這次抽牌稀有度權重另外加的（打贏菁英關）
-  show({ stage, stageCount, offers, pickTime, players, myId, picked = null, weapons = [], linkTargets = [], links = {}, type = null, nextType = null, bonus = null }) {
+  // versus = { round }：勝者為王第 round 輪打完的選牌（沒有關卡，不查下一關）；pickedIds = 已經選好的人（電腦玩家馬上選、重連時別人選過的）
+  show({ stage, stageCount, offers, pickTime, players, myId, picked = null, weapons = [], linkTargets = [], links = {}, type = null, nextType = null, bonus = null,
+    versus = null, pickedIds = [] }) {
     this.players = players;
     this.myId = myId;
     this.weapons = weapons;
     this.linkTargets = linkTargets;
     this.links = links;
     this.linkCard = null;   // 正在選連結對象的那張牌（名單變了要重畫）
-    this.picked = new Set();
+    this.picked = new Set(pickedIds || []);
     this.root.hidden = false;
     this.bonus = bonus;
-    this.$('#cards-title').textContent = type === 'elite' ? `菁英關通過！（第 ${stage} 關）` : `第 ${stage} 關通過！`;
-    const next = STAGE_LOOK[nextType] || STAGE_LOOK[stageType(stage + 1)];
-    this.$('#cards-sub').textContent = next.name
-      ? `選一張牌，接下來是${next.name}（第 ${stage + 1} / ${stageCount} 關）`
-      : `選一張牌，接著進入第 ${stage + 1} / ${stageCount} 關`;
+    this.versus = versus;
+    if (versus) {
+      this.$('#cards-title').textContent = `第 ${versus.round} 輪結束！`;
+      this.$('#cards-sub').textContent = `選一張牌，選完接著打第 ${versus.round + 1} 輪`;
+    } else {
+      this.$('#cards-title').textContent = type === 'elite' ? `菁英關通過！（第 ${stage} 關）` : `第 ${stage} 關通過！`;
+      const next = STAGE_LOOK[nextType] || STAGE_LOOK[stageType(stage + 1)];
+      this.$('#cards-sub').textContent = next.name
+        ? `選一張牌，接下來是${next.name}（第 ${stage + 1} / ${stageCount} 關）`
+        : `選一張牌，接著進入第 ${stage + 1} / ${stageCount} 關`;
+    }
     const list = this.$('#cards-list');
     list.innerHTML = '';
     list.classList.remove('locked');

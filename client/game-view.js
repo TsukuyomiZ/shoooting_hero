@@ -70,9 +70,15 @@ export class GameView {
     this.banner = null;
     this.nextBanner = null;    // 排著的橫幅（目前的那張是 hold，見 showBanner）
     this.hint = null;
-    this.result = null;        // 本關戰鬥結果 'win' | 'lose' | null
-    this.runOver = null;       // 整場冒險結束 { result, stage }
-    this.stageInfo = null;     // { stage, stageCount, isBoss, type（'normal' | 'elite' | 'boss'）, levelName, cards }
+    this.result = null;        // 本關戰鬥結果 'win' | 'lose' | null（勝者為王另外有 'draw'、觀戰的 'over'，見 setResult）
+    this.winner = null;        // 勝者為王：贏的那一隊（'blue' | 'red'）或 'draw'
+    this.runOver = null;       // 整場冒險結束 { result, stage }（勝者為王另外帶 versus、winner、round）
+    this.stageInfo = null;     // { stage, stageCount, isBoss, type（'normal' | 'elite' | 'boss'）, levelName, cards }；勝者為王另外帶 mode 'versus'
+    this.picking = null;       // 勝者為王：每一輪打完的選牌中（戰鬥暫停）{ round, until（本地時間）, offers（每個人的三張牌，飄字用） }
+    this.bots = new Set();     // 勝者為王的電腦玩家 id（名單上的 bot）
+    // 勝者為王的選牌（main.js 給）：佇列播到 roundPick 時呼叫（開選牌畫面）、播到 roundPicks 時呼叫（關掉）
+    this.onRoundPick = null;
+    this.onRoundPicks = null;
     this.started = false;
     this.lastMoveSent = 0;
     this.lastSent = null;
@@ -86,6 +92,22 @@ export class GameView {
   }
 
   get me() { return this.match ? this.match.byId(this.myId) : null; }
+  // 勝者為王（3v3 對戰）：開場 / 重連的資訊帶 mode 'versus'（冒險沒有 mode）
+  get versus() { return !!(this.stageInfo && this.stageInfo.mode === 'versus'); }
+  // 自己的角色在哪一隊（冒險是 'players'）；沒有角色（觀戰、還沒建好）= null
+  get myTeam() { const me = this.me; return me ? me.team : null; }
+
+  // 角色跟自己的關係（畫面上分敵我的顏色都照這個）：'me' | 'ally'（同一隊）| 'foe'。
+  // 勝者為王照隊伍分；冒險、或自己沒有角色的時候照原本的分法：玩家角色 = ally、其他 = foe
+  relation(e) {
+    if (e.id === this.myId) return 'me';
+    const team = this.versus ? this.myTeam : null;
+    if (team) return e.team === team ? 'ally' : 'foe';
+    return e.isPlayer ? 'ally' : 'foe';
+  }
+
+  // 電腦玩家的標籤：名字本來就是伺服器取的「電腦 N」就不再加
+  botTag(e) { return e.name.includes(CONFIG.VERSUS.botName) ? '' : '（電腦）'; }
 
   // 角色在這個畫面上的狀態（不是遊戲狀態，所以不放在 Entity 上；每次 setup 重來）：
   //   netTarget    遠端玩家插值的目標（他最後回報的位置）；netVy = 他回報的垂直速度（看他是不是剛起跳）
@@ -130,9 +152,11 @@ export class GameView {
       // slow（別人開 / 關慢動作）也是：畫面落後時，之後才播的他的 turn 會把光環清掉
       // resume（飛鏢射完一發、回合接著繼續）一定要等那一發重播完才套：重播中能操作的話，按著的方向鍵會混進重播的物理
       // hazard（回合中的危險物打到人 / 飛完）也是：扣的血不能被之後才播的舊快照蓋回去
+      // roundPick / roundPicks（勝者為王每一輪打完的選牌）：最後一發播完才停下來選；選完的新數值（refit）一定要照順序套——重播靠角色的大小算命中
       case 'turn': case 'aiTurn': case 'shot': case 'skip': case 'turnFx': case 'gameOver': case 'water': case 'pickup': case 'slow': case 'resume': case 'hazard':
+      case 'roundPick': case 'roundPicks':
         if (msg.t === 'turn' && document.hidden) this.cueTurn(msg);   // 分頁在背景：輪到自己的提示音收到就響，不等前面的動畫播完
-        if (msg.t === 'resume') msg.at = performance.now();   // 伺服器收到這則就開始倒數：剩下的秒數從收到的時候算
+        if (msg.t === 'resume' || msg.t === 'roundPick') msg.at = performance.now();   // 伺服器收到這則就開始倒數：剩下的秒數從收到的時候算
         if (msg.t === 'turn' || msg.t === 'hazard') msg.recvAt = this.clock();   // 回合裡的危險物照收到的時刻算位置（佇列裡排隊的時間不算延遲）
         // 回合裡的危險物打到人 / 飛完：畫面收到就先演（佇列前面可能還在播這個回合的開火 / AI 代打），扣血照順序在佇列裡套。
         // 只有已經播到那個回合（seq 對得上）才先演，不然照順序來
@@ -148,10 +172,23 @@ export class GameView {
           this.showBanner(next.name ? `${next.name}即將開始…` : `準備進入第 ${msg.nextStage} 關…`, next.banner);
         }
         break;
+      case 'picked': {
+        // 勝者為王：畫面還沒播到這一輪的 roundPick（佇列落後）就有人選好了：先記進那則的 picked，播到時選牌畫面才標得出誰選好了
+        let pending = null;
+        for (const m of this.queue) if (m.t === 'roundPick') pending = m;
+        if (pending && Array.isArray(pending.picked) && !pending.picked.includes(msg.playerId)) pending.picked.push(msg.playerId);
+        // 他用攜手之伴連了某個隊友：那個隊友的可連結名單拿掉他（同 CardsUi.setPicked；不然開出來的名單還有他，選了會被伺服器擋下）
+        const targets = pending && msg.link && pending.linkTargets && pending.linkTargets[msg.link];
+        if (Array.isArray(targets)) pending.linkTargets[msg.link] = targets.filter(id => id !== msg.playerId);
+        break;
+      }
       case 'runOver':
         this.runOver = { result: msg.result, stage: msg.stage, stageCount: msg.stageCount, type: msg.type || stageTypeOf(this.stageInfo) };
+        // 勝者為王：result 是贏的那一隊（或 draw），winner = 贏的那一隊（平手是 null）、打到第幾輪
+        if (msg.mode === 'versus') Object.assign(this.runOver, { versus: true, winner: msg.winner ?? null, round: msg.round });
         this.canAct = false;
         this.waiting = false;
+        this.picking = null;
         break;
       case 'move':
         // 他在流血時帶的血量（netHp）也走佇列，位置照舊馬上套：畫面落後時（分頁在背景、很卡）先套上的話，之後才播的舊快照
@@ -222,7 +259,12 @@ export class GameView {
     this.runOver = null;
     this.banner = null;       // 上一關（或斷線前）還在播 / 排著的橫幅不帶過來
     this.nextBanner = null;
-    if (this.stageInfo) {
+    if (this.versus) {
+      // 勝者為王：對戰地圖的名字、自己在哪一隊（沒有角色 = 觀戰：寫兩隊）。剛開場時停滿時間，第一個回合的橫幅等它播完才出來
+      const V = CONFIG.VERSUS, team = this.myTeam;
+      const sub = team ? `你在${V.teamNames[team] || team}　打倒對方全隊就贏` : `${V.teams.map(t => V.teamNames[t] || t).join(' 對 ')}　打倒對方全隊就贏`;
+      this.showBanner(`${V.name}：${this.stageInfo.levelName}`, '#fde047', sub, { hold: msg.t === 'start' });
+    } else if (this.stageInfo) {
       const L = stageLook(this.stageInfo);
       // 菁英關多一行說明；不是一般難度的冒險，第 1 關多一行難度的說明（菁英之路：哪幾關是菁英關、敵人傷害不打折）。
       // 剛開場（start，不是重連的 state）時停滿時間（hold）：第一個回合的橫幅等它播完才出來
@@ -235,6 +277,7 @@ export class GameView {
     for (const e of this.match.entities) if (!e.alive) this.look(e).deathHandled = true;   // 重連時不要重播死亡特效
     this.players = msg.players;
     for (const p of msg.players) this.playerStatus.set(p.id, p.connected !== false);
+    this.bots = new Set(msg.players.filter(p => p.bot).map(p => p.id));   // 電腦玩家一直是 AI 在打（連線狀態是 false），名單不寫「AI」
     const lvl = this.match.level;
     this.painter = new TerrainPainter(this.match.terrain, { platformStyle: lvl.platformStyle, style: lvl.terrainStyle, hardLook: lvl.hardLook });
     this.queue = [];
@@ -248,6 +291,8 @@ export class GameView {
     this.floatTexts = [];
     this.ambient = [];
     this.result = null;
+    this.winner = null;
+    this.picking = null;
     this.canAct = false;
     this.waiting = false;
     this.currentId = null;
@@ -307,7 +352,16 @@ export class GameView {
     this.canAct = mine;
     this.deadline = mine && msg.timeLeft != null ? performance.now() + msg.timeLeft * 1000 : null;
     this.setShotLock(msg.lockWeapon || null, msg.shotsLeft ?? null);   // 這回合射過飛鏢：只能用它、還剩幾次
-    if (msg.phase === 'over') this.result = this.match.result();
+    if (msg.phase === 'over') this.setResult(this.match.result());
+    // 勝者為王：一輪打完、下一輪還沒開始（裁判停在 'break'）：沒有人的回合。還在選牌（runPhase 'pick'）就是暫停中（選牌畫面由 main.js 照 state 開）；
+    // 只知道自己的三張牌（state 只帶自己的）
+    if (msg.phase === 'break') this.currentId = null;
+    if (this.versus && msg.runPhase === 'pick') {   // 冒險的過關選牌不是這種暫停（HUD 照舊）
+      this.picking = {
+        round: msg.pickRound ?? msg.round, until: performance.now() + (msg.pickTimeLeft ?? CONFIG.VERSUS.pickTime) * 1000,
+        offers: { [this.myId]: msg.offers || [] },
+      };
+    }
     // 伺服器記得行動玩家開著慢動作：是自己（重連前沒來得及送關，新的頁面沒開著）→ 送關（記一筆、別人的光環也會清掉）；
     // 是別人 → 在他身上畫光環
     if (msg.slowOn && msg.phase === 'turn') {
@@ -426,16 +480,67 @@ export class GameView {
       case 'resume':
         this.onResume(msg);
         break;
+      case 'roundPick':
+        this.beginPick(msg);
+        break;
+      case 'roundPicks':
+        this.applyRoundPicks(msg);
+        break;
       case 'gameOver':
         if (msg.entities) this.match.applyEntities(msg.entities);
         yield { frames: 40 };
-        this.result = msg.result;
+        this.setResult(msg.result);
         this.canAct = false;
         this.waiting = false;
         this.currentId = null;
+        this.picking = null;
         this.setShotLock(null, null);
         break;
     }
+  }
+
+  // 這一場的勝負（gameOver 的 result、重連時的 Match.result()）。冒險照原樣（'win' / 'lose'）；
+  // 勝者為王的是贏的那一隊或 'draw'：記在 winner，result 照自己的隊伍換成 'win' / 'lose' / 'draw'（自己沒有角色 = 'over'，只寫哪一隊贏）
+  setResult(r) {
+    if (!this.versus) { this.result = r; return; }
+    this.winner = r || null;
+    const team = this.myTeam;
+    this.result = !r ? null : r === 'draw' ? 'draw' : !team ? 'over' : r === team ? 'win' : 'lose';
+  }
+
+  // 勝者為王：一輪打完、大家選牌（伺服器暫停戰鬥）：沒有人的回合、不能操作；選牌畫面由 main.js 開（onRoundPick）。
+  // 選牌的秒數從收到這則的時候算（畫面落後的話，選牌畫面給的時間就少那一段，跟伺服器一起結束）
+  beginPick(msg) {
+    const until = (msg.at ?? performance.now()) + msg.pickTime * 1000;
+    this.picking = { round: msg.round, until, offers: msg.offers || {} };
+    this.canAct = false;
+    this.waiting = false;
+    this.mouse.down = false;
+    this.currentId = null;
+    this.deadline = null;
+    this.setShotLock(null, null);
+    this.showBanner(`第 ${msg.round} 輪結束　選牌中…`, '#fde047');
+    if (this.onRoundPick) this.onRoundPick({ ...msg, pickTime: Math.max(0, (until - performance.now()) / 1000) });
+  }
+
+  // 勝者為王：選完牌（roundPicks）：每個人的新數值（上限、速度、體型、武器欄…）套到場上的角色（跟伺服器同一份 carry），再照套完、站好的狀態校正；
+  // 名單上的「牌 ×N」照新的，選到的牌名飄在每個人頭上（照稀有度的顏色；重連回來的只知道自己的牌）。
+  // 一定要從佇列套（不能收到就套）：之前還沒播完的重播照的是選牌前的大小
+  applyRoundPicks(msg) {
+    for (const [id, c] of Object.entries(msg.carry || {})) this.match.refit(this.match.byId(id), c);
+    if (msg.entities) this.match.applyEntities(msg.entities);
+    for (const e of this.match.entities) this.look(e).netTarget = null;   // 大家照新的狀態站好，不要滑回最後回報的位置
+    if (this.stageInfo && msg.cards) this.stageInfo.cards = msg.cards;
+    const offers = (this.picking && this.picking.offers) || {};
+    for (const s of msg.summary || []) {
+      const e = this.match.byId(s.playerId);
+      const card = e && (offers[s.playerId] || []).find(c => c.id === s.cardId);
+      if (!card) continue;
+      const rarity = CONFIG.RARITY[card.rarity];
+      this.floatText(e, card.name, rarity ? rarity.color : '#e5e7eb', 16);
+    }
+    this.picking = null;
+    if (this.onRoundPicks) this.onRoundPicks(msg);
   }
 
   beginTurn(msg) {
@@ -474,8 +579,9 @@ export class GameView {
       this.cueTurn(msg);
       this.showBanner(`你的${kind}`, msg.extra ? '#c4b5fd' : '#7dd3fc', fever);
     } else {
-      const tag = msg.ai && actor.team === 'players' ? '（AI 代打）' : '';
-      this.showBanner(`${actor.name} 的${kind}${tag}`, msg.extra ? '#c4b5fd' : (actor.team === 'players' ? '#86efac' : '#fca5a5'), fever);
+      // 玩家角色由 AI 打：斷線代打寫「AI 代打」、勝者為王的電腦玩家寫「電腦」；顏色照敵我（勝者為王照隊伍）
+      const tag = msg.ai && actor.isPlayer ? (this.bots.has(actor.id) ? this.botTag(actor) : '（AI 代打）') : '';
+      this.showBanner(`${actor.name} 的${kind}${tag}`, msg.extra ? '#c4b5fd' : (this.relation(actor) !== 'foe' ? '#86efac' : '#fca5a5'), fever);
     }
   }
 
@@ -755,7 +861,7 @@ export class GameView {
       if (d.dmg > 0) {
         e.hurtTimer = 0.35;
         sfx.play('hurt', { x: e.cx });
-        const color = d.friendly ? '#f9a8d4' : (e.team === 'players' ? '#ff6b6b' : '#ffd166');
+        const color = d.friendly ? '#f9a8d4' : (this.relation(e) !== 'foe' ? '#ff6b6b' : '#ffd166');   // 自己人被打紅色、打到敵人黃色
         this.floatText(e, `-${d.dmg}${d.friendly ? ' 誤傷' : ''}`, color);
       }
       if (d.burn) this.floatText(e, `燃燒 +${d.burn}`, '#fb923c', 15);
@@ -1223,7 +1329,7 @@ export class GameView {
     this.splash(s.x);
     sfx.play('splash', { x: s.x });
     e.hurtTimer = 0.35;
-    this.floatText(e, `-${s.dmg} 落水`, e.team === 'players' ? '#ff6b6b' : '#ffd166');
+    this.floatText(e, `-${s.dmg} 落水`, this.relation(e) !== 'foe' ? '#ff6b6b' : '#ffd166');
     this.spawnParticles(e.cx, e.cy, 10, { speed: 90, life: 0.5, size: 3, color: '#9ed0ff', gravity: 500 });
     this.showBanner(`${e.name} 掉進水裡了！`, '#93c5fd');
   }

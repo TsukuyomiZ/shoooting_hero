@@ -38,7 +38,7 @@ import { spider } from './spider.js';
 //   hazardFinish(match) → (() → shot) | null   回合收尾（hazardStep flush 之後、回合結束的效果之前）：還在動的（例如劍氣）回傳一口氣結算剩下那一段的函式
 //                                         （回傳跟開火同樣格式的結果）
 //   turnStart(match, e, fx)               自己的回合開始：中毒結算之後、回血之前，要飄字的推進 fx
-//   turnEnd(match, e, fx)                 每個角色的回合結束：燃燒之後、神佑之石之前
+//   turnEnd(match, e, fx)                 每個角色的回合結束：燃燒之後、神佑之石之前。在自己的回合倒下的角色也會叫（e.alive = false，只有這個、沒有燃燒等等）
 //   roundStart(match, fx)                 新的一輪開始（Match.beginRound：輪數加過之後、這一輪第一位的回合之前）：
 //                                         這張地圖每一輪的變化推進 fx 給紀錄（例如洞穴的火把變暗 / 熄滅）。客戶端不會呼叫，
 //                                         所以畫面要的東西得從 match.round 推得出來

@@ -9,6 +9,7 @@ import { SettingsUi } from './settings-ui.js';
 import { SummaryUi } from './summary-ui.js';
 import { ChangelogUi } from './changelog-ui.js';
 import { stageTypeOf } from './stage-look.js';
+import { skipReason, probeGpu, classifyGpu, accelGuide } from './gpu-check.js';
 
 const canvas = document.getElementById('game');
 const view = new GameView(canvas);
@@ -32,23 +33,45 @@ const chat = new ChatUi(stickers, {
   onOpen: () => { view.keys = {}; },
 });
 
+// 勝者為王：每一輪打完的選牌（戰鬥畫面的佇列播到 roundPick 才開，選完的 roundPicks 播到才關，見 GameView）。
+// 選牌畫面下方列的是自己那一隊還活著的隊友選了沒（電腦玩家一開始就選好了：pickedIds）
+function versusMates() {
+  const me = view.match && view.match.byId(myId);
+  return view.players.filter(p => {
+    const e = view.match && view.match.byId(p.id);
+    return me && p.id !== myId && p.team === me.team && e && e.alive;
+  });
+}
+function showVersusPick(d) {
+  if (!d.offers || !d.offers.length) return;   // 已經倒下的人沒有牌可選，看著大家選
+  cardsUi.show({
+    versus: { round: d.round }, stage: 1, stageCount: 1, offers: d.offers, pickTime: d.pickTime, players: versusMates(), myId,
+    picked: d.picked || null, pickedIds: d.pickedIds || [], weapons: d.weapons || [], linkTargets: d.linkTargets || [], links: d.links || {},
+  });
+}
+view.onRoundPick = (msg) => showVersusPick({
+  round: msg.round, offers: msg.offers[myId] || [], pickTime: msg.pickTime, pickedIds: msg.picked,
+  weapons: (msg.weapons && msg.weapons[myId]) || [], linkTargets: (msg.linkTargets && msg.linkTargets[myId]) || [], links: msg.links,
+});
+view.onRoundPicks = () => cardsUi.hide();
+
 const settings = new SettingsUi(canvas);   // 右上角的音量設定
 const summaryUi = new SummaryUi(document.getElementById('summary'));   // 冒險結束的結算畫面
 new ChangelogUi(document.getElementById('lobby'));   // 大廳下方的版本號與版本履歷
 
 const lobby = new Lobby(document.getElementById('lobby'), {
-  // difficulty = 大廳選的難度（單人練習、建立房間都照它）
-  onSolo(name, difficulty) {
+  // difficulty = 大廳選的難度（單人練習、建立房間都照它）；mode = 大廳選的模式（'coop' 冒險 / 'versus' 勝者為王：單人練習就是對電腦玩家）
+  onSolo(name, difficulty, mode) {
     if (transport) transport.close();   // 看大廳列表用的連線用不到了
     transport = new LocalTransport();
     attach(transport);
-    transport.start(name, difficulty);
+    transport.start(name, difficulty, mode);
     lobby.hide();
   },
   // 暱稱跟著送：連上大廳之後才改的名字也要算數
-  async onCreate(name, isPrivate, difficulty) {
+  async onCreate(name, isPrivate, difficulty, mode) {
     await connect(name);
-    transport.send({ t: 'create', name, private: isPrivate, difficulty });
+    transport.send({ t: 'create', name, private: isPrivate, difficulty, mode });
   },
   // via：code = 輸入房號、list = 從大廳列表點的（只用來記錄）
   async onJoin(name, code, via) {
@@ -57,6 +80,10 @@ const lobby = new Lobby(document.getElementById('lobby'), {
   },
   onRetryBrowse() { browse(); },
   onPrivacy(isPrivate) { if (transport) transport.send({ t: 'privacy', private: isPrivate }); },
+  // 勝者為王的房間：換到 team 那一隊、房主加 / 移除電腦玩家
+  onTeam(team) { if (transport) transport.send({ t: 'team', team }); },
+  onAddBot(team) { if (transport) transport.send({ t: 'addBot', team }); },
+  onRemoveBot(id) { if (transport) transport.send({ t: 'removeBot', id }); },
   onReady(ready) { if (transport) transport.send({ t: 'ready', ready }); },
   onStart() { if (transport) transport.send({ t: 'start' }); },
   onLeave() {
@@ -65,6 +92,15 @@ const lobby = new Lobby(document.getElementById('lobby'), {
     location.reload();
   },
 });
+
+// 瀏覽器沒開硬體加速：大廳提醒怎麼打開。要 WebGL 試試看要花幾十毫秒，等大廳先畫出來再做
+// （用計時器不用 rAF：rAF 在背景分頁 / 內嵌視窗可能不觸發，同主迴圈的備援）
+setTimeout(() => {
+  const skip = skipReason(navigator);
+  const gpu = skip ? { skip } : probeGpu();
+  view.gpu = { ...gpu, state: classifyGpu(gpu) };   // 方便在 console 看偵測結果
+  if (view.gpu.state === 'software') lobby.showGpuHint(accelGuide(navigator.userAgent));
+}, 300);
 
 // 連線中再呼叫（例如大廳正在連、玩家就按了建立房間）共用同一個連線，不會開第二條
 let connecting = null;
@@ -134,6 +170,20 @@ function attach(t) {
         lobby.hide();
         stickers.show();
         settings.show();
+        // 勝者為王：重連回每一輪打完的選牌（這裡比戰鬥畫面先收到 state：等它照 state 重建好、知道誰是隊友了才開）
+        // 不在選牌（斷線時選牌就結束了、沒收到 roundPicks）：還開著的選牌畫面關掉，不然會一直蓋在戰場上；
+        // 等的這一下裡選牌已經結束了（戰鬥畫面的 picking 被 roundPicks 清掉）也不開
+        if (msg.run && msg.run.mode === 'versus') {
+          if (msg.runPhase === 'pick') {
+            setTimeout(() => view.picking && showVersusPick({
+              round: msg.pickRound, offers: msg.offers, pickTime: msg.pickTimeLeft, picked: msg.picked, pickedIds: msg.pickedIds,
+              weapons: msg.weapons, linkTargets: msg.linkTargets, links: msg.links,
+            }), 0);
+          } else {
+            cardsUi.hide();
+          }
+          break;
+        }
         if (msg.runPhase === 'pick' && msg.offers && msg.offers.length) {
           cardsUi.show({
             stage: msg.run.stage, stageCount: msg.run.stageCount, offers: msg.offers, pickTime: msg.pickTimeLeft, players: msg.players, myId, picked: msg.picked,

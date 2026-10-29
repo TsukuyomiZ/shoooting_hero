@@ -498,10 +498,10 @@ test('斷線代打的玩家 AI 走路也撿道具（跟自己走過去一樣：�
   assert(w2.pickups.length === 1 && w2.pickups[0].type === 'snakeBlood' && w2.pickups[0].item === 'b1' && w2.pickups[0].f === want2.f,
     'drank at the frame he touched it: ' + J({ got: w2.pickups, want: want2 }));
   assert(!s.mechState.items.length && q.poison === 0 && w2.pickups[0].hp === q.hp && w2.pickups[0].mhp === q.maxHp, 'server state after drinking');
-  // 敵人（這裡把 p2 當成敵人）走過去不喝
+  // 敵人（這裡把 p2 當成敵人：隊伍與「是不是玩家角色」（controller，見 Entity.isPlayer）都換掉）走過去不喝
   const s2 = make('jungleSerpent', 2);
   const z = s2.byId('p2');
-  z.team = 'enemies'; z.hp = z.maxHp - 60;
+  z.team = 'enemies'; z.controller = 'ai'; z.hp = z.maxHp - 60;
   s2.mechState.items = [{ id: 'b2', type: 'snakeBlood', x: Math.round(z.x + 30), y: 544 }];
   const zx = z.x;
   const w3 = s2.simulateWalk(z, 1, 40);

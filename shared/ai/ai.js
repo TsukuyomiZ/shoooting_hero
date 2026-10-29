@@ -14,7 +14,8 @@ export function lineBlocker(world, shooter, target) {
     const y = m.y + (ty - m.y) * i / steps;
     if (world.terrain.blocksShot(x, y, shooter.team)) return 'terrain';
     for (const e of world.entities) {
-      if (!e.alive || e === shooter || e === target || (e.allyPass && e.team === shooter.team)) continue;
+      // 目標關著的人（囚籠裡、被熊抱住的隊友）站在它裡面：不算擋住（要救的就是他）
+      if (!e.alive || e === shooter || e === target || (e.allyPass && e.team === shooter.team) || (target.heldId && e.id === target.heldId)) continue;
       if (e.containsPoint(x, y, 2)) return e;
     }
   }
@@ -78,7 +79,7 @@ function targeting(world, shooter, weapons) {
 
 // planShot 的後半：從 pool 挑目標、瞄準（targeting 算好的武器與目標）
 function aimShot(world, shooter, rng, { avoid, arcId, lineId, inReach, pool }) {
-  // 有隊友（或自己）被關在囚籠裡（處刑監獄）：先打破籠子救人；不然七成機率打血最少的，三成隨機
+  // 有隊友（或自己）被關在囚籠裡、被熊抱住（處刑監獄）：先打破籠子 / 打熊救人；不然七成機率打血最少的，三成隨機
   const rescue = pool.find(e => e.heldId && world.entities.some(f => f.id === e.heldId && f.alive && f.team === shooter.team));
   const target = rescue || (rng.chance(0.7)
     ? pool.reduce((a, b) => (b.hp < a.hp ? b : a))
@@ -104,22 +105,25 @@ function aimShot(world, shooter, rng, { avoid, arcId, lineId, inReach, pool }) {
   // 落點離隊友 / 蜂巢多近算會炸到：爆炸半徑（同一個 blastRadius：代打的玩家有半徑加成的牌也照算；敵人沒有，就是武器原本的半徑）+ 20
   const reach = blastRadius(shooter, weapon) + 20;
   let best = null;
+  let clean = null;   // 不會打到 / 炸到自己人（含自己）的落點裡最好的那一發
   for (let a = 15; a <= 85; a += 5) {
     const angle = facing > 0 ? a : 180 - a;
     for (let power = 15; power <= 100; power += 5) {
       const r = simulateShot(world, shooter, weapon, angle, power, 6, 0, traits);
       let score;
+      let hurtsFriends = false;
       if (r.hit.type === 'entity' && r.hit.entity === target) {
         score = 0;
       } else if (r.hit.type === 'entity' && (r.hit.entity.team === shooter.team || avoid(r.hit.entity))) {
         score = 5000;
+        hurtsFriends = r.hit.entity.team === shooter.team;
       } else {
         score = Math.hypot(r.hit.x - target.cx, r.hit.y - target.cy);
         if (r.hit.type !== 'terrain' && r.hit.type !== 'entity') score += 400;
         // 會炸到隊友的落點扣分（穿過自己人、又不爆炸的武器——樹妖的長矛——不用管）
         if (!(weapon.passAllies && !weapon.radius)) {
           for (const f of friends) {
-            if (Math.hypot(r.hit.x - f.cx, r.hit.y - f.cy) < reach) score += 800;
+            if (Math.hypot(r.hit.x - f.cx, r.hit.y - f.cy) < reach) { score += 800; hurtsFriends = true; }
           }
         }
       }
@@ -127,10 +131,21 @@ function aimShot(world, shooter, rng, { avoid, arcId, lineId, inReach, pool }) {
       if (score < 5000 && weapon.radius > 0) {
         for (const s of shunned) if (s.distanceTo(r.hit.x, r.hit.y) < reach) score += 800;
       }
-      if (!best || score < best.score) best = { score, angle, power };
+      if (!best || score < best.score) best = { score, angle, power, hurtsFriends };
+      if (!hurtsFriends && (!clean || score < clean.score)) clean = { score, angle, power };
     }
   }
   if (!best) return null;
+  // 玩家角色（斷線代打、勝者為王的電腦玩家）：最好的那一發會打到 / 炸到自己人（例如跟隊友一起被打進坑裡，每個角度都落在自己腳邊）
+  // → 改用不會炸到自己人的那一發；都會的話看得到目標就用直線武器，不然這回合不開火（敵人照舊）
+  if (shooter.isPlayer && best.hurtsFriends) {
+    if (clean) best = clean;
+    else if (lineId && hasLineOfSight(world, shooter, target) && inReach(target)) {
+      const m = shooter.muzzle();
+      const angle = Math.atan2(-(target.cy - m.y), target.cx - m.x) * 180 / Math.PI + noise(ai.sniperSpread ?? 1.2);
+      return { weapon: lineId, angle, power: 100, facing, targetId: target.id };
+    } else return null;
+  }
   let angle = best.angle + noise(err.angle);
   let power = clamp(best.power + noise(err.power), 10, 100);
   // 蜂巢在場：上面只挑了「不加誤差」的那一發，加上誤差後常常會擦到蜂巢（拋物線往樹枝飛時就從它旁邊過）。

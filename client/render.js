@@ -8,6 +8,7 @@ import { buildDecor } from './decor.js';
 import { BACKGROUNDS } from './backgrounds.js';
 import { HELD_ART } from './weapon-art.js';
 import { STAGE_LOOK, stageLook } from './stage-look.js';
+import { versusLabel, VERSUS_LABEL_COLOR, pickSecsLeft, drawVersusRoster, drawPickPause, drawVersusOverlay } from './versus-hud.js';
 
 const NO_BAR = Object.freeze({});   // 地圖畫面沒有特別交代的血條（hpBar 回傳 null）
 // 右上名單框（寬 250、離右邊 12）裡字最多多寬：名字從 W-232 寫到血條（W-92）前面留 6 px；底下幾行從 W-250 寫到跟血條的右端（W-22）對齊
@@ -81,6 +82,7 @@ export class Renderer {
     this.drawSlowMo();
     this.drawHUD();
     this.drawBanner();
+    if (view.versus) drawPickPause(ctx, view);   // 勝者為王：選牌中的提示（橫幅播完之後）
     this.drawHint();
     if (view.runOver) this.drawRunOverlay();
     else if (view.result) this.drawOverlay();
@@ -273,7 +275,9 @@ export class Renderer {
     if (e.onVine >= 0 && e.alive) this.drawVineHands(e);   // 抓著藤蔓：兩手往上握著
 
     // 血條 + 名字（＋ 你 / AI 標籤）。地圖畫面可以改血條的寬高、不畫血條（例如打不壞的古樹之口）、加刻度（例如巨蟒掉蛇血的門檻）。
-    // 被中毒鎖住的上限畫成右邊一段灰色（整條 = 原本的上限）
+    // 被中毒鎖住的上限畫成右邊一段灰色（整條 = 原本的上限）。玩家的血條照他自己的顏色（勝者為王是隊伍的顏色，誰看都一樣）；
+    // 名字、行動者標記的顏色照跟自己的關係（view.relation：勝者為王照隊伍分敵我）
+    const rel = view.relation(e);
     const bar = mv.hpBar(c, e) || NO_BAR;
     const bw = bar.w || (e.boss ? 90 : 46), bh = bar.h || 6, by = y - e.h - 16;
     if (!bar.hidden) {
@@ -296,10 +300,10 @@ export class Renderer {
     }
     let label = e.name;
     if (isMe) label += '（你）';
-    else if (e.isPlayer && view.playerStatus.get(e.id) === false) label += '（AI）';
+    else if (e.isPlayer && view.playerStatus.get(e.id) === false && !view.bots.has(e.id)) label += '（AI）';   // 電腦玩家本來就是 AI，不寫
     text(ctx, label, x, by - 4, {
       size: 12, bold: true, align: 'center',
-      color: e.isPlayer ? '#e8f4ff' : '#ffd54f', outline: 'rgba(0,0,0,0.9)',
+      color: rel !== 'foe' ? '#e8f4ff' : '#ffd54f', outline: 'rgba(0,0,0,0.9)',
     });
     const linked = e.alive && view.match.linkPartners(e).length > 0;
     if (e.alive) this.drawStatusMarks(e, x, bw, by + 3, linked);   // 燃燒、中毒、流血的層數（見 drawStatusMarks）
@@ -326,7 +330,7 @@ export class Renderer {
     // 目前行動者標記（跳動的倒三角）
     if (view.currentId === e.id && e.alive && !view.result) {
       const ty = by - 22 + Math.sin(view.time * 6) * 3;
-      ctx.fillStyle = e.isPlayer ? (isMe ? '#38bdf8' : '#86efac') : '#f87171';
+      ctx.fillStyle = rel !== 'foe' ? (isMe ? '#38bdf8' : '#86efac') : '#f87171';
       ctx.beginPath(); ctx.moveTo(x - 7, ty - 8); ctx.lineTo(x + 7, ty - 8); ctx.lineTo(x, ty); ctx.closePath(); ctx.fill();
     }
     ctx.restore();
@@ -834,16 +838,20 @@ export class Renderer {
     const me = view.me;
     const match = view.match;
 
-    // 左上：關卡 / 回合資訊
+    // 左上：關卡 / 回合資訊（勝者為王沒有關卡：「勝者為王 · 第 N 輪」，選牌中寫還剩幾秒）
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     roundRect(ctx, 12, 12, 250, 66, 10); ctx.fill();
     const si = view.stageInfo;
     const look = stageLook(si);   // 關卡種類：Boss 關 / 菁英關 / 小關
     const stageLabel = si ? (look.name ? `${look.name} ${si.stage} / ${si.stageCount}` : `第 ${si.stage} / ${si.stageCount} 關`) : '';
-    text(ctx, `${stageLabel}　第 ${match.round} 輪`, 24, 38, { size: 18, bold: true, color: si ? look.hud : '#fff' });
+    const versus = view.versus;
+    text(ctx, versus ? versusLabel(match) : `${stageLabel}　第 ${match.round} 輪`, 24, 38, { size: 18, bold: true, color: versus ? VERSUS_LABEL_COLOR : si ? look.hud : '#fff' });
     let sub = '', subColor = '#ddd';
     const actor = view.currentId ? match.byId(view.currentId) : null;
-    if (view.canAct) {
+    if (view.picking) {
+      sub = `選牌中…　剩餘 ${pickSecsLeft(view)} 秒`;
+      subColor = VERSUS_LABEL_COLOR;
+    } else if (view.canAct) {
       const left = view.deadline ? Math.max(0, Math.ceil((view.deadline - performance.now()) / 1000)) : 0;
       sub = `你的回合 · 剩餘 ${left} 秒`;
       subColor = left < 6 ? '#f87171' : '#7dd3fc';
@@ -853,7 +861,7 @@ export class Renderer {
       sub = `${CONFIG.WEAPONS[view.lockWeapon].name}準備下一發…（計時暫停）`;   // 飛鏢兩發之間
     } else if (actor) {
       sub = `${actor.name} 的回合`;
-      subColor = actor.team === 'players' ? '#86efac' : '#fca5a5';
+      subColor = view.relation(actor) !== 'foe' ? '#86efac' : '#fca5a5';
     }
     text(ctx, sub, 24, 64, { size: 15, color: subColor });
     const fever = match.fever;   // 狂熱：每過 N 輪，全體傷害再 +N%（Boss 關沒有；見 shared/game/stage-rules.js）
@@ -890,33 +898,25 @@ export class Renderer {
     // 上中（武器選擇的下面）：風向（有風的關卡才有，見 shared/physics/wind.js）
     if (match.windMax > 0) this.drawWind(W / 2, 62, match.wind, match.windMax);
 
-    // 右上：隊伍名單（含手牌數）+ 敵人
+    // 右上：隊伍名單（含手牌數）+ 敵人；勝者為王是兩隊各一塊、各自還站著幾個人（沒有敵人，見 versus-hud.js）
     const players = match.players;
-    // 打不打都可以的敵人（例如蜂巢、蜜蜂）不算在「敵人剩餘」裡；名單底下的幾行由地圖畫面決定（例如 Boss 的血量）
-    const foes = match.enemies.filter(e => !e.optional);
-    const enemiesAlive = foes.filter(e => e.alive).length;
-    const lines = view.mapView.hud(view.mapCtx, [`敵人剩餘 ${enemiesAlive} / ${foes.length}`, '#fca5a5']);
-    const rosterH = 34 + players.length * 22 + lines.length * 22;
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    roundRect(ctx, W - 12 - 250, 12, 250, rosterH, 10); ctx.fill();
-    text(ctx, '隊伍', W - 250, 34, { size: 14, bold: true, color: '#9ec5ff' });
-    players.forEach((p, i) => {
-      const y = 56 + i * 22;
-      ctx.fillStyle = p.color;
-      ctx.beginPath(); ctx.arc(W - 244, y - 5, 5, 0, Math.PI * 2); ctx.fill();
-      let name = p.name;
-      if (p.id === view.myId) name += '（你）';
-      else if (view.playerStatus.get(p.id) === false) name += '（AI）';
-      if (!p.alive) name += ' ✕';
-      const cardCount = si && si.cards && si.cards[p.id] ? si.cards[p.id].length : 0;
-      if (cardCount) name += `　牌×${cardCount}`;
-      // 名字太長就縮小 / 截掉（不蓋到右邊的血條）
-      text(ctx, name, W - 232, y, { size: 13, color: p.alive ? '#fff' : '#888', maxWidth: ROSTER_NAME_W });
-      drawHpBar(ctx, W - 92, y - 12, 70, 10, p, p.color, '#222');   // 被中毒鎖住的上限是灰色
-    });
-    const ey = 56 + players.length * 22 + 2;
-    // 地圖畫面給的幾行（例如 Boss 的血量、下一招）：太長也縮小 / 截掉，不超出名單框（右邊跟血條對齊）
-    lines.forEach(([str, color], i) => text(ctx, str, W - 250, ey + i * 22, { size: 13, bold: true, color, maxWidth: ROSTER_LINE_W }));
+    if (versus) {
+      // 地圖畫面給的幾行（對戰地圖目前沒有：一般的那一行是空的）
+      drawVersusRoster(ctx, view, (p, y) => this.drawRosterRow(p, y), view.mapView.hud(view.mapCtx, null).filter(Boolean), ROSTER_LINE_W);
+    } else {
+      // 打不打都可以的敵人（例如蜂巢、蜜蜂）不算在「敵人剩餘」裡；名單底下的幾行由地圖畫面決定（例如 Boss 的血量）
+      const foes = match.enemies.filter(e => !e.optional);
+      const enemiesAlive = foes.filter(e => e.alive).length;
+      const lines = view.mapView.hud(view.mapCtx, [`敵人剩餘 ${enemiesAlive} / ${foes.length}`, '#fca5a5']);
+      const rosterH = 34 + players.length * 22 + lines.length * 22;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      roundRect(ctx, W - 12 - 250, 12, 250, rosterH, 10); ctx.fill();
+      text(ctx, '隊伍', W - 250, 34, { size: 14, bold: true, color: '#9ec5ff' });
+      players.forEach((p, i) => this.drawRosterRow(p, 56 + i * 22));
+      const ey = 56 + players.length * 22 + 2;
+      // 地圖畫面給的幾行（例如 Boss 的血量、下一招）：太長也縮小 / 截掉，不超出名單框（右邊跟血條對齊）
+      lines.forEach(([str, color], i) => text(ctx, str, W - 250, ey + i * 22, { size: 13, bold: true, color, maxWidth: ROSTER_LINE_W }));
+    }
 
     // 底部：自己的狀態
     const py = H - 96;
@@ -959,6 +959,24 @@ export class Renderer {
     ].filter(Boolean);
     const gap = hints.length > 3 ? 18 : 22;
     hints.forEach((h, i) => text(ctx, h, W - 20, py + (hints.length > 3 ? 22 : 28) + i * gap, { size: 11, align: 'right', color: '#ccc' }));
+  }
+
+  // 右上名單的一行（基線 y）：顏色點、名字（＋ 你 / AI / 倒下 / 牌 ×N）、血條。冒險、勝者為王（versus-hud.js）共用
+  drawRosterRow(p, y) {
+    const { ctx, view } = this;
+    const W = CONFIG.WORLD_W;
+    const si = view.stageInfo;
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(W - 244, y - 5, 5, 0, Math.PI * 2); ctx.fill();
+    let name = p.name;
+    if (p.id === view.myId) name += '（你）';
+    else if (view.playerStatus.get(p.id) === false && !view.bots.has(p.id)) name += '（AI）';   // 斷線代打（電腦玩家不寫）
+    if (!p.alive) name += ' ✕';
+    const cardCount = si && si.cards && si.cards[p.id] ? si.cards[p.id].length : 0;
+    if (cardCount) name += `　牌×${cardCount}`;
+    // 名字太長就縮小 / 截掉（不蓋到右邊的血條）
+    text(ctx, name, W - 232, y, { size: 13, color: p.alive ? '#fff' : '#888', maxWidth: ROSTER_NAME_W });
+    drawHpBar(ctx, W - 92, y - 12, 70, 10, p, p.color, '#222');   // 被中毒鎖住的上限是灰色
   }
 
   // 風向：一條圓角框，左邊「風」、中間箭頭（朝風吹的方向，越強越長、顏色從綠到紅）、右邊級數；0 級寫「無風」
@@ -1038,10 +1056,11 @@ export class Renderer {
     ctx.restore();
   }
 
-  // 單關戰鬥結束（勝利後接著會跳選牌；失敗會接著跳冒險結束）
+  // 單關戰鬥結束（勝利後接著會跳選牌；失敗會接著跳冒險結束）。勝者為王：哪一隊贏（接著跳結算畫面）
   drawOverlay() {
     const { ctx, view } = this;
     const W = CONFIG.WORLD_W, H = CONFIG.WORLD_H;
+    if (view.versus) { drawVersusOverlay(ctx, view, view.winner, view.match.round, false); return; }
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
     ctx.fillRect(0, 0, W, H);
     const win = view.result === 'win';
@@ -1049,10 +1068,12 @@ export class Renderer {
     text(ctx, win ? '準備選牌…' : '全隊都倒下了', W / 2, H / 2 + 20, { size: 22, align: 'center', color: '#eee' });
   }
 
-  // 整場冒險結束
+  // 整場冒險結束（勝者為王：整場打完，同上的勝負）
   drawRunOverlay() {
     const { ctx, view } = this;
     const W = CONFIG.WORLD_W, H = CONFIG.WORLD_H;
+    const ro = view.runOver;
+    if (ro.versus) { drawVersusOverlay(ctx, view, ro.winner, ro.round ?? view.match.round, true); return; }
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     ctx.fillRect(0, 0, W, H);
     const win = view.runOver.result === 'win';

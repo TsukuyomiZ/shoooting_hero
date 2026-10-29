@@ -190,6 +190,36 @@ try {
   for (let i = 0; i < 100 && srv.manager.rooms.has(lobbyA.code); i++) await new Promise(r => setTimeout(r, 20));
   assert(!srv.manager.rooms.has(lobbyA.code), 'room destroyed as soon as the last player leaves the summary');
 
+  // 勝者為王：建房（mode versus）→ 乙加入（分到人少的紅隊）→ 甲在兩隊各加一個電腦玩家 → 準備 → 開始：兩邊拿到同一份四個角色與隊伍；
+  // 打完（藍隊贏）→ 2.5 秒後 runOver（mode versus、winner）
+  const va = new Client('藍甲');
+  const vb = new Client('紅乙');
+  await va.connect();
+  await vb.connect();
+  va.send({ t: 'create', mode: 'versus' });
+  const vl = await va.waitFrom(0, m => m.t === 'lobby' && m.mode === 'versus', 'versus lobby');
+  assert(vl.max === 6 && vl.players.length === 1 && vl.players[0].team === 'blue', 'versus lobby: ' + JSON.stringify(vl));
+  vb.send({ t: 'join', code: vl.code });
+  await vb.waitFrom(0, m => m.t === 'lobby' && m.players.some(p => p.id === vb.id && p.team === 'red'), '乙 on the red team');
+  va.send({ t: 'addBot', team: 'blue' });
+  va.send({ t: 'addBot', team: 'red' });
+  await va.waitFrom(0, m => m.t === 'lobby' && m.players.filter(p => p.bot).length === 2, 'two bots');
+  va.send({ t: 'ready', ready: true });
+  vb.send({ t: 'ready', ready: true });
+  await va.waitFrom(0, m => m.t === 'lobby' && m.players.length === 4 && m.players.every(p => p.ready), 'all ready');
+  va.send({ t: 'start' });
+  const vs = await va.waitFrom(0, m => m.t === 'start', 'versus start');
+  const vs2 = await vb.waitFrom(0, m => m.t === 'start', 'versus start (乙)');
+  assert(vs.stageInfo.mode === 'versus' && vs.players.length === 4 && vs.players.filter(p => p.bot).length === 2 &&
+    JSON.stringify(vs.players) === JSON.stringify(vs2.players), 'versus start payload: ' + JSON.stringify(vs.players));
+  const vroom = srv.manager.rooms.get(vl.code);
+  for (const e of vroom.run.match.players) if (e.team === 'red') e.die('hit');
+  vroom.run.referee.gameOver('blue');
+  const vo = await vb.waitFrom(0, m => m.t === 'runOver', 'versus runOver', 10_000);
+  assert(vo.mode === 'versus' && vo.winner === 'blue' && vo.summary.length === 4 && vo.summary.every(p => p.team), 'versus runOver: ' + JSON.stringify({ ...vo, summary: undefined }));
+  va.close();
+  vb.close();
+
   // 紀錄檔：上面每一步都有記到（同步寫入，收到訊息時那一筆已經在檔案裡）
   const logs = fs.readFileSync(srv.log.file, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l));
   const find = (ev, pred = () => true) => logs.find(l => l.ev === ev && pred(l));
@@ -217,6 +247,10 @@ try {
   assert(find('room.over', l => l.room === code && l.watching === 1 && l.dropped.length === 1 && l.dropped[0].pid === b.id), 'room.over logged');
   assert(find('player.disconnect', l => l.room === code && l.pid === a.id && l.runOver), 'leaving the summary logged');
   assert(find('room.destroy', l => l.room === code && l.reason === 'empty') && !find('room.idle', l => l.room === code), 'finished room destroyed without idling');
+  assert(find('room.create', l => l.room === vl.code && l.mode === 'versus') && find('room.join', l => l.room === vl.code && l.team === 'red'), 'versus room logged');
+  assert(find('room.bot.add', l => l.room === vl.code && l.team === 'blue') && find('room.bot.add', l => l.room === vl.code && l.team === 'red'), 'bots logged');
+  assert(find('room.start', l => l.room === vl.code && l.mode === 'versus' && l.players.filter(p => p.bot).length === 2), 'versus room.start logged');
+  assert(find('versus.start', l => l.room === vl.code && l.players.length === 4) && find('versus.over', l => l.room === vl.code && l.result === 'blue'), 'versus start / over logged');
   const iFire = logs.indexOf(find('fire')), iShot = logs.indexOf(find('shot')), iTurn = logs.indexOf(find('turn.start'));
   assert(iTurn < iFire && iFire < iShot, 'log lines are in order');
 

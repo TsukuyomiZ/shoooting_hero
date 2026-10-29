@@ -1,4 +1,6 @@
+import { CONFIG } from '../shared/core/config.js';
 import { Run } from '../shared/game/run.js';
+import { Versus } from '../shared/game/versus.js';
 import { validateCards } from '../shared/cards/cards.js';
 import { SoloLog } from './solo-log.js';
 import { VERSION, versionLabel } from '../shared/core/version.js';
@@ -99,8 +101,9 @@ export class LocalTransport {
     this.log.flushFinal();
   }
 
-  // 單人也是一場完整冒險：讀牌庫 → 在瀏覽器裡跑 Run。difficulty = 大廳選的難度（config.DIFFICULTY 的 key）
-  async start(name, difficulty = 'normal') {
+  // 單人也是一場完整冒險：讀牌庫 → 在瀏覽器裡跑 Run。difficulty = 大廳選的難度（config.DIFFICULTY 的 key）；
+  // mode 'versus' = 勝者為王的單人練習：自己在藍隊，其他位子都是電腦玩家（隊友 teamSize - 1 個、對手 teamSize 個），在瀏覽器裡跑 Versus
+  async start(name, difficulty = 'normal', mode = 'coop') {
     let cards = [];
     try {
       const res = await fetch('shared/cards/cards.json', { cache: 'no-cache' });
@@ -120,8 +123,23 @@ export class LocalTransport {
       now: () => Date.now(),
       record: (ev, data) => this.record(ev, data),   // 紀錄（玩家看不到，送回伺服器寫檔）
     };
-    this.run = new Run({ players, seed, io, cards, difficulty });
-    this.log.record('solo.start', { version: versionLabel(VERSION), name, seed, cards: cards.length, difficulty: this.run.difficulty });
+    if (mode === 'versus') {
+      const V = CONFIG.VERSUS;
+      const [mine, other] = V.teams;
+      players[0].team = mine;
+      let n = 0;
+      const bot = (team) => ({ id: `bot${++n}`, name: `${V.botName} ${n}`, team, bot: true, connected: false });
+      for (let i = 1; i < V.teamSize; i++) players.push(bot(mine));
+      for (let i = 0; i < V.teamSize; i++) players.push(bot(other));
+      this.run = new Versus({ players, seed, io, cards });
+      this.log.record('solo.start', {
+        version: versionLabel(VERSION), name, seed, cards: cards.length, mode,
+        players: players.map(p => ({ pid: p.id, name: p.name, team: p.team, ...(p.bot ? { bot: true } : {}) })),
+      });
+    } else {
+      this.run = new Run({ players, seed, io, cards, difficulty });
+      this.log.record('solo.start', { version: versionLabel(VERSION), name, seed, cards: cards.length, difficulty: this.run.difficulty });
+    }
     this.emit({ t: 'welcome', id: 'me', token: null });
     this.run.start();
   }

@@ -25,7 +25,10 @@ function plainValue(v) {
 const r1 = (n) => (Number.isFinite(n) ? Math.round(n * 10) / 10 : n);
 // 一發改到的地形與場景（地圖機制附在事件上的）：掉下來的鐘乳石 falls、點燃的火把 lights（第幾根 / 第幾支），沒有就不帶；
 // 穿過地圖上的火著火的飛行物 ignited（第幾顆，例如穿過洞穴的火把）；
-// 處刑官跳下處刑台 descend（從哪裡跳到哪裡）：打倒猛獸的那一下的事件帶的，或這一波結算完地圖機制連帶的（接在結果上，見 mechanics/index.js 的 cascade）；
+// 處刑官跳下處刑台 descend（[{ x0, y0, x, y, cry? }]：從哪裡跳到哪裡）、跳上處刑台放出下一隻 release（[{ cell, beast, x0, y0, x, y, plan, cleared? }]：
+// 第幾間牢房、哪種猛獸、牠的第一招、跳上去前清掉的負面狀態）：打倒猛獸 / 打到門檻的那一下的事件帶的，再接這一波結算完地圖機制連帶的
+// （接在結果上，見 mechanics/index.js 的 cascade），照順序（同一波可能跳下來又跳上去）；處刑官被打了幾下 fury（這一發之後的總數，武器傷害 +N%）；
+// 熊抱著人被打了多少 hugDmg（這一發之後的總數，打夠了就放開）、熊放開 unhug（[{ id: 熊, targetId: 被抱的人, why: free / stun / dead }]）；
 // 蜘蛛女王換了狀態 queen（[{ from, to, x0, y0, x, y }]：被燒到掉下來、最後一顆蛋破了從背景回來…；事件帶的與這一波結算完連帶的，照順序）
 function sceneChanges(shot) {
   const out = {};
@@ -35,8 +38,16 @@ function sceneChanges(shot) {
   }
   const ignited = shot ? shot.events.filter(ev => ev.ignite > 0).map(ev => ev.p) : [];
   if (ignited.length) out.ignited = ignited;
-  const descend = shot ? shot.descend || (shot.events.find(ev => ev.descend) || {}).descend : null;
-  if (descend) out.descend = descend;
+  const descend = shot ? [...shot.events.filter(ev => ev.descend).map(ev => ev.descend), ...(shot.descend ? [shot.descend] : [])] : [];
+  if (descend.length) out.descend = descend;
+  const release = shot ? [...shot.events.filter(ev => ev.release).map(ev => ev.release), ...(shot.release ? [shot.release] : [])] : [];
+  if (release.length) out.release = release.map(({ spec, plan, ...r }) => ({ ...r, plan: plan && plan.action }));
+  const fury = shot ? shot.events.filter(ev => Number.isFinite(ev.fury)).map(ev => ev.fury) : [];
+  if (fury.length) out.fury = fury[fury.length - 1];
+  const hugDmg = shot ? shot.events.filter(ev => Number.isFinite(ev.hugDmg)).map(ev => ev.hugDmg) : [];
+  if (hugDmg.length) out.hugDmg = hugDmg[hugDmg.length - 1];
+  const unhug = shot ? shot.events.filter(ev => ev.unhug).map(ev => ev.unhug) : [];
+  if (unhug.length) out.unhug = unhug;
   const queen = shot ? [...shot.events.filter(ev => ev.queen).map(ev => ev.queen), ...(shot.queen ? [shot.queen] : [])] : [];
   if (queen.length) out.queen = queen;
   return out;
@@ -54,7 +65,7 @@ function hpChanges(match, before) {
   return out;
 }
 // 回合類紀錄的主角：actor = 誰的回合（玩家或敵人的 id）；是玩家的話再帶 pid，用 pid 找一個人的紀錄才找得到他的回合
-const actorOf = (e) => ({ actor: e.id, ...(e.team === 'players' ? { pid: e.id } : {}), name: e.name });
+const actorOf = (e) => ({ actor: e.id, ...(e.isPlayer ? { pid: e.id } : {}), name: e.name });
 // 流血扣到倒下算到的擊殺（Match.creditBleed 的 kill：AI 走路 / 飄移途中、行動玩家回報的血量）：killedBy = 拿到擊殺的人（流血來源）、
 // fx = 擊殺的效果另外記的（例如噬魂者，同燒死的 turn.end）。ai.turn / turn.skip 照這個記；fx 也跟著 aiTurn / skip 給客戶端飄字
 const killOf = (kill) => (kill ? { killedBy: kill.by, ...(kill.fx.length ? { fx: kill.fx } : {}) } : {});
@@ -78,6 +89,11 @@ function openingPlan(snapshot) {
   }
   return null;
 }
+// 開場就挑好的「罪人」（處刑監獄：所有攻擊都先打他）：機制的狀態整包放在一個欄位、裡面帶 sinner（玩家 id）的；沒有 = null
+function openingSinner(snapshot) {
+  for (const v of Object.values(snapshot)) if (v && typeof v === 'object' && !Array.isArray(v) && typeof v.sinner === 'string') return v.sinner;
+  return null;
+}
 // 慢動作關掉的原因（客戶端送的，認得的才記）：fire 放開左鍵開火、land 落地 / 抓到藤蔓 / 掉進水裡、stamina 體力用完、release 沒開火就放開、
 // reconnect 回合中重新連線（新的頁面沒有開著慢動作）。回合結束時還開著的，裁判自己補記（closeSlow：fire / timeout / water / bleed / disconnected / takeover）
 const SLOW_WHY = ['fire', 'land', 'stamina', 'release', 'reconnect'];
@@ -91,13 +107,17 @@ const SLOW_WHY = ['fire', 'land', 'stamina', 'release', 'reconnect'];
 //          → 下一位的 nextTurn（效果給了額外回合的話，nextTurn 會讓同一位再來一次，不算新的一輪）。
 // 牌的效果（shared/cards/effects/）裁判一個都不認得：回合秒數、回合開始的攻擊、額外回合、開火紀錄的欄位都問效果的登記表
 export class Referee {
-  // humans[i].connected 可省略（預設 true）；onGameOver(result) 讓肉鴿流程接手下一步
-  constructor({ match, humans, io, onGameOver = null, stageInfo = null }) {
+  // humans[i].connected 可省略（預設 true）；humans[i].bot = 電腦玩家（勝者為王：一直由 AI 操作，跟斷線代打一樣，只是不算斷線）；
+  // onGameOver(result) 讓肉鴿流程接手下一步；
+  // onRoundEnd(round, resume) = 一輪打完、下一輪開始之前要先做的事（勝者為王的選牌）：裁判停在 'break'，做完呼叫 resume() 才接著開始下一輪
+  constructor({ match, humans, io, onGameOver = null, stageInfo = null, onRoundEnd = null }) {
     this.match = match;
     this.io = io;
     this.onGameOver = onGameOver;
+    this.onRoundEnd = onRoundEnd;
+    this.roundBreak = false;   // 這一次的「一輪打完」已經交給 onRoundEnd 了（resume 回來時不再問一次）
     this.stageInfo = stageInfo;
-    this.humans = new Map(humans.map(h => [h.id, { id: h.id, name: h.name, connected: h.connected !== false }]));
+    this.humans = new Map(humans.map(h => [h.id, { id: h.id, name: h.name, connected: h.connected !== false && !h.bot, bot: !!h.bot }]));
     this.currentId = null;
     this.extraTurn = false;   // 目前這個回合是不是時間扭曲給的額外回合
     this.slowOn = false;      // 行動玩家現在是不是開著慢動作（他回報的；每個回合開始重設）
@@ -115,8 +135,10 @@ export class Referee {
   // ---- 對外 ----
   start() {
     this.phase = 'starting';
-    // 開場就抽好的第一招（Boss / 菁英；玩家第一個回合就看得到標記）照 ai.turn 的 next / nextLedge / nextSeal / nextTarget 記
-    const plan = openingPlan(this.match.snapshot());
+    // 開場就抽好的第一招（Boss / 菁英；玩家第一個回合就看得到標記）照 ai.turn 的 next / nextLedge / nextSeal / nextTarget 記；處刑監獄的罪人記 sinner
+    const snap = this.match.snapshot();
+    const plan = openingPlan(snap);
+    const sinner = openingSinner(snap);
     this.record('battle.start', {
       level: this.match.levelId, seed: this.match.seed,
       entities: this.match.entities.map(e => ({
@@ -124,6 +146,7 @@ export class Referee {
         hp: r1(e.hp), maxHp: r1(e.maxHp), x: r1(e.x), y: r1(e.y),
       })),
       ...(plan ? nextOf(plan) : {}),
+      ...(sinner ? { sinner } : {}),
     });
     this.io.broadcast({ t: 'start', ...this.startPayload() });
     this.schedule(() => this.nextTurn(), CONFIG.TIMING.startDelay);
@@ -287,7 +310,7 @@ export class Referee {
   // 地圖機制在玩家回合開始出的一波（例如流浪劍士的劍氣）：出手的是敵人，記 actor（不是 pid）、turn = 輪到的玩家、row = 打哪一排
   recordShot(shot, before, extra = {}) {
     const a = this.match.byId(shot.actorId);
-    const who = a && a.team !== 'players' ? { actor: shot.actorId } : { pid: shot.actorId };
+    const who = a && !a.isPlayer ? { actor: shot.actorId } : { pid: shot.actorId };
     this.record('shot', {
       ...(shot.hitEnemy !== undefined ? { hitEnemy: shot.hitEnemy } : {}), ...shotLogOf(a),
       kind: shot.kind, ...who, name: (this.match.byId(shot.actorId) || {}).name, weapon: shot.weapon,
@@ -346,7 +369,7 @@ export class Referee {
   // 玩家連線狀態改變。輪到他卻斷線 → 立刻由 AI 代打
   setConnected(id, connected) {
     const h = this.humans.get(id);
-    if (!h || h.connected === connected) return;
+    if (!h || h.bot || h.connected === connected) return;
     h.connected = connected;
     this.io.broadcast({ t: 'playerStatus', id, connected });
     if (!connected && this.phase === 'turn' && this.currentId === id) {
@@ -372,9 +395,18 @@ export class Referee {
       lockWeapon: this.lockWeapon,   // 這回合射過飛鏢：只能用它、還能射幾次（沒有是 null）
       shotsLeft: this.shotsLeft,
       players: this.match.players.map(p => ({
-        id: p.id, name: p.name, slot: p.slot, color: p.color,
+        ...this.playerInfo(p),
         connected: this.humans.has(p.id) ? this.humans.get(p.id).connected : false,
       })),
+    };
+  }
+
+  // 開場 / 重連給客戶端的玩家名單一筆：客戶端照這份名單建一樣的 Match。勝者為王另外帶隊伍 team，電腦玩家帶 bot
+  playerInfo(p) {
+    const h = this.humans.get(p.id);
+    return {
+      id: p.id, name: p.name, slot: p.slot, color: p.color,
+      ...(this.match.versus ? { team: p.team } : {}), ...(h && h.bot ? { bot: true } : {}),
     };
   }
 
@@ -386,7 +418,7 @@ export class Referee {
       stage: this.match.stage,
       carry: this.match.carry,
       stageInfo: this.stageInfo,
-      players: this.match.players.map(p => ({ id: p.id, name: p.name, slot: p.slot, color: p.color })),
+      players: this.match.players.map(p => this.playerInfo(p)),
       snapshot: this.match.snapshot(),
     };
   }
@@ -422,8 +454,19 @@ export class Referee {
 
     // 回合順序繞回陣列前面（或第一個回合）= 新的一輪。不用「輪到第一位活著的玩家」判斷：
     // 他在自己的回合開始被毒倒、或在自己的回合掉水淹死時，下一位不該又算成新的一輪。
-    // 輪數記在 Match，狂熱層數跟著輪數走（match.fever，見 shared/game/stage-rules.js）
-    if (!extra && (prev < 0 || this.match.entities.indexOf(actor) <= prev)) this.newRound();
+    // 輪數記在 Match，狂熱層數跟著輪數走（match.fever，見 shared/game/stage-rules.js）。
+    // 一輪打完（不是第一輪）、有 onRoundEnd 的話先停在 'break' 交給它（勝者為王的選牌），它呼叫 resume 才回到這裡開始新的一輪
+    if (!extra && (prev < 0 || this.match.entities.indexOf(actor) <= prev)) {
+      if (prev >= 0 && this.onRoundEnd && !this.roundBreak) {
+        this.roundBreak = true;
+        this.phase = 'break';
+        this.deadline = null;
+        this.onRoundEnd(this.round, () => { if (this.phase === 'break') this.nextTurn(again); });
+        return;
+      }
+      this.roundBreak = false;
+      this.newRound();
+    }
     this.currentId = actor.id;
     this.extraTurn = extra;
     this.lockWeapon = null;   // 新的回合（含額外回合）：飛鏢的次數重算
@@ -490,7 +533,7 @@ export class Referee {
 
     const fx = this.match.turnStartEffects(actor);
     const human = this.humans.get(actor.id);
-    const isHuman = actor.team === 'players' && !!human && human.connected;
+    const isHuman = actor.isPlayer && !!human && human.connected;
     const { entities, items } = this.match.snapshot();
     // 這個回合裡即時移動的危險物（例如流浪劍士的劍氣）：現在出發，跟著 turn 的 hazard 給客戶端畫
     this.turnSeq++;
@@ -498,10 +541,10 @@ export class Referee {
     const hazard = started ? { ...started, seq: this.turnSeq } : null;
     const withHazard = hazard ? { hazard } : {};
     const windy = this.match.windMax ? { wind: this.match.wind } : {};   // 有風的關卡：這個回合的風（客戶端的預覽、HUD 照它）
-    // ai = 敵人或斷線玩家的代打（takeover）；fx = 回合開始的效果（中毒、喝蛇血、回血）；diedAtStart = 被毒倒，這回合不開始；hazard = 這回合出發的危險物
+    // ai = 敵人、斷線玩家的代打（takeover）或電腦玩家（bot）；fx = 回合開始的效果（中毒、喝蛇血、回血）；diedAtStart = 被毒倒，這回合不開始；hazard = 這回合出發的危險物
     this.record('turn.start', {
       ...actorOf(actor), team: actor.team, ai: !isHuman,
-      ...(actor.team === 'players' && !isHuman ? { takeover: true } : {}),
+      ...(actor.isPlayer && !isHuman ? (human && human.bot ? { bot: true } : { takeover: true }) : {}),
       ...(this.extraTurn ? { extra: true } : {}),
       hp: r1(actor.hp), maxHp: r1(actor.maxHp), ...(this.match.fever ? { fever: this.match.fever } : {}),
       ...(isHuman ? { turnTime: this.turnTimeFor(actor) } : {}),
@@ -581,7 +624,7 @@ export class Referee {
     const before = hpOf(this.match);
     // 斷線代打的玩家可能停在半空中（跳到一半斷線）：先讓大家落地，客戶端才是從靜止的狀態開始播
     // （客戶端在 aiThink 那段也會跑物理，不先落地的話會在客戶端多掉一次水）。落地途中掉進水裡的水花跟著 aiTurn 帶過去
-    const splashes = actor.team === 'players' ? this.settleWithSplashes() : [];
+    const splashes = actor.isPlayer ? this.settleWithSplashes() : [];
     if (!actor.alive) { this.skipTurn('water', splashes, before); return; }   // 掉下去淹死了（紀錄的血量變化從落地前算起）
     const entities = this.match.snapshot().entities;   // 走路前的狀態，客戶端從這裡開始重播
     // 伺服器也套一次同一份狀態（跟客戶端收到 aiTurn 時一樣：速度歸零、放開方向鍵）：落地那一幀停下的 settle
@@ -591,7 +634,8 @@ export class Referee {
     const { walk, glide, plan, boss, kill = null } = this.match.planAiTurn(actor, this.lockWeapon ? [this.lockWeapon] : null);
     if (this.shotsLeft !== null) this.shotsLeft = 0;
     const T = CONFIG.TIMING;
-    const who = { ...actorOf(actor), ...(actor.team === 'players' ? { takeover: true } : {}) };
+    const h = this.humans.get(actor.id);
+    const who = { ...actorOf(actor), ...(actor.isPlayer ? (h && h.bot ? { bot: true } : { takeover: true }) : {}) };
     // 飄移（蝙蝠、獨眼巨人，見 ai-move.js）：客戶端照 { dx, dy, frames } 重播，紀錄也帶著
     const moved = glide ? { glide: { dx: glide.dx, dy: glide.dy, frames: glide.frames } } : {};
     const glideSecs = glide ? glide.frames / 60 : 0;
@@ -673,10 +717,12 @@ export class Referee {
     this.stopHazard();
     this.phase = 'over';
     this.deadline = null;
-    // players = 這一關打完每位玩家的血量與擊殺數
+    // players = 這一關打完每位玩家的血量與擊殺數（勝者為王另外帶隊伍；result = 贏的那一隊或 draw）
     this.record('battle.over', {
       result, level: this.match.levelId,
-      players: this.match.players.map(e => ({ pid: e.id, name: e.name, hp: r1(e.hp), alive: e.alive, kills: e.kills })),
+      players: this.match.players.map(e => ({
+        pid: e.id, name: e.name, ...(this.match.versus ? { team: e.team } : {}), hp: r1(e.hp), alive: e.alive, kills: e.kills,
+      })),
     });
     this.io.broadcast({ t: 'gameOver', result, entities: this.match.snapshot().entities });
     if (this.onGameOver) this.onGameOver(result);

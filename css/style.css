@@ -84,6 +84,30 @@ button.big { width: 100%; padding: 13px; font-size: 17px; margin-top: 8px; }
 #players li .state { color: #f59e0b; font-size: 13px; }
 #players li.ready .state { color: #22c55e; }
 #players li.empty { color: #666; justify-content: center; }
+/* 勝者為王的房間：藍隊 / 紅隊兩欄（大廳面板約 480px，一欄約 200px：名字一行、標籤 + 按鈕一行）。
+   隊伍色只用在頂邊、標題底色與圓點：紅隊的字不用純紅，免得跟錯誤訊息（.error）看起來一樣 */
+.teams { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0 14px; }
+.teams[hidden] { display: none; }
+.team { --team: #60a5fa; --team-tint: rgba(96, 165, 250, 0.16); --team-ink: #dbeafe; min-width: 0; background: #1b1826; border: 1px solid #3a3550; border-top: 3px solid var(--team); border-radius: 10px; overflow: hidden; }
+.team.team-red { --team: #f87171; --team-tint: rgba(248, 113, 113, 0.16); --team-ink: #fee2e2; }
+.team.mine { border-color: var(--team); }
+.team-head { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--team-tint); color: var(--team-ink); font-weight: bold; font-size: 14px; }
+.team-head::before { content: ''; flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--team); }
+.team-count { margin-left: auto; font-size: 12px; font-weight: normal; color: #cbd5e1; font-variant-numeric: tabular-nums; }
+.team-list { list-style: none; padding: 6px; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.team-list li.slot { box-sizing: border-box; min-height: 50px; display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 5px 9px; background: #15131c; border: 1px solid transparent; border-radius: 8px; }
+.team-list li.slot.me { border-color: var(--team); }
+.slot-top { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.slot-top .pname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: bold; font-size: 14px; }
+.slot-top .state { flex: none; color: #f59e0b; font-size: 12px; }
+.slot.ready .slot-top .state { color: #22c55e; }
+.slot-sub { display: flex; align-items: center; gap: 6px; min-height: 18px; }
+.slot-sub .tags { flex: 1; min-width: 0; color: #999; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.team-list li.slot.empty { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; color: #666; font-size: 13px; background: transparent; border: 1px dashed #3a3550; }
+.slot-btn { padding: 4px 10px; font-size: 12px; border: 1px solid #45405e; }
+.slot-btn[data-act="team"] { background: var(--team-tint); border-color: var(--team); color: var(--team-ink); }
+.slot-btn[data-act="removeBot"] { flex: none; padding: 1px 8px; background: transparent; color: #cbd5e1; }
+.slot-btn[data-act="removeBot"]:hover { background: #2c2840; filter: none; }
 /* 建立房間 + 私人勾選、房間裡的公開 / 私人 */
 .row.create { margin-top: 8px; }
 .row.create #btn-create { flex: 1; padding: 13px; font-size: 17px; }
@@ -93,17 +117,22 @@ button.big { width: 100%; padding: 13px; font-size: 17px; margin-top: 8px; }
 .privacy-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
 .privacy-tag { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: #1f6f43; color: #dcfce7; }
 .privacy-tag.private { background: #7c4a03; color: #fde68a; }
-/* 難度（單人練習、建立房間都照這裡選的）：兩顆並排的切換鈕 + 底下一行說明；房間裡、列表上的難度標籤 */
-.row.difficulty-row { margin: 12px 0 4px; }
-.difficulty-heading { font-size: 14px; color: #cbd5e1; white-space: nowrap; }
-.difficulty-pick { flex: 1; display: flex; gap: 6px; }
-.difficulty-pick button { flex: 1; padding: 8px 10px; font-size: 15px; background: #15131c; border: 1px solid #3a3550; color: #cbd5e1; }
-.difficulty-pick button[aria-checked="true"] { background: #2a2140; border-color: #a855f7; color: #fff; font-weight: bold; }
+/* 模式 / 難度（單人練習、建立房間都照這裡選的）：並排的切換鈕 + 底下一行說明；房間裡、列表上的難度 / 模式標籤。
+   勝者為王沒有難度：選它時難度那排藏起來（.row 是 flex，要另外寫 [hidden]），換成模式說明 */
+.row[hidden] { display: none; }
+.row.mode-row, .row.difficulty-row { margin: 12px 0 4px; }
+.mode-heading, .difficulty-heading { font-size: 14px; color: #cbd5e1; white-space: nowrap; }
+.mode-pick, .difficulty-pick { flex: 1; display: flex; gap: 6px; }
+.mode-pick button, .difficulty-pick button { flex: 1; padding: 8px 10px; font-size: 15px; background: #15131c; border: 1px solid #3a3550; color: #cbd5e1; }
+.mode-pick button[aria-checked="true"], .difficulty-pick button[aria-checked="true"] { background: #2a2140; border-color: #a855f7; color: #fff; font-weight: bold; }
+.mode-pick button[data-id="versus"][aria-checked="true"] { background: linear-gradient(90deg, #1e3a8a, #7f1d1d); border-color: #a5b4fc; }
 .difficulty-pick button[data-id="elite"][aria-checked="true"] { background: #3b1d5e; border-color: #c084fc; color: #f3e8ff; }
-.difficulty-desc { margin: 0 0 4px; font-size: 12px; color: #8a84a3; min-height: 16px; }
+.mode-desc, .difficulty-desc { margin: 0 0 4px; font-size: 12px; color: #8a84a3; min-height: 16px; }
 .difficulty-tag { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: #3a3550; color: #e5e7eb; }
 .difficulty-tag.elite { background: #6b21a8; color: #f3e8ff; }
+.difficulty-tag.versus { background: linear-gradient(90deg, #1d4ed8, #b91c1c); color: #fff; }
 .room-row .rdiff { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: #6b21a8; color: #f3e8ff; white-space: nowrap; }
+.room-row .rmode { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: linear-gradient(90deg, #1d4ed8, #b91c1c); color: #fff; white-space: nowrap; }
 /* 大廳的公開房間列表（點一列就加入） */
 .room-browser { margin-top: 14px; padding-top: 10px; border-top: 1px solid #3a3550; }
 .room-browser-bar { display: flex; align-items: baseline; gap: 8px; }
@@ -128,6 +157,17 @@ button.big { width: 100%; padding: 13px; font-size: 17px; margin-top: 8px; }
 .room-list li.room-empty button { margin-left: 8px; padding: 3px 10px; font-size: 12px; }
 .status { margin-top: 12px; color: #9ec5ff; font-size: 13px; min-height: 18px; }
 .error { color: #f87171; font-size: 13px; min-height: 18px; }
+/* 沒開硬體加速的提醒（大廳標題下面，client/gpu-check.js 偵測）：怎麼打開 + 設定頁網址（網頁連不過去，給玩家複製） */
+.gpu-hint { margin: -6px 0 14px; padding: 10px 12px; border: 1px solid #b45309; border-radius: 10px; background: rgba(251, 191, 36, 0.1); font-size: 13px; color: #e5e7eb; }
+.gpu-hint[hidden], .gpu-hint-link[hidden] { display: none; }
+.gpu-hint p { margin: 0 0 6px; line-height: 1.5; }
+.gpu-hint .gpu-hint-title { font-weight: bold; color: #fbbf24; }
+.gpu-hint .gpu-hint-note { font-size: 12px; color: #a8a29e; }
+.gpu-hint-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.gpu-hint-link { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }   /* 很窄時複製鈕換到下一行，不被網址擠扁 */
+.gpu-hint code { background: #15131c; border: 1px solid #45405e; border-radius: 6px; padding: 4px 8px; font-size: 12px; color: #fff; user-select: all; }
+.gpu-hint button { padding: 5px 10px; font-size: 12px; }
+.gpu-hint .gpu-hint-close { margin-left: auto; background: transparent; border: 1px solid #45405e; }
 
 /* ---- 版本號與版本履歷 ---- */
 .version-badge {
@@ -268,7 +308,7 @@ button.big { width: 100%; padding: 13px; font-size: 17px; margin-top: 8px; }
 .sum-player { background: #15131c; border: 1px solid #3a3550; border-radius: 12px; padding: 14px 16px; text-align: left; }
 .sum-player.me { border-color: #fbbf24; }
 .sum-name { font-weight: bold; font-size: 17px; margin-bottom: 10px; }
-.sum-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.sum-stats { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; margin-bottom: 12px; }   /* 幾格就排一列（冒險 4、對戰多一格擊殺） */
 .sum-stat { background: #221f2e; border-radius: 10px; padding: 8px 6px; text-align: center; }
 .sum-stat .v { font-size: 24px; font-weight: bold; }
 .sum-stat .l { font-size: 12px; color: #aaa; margin-top: 2px; }
@@ -276,11 +316,30 @@ button.big { width: 100%; padding: 13px; font-size: 17px; margin-top: 8px; }
 .sum-stat.dealt .v { color: #fb923c; }
 .sum-stat.rate .v { color: #7dd3fc; }
 .sum-stat.taken .v { color: #f87171; }
+.sum-stat.friendly .v { color: #c084fc; }
 .sum-cards-head { font-size: 13px; color: #cbd5e1; margin-bottom: 6px; }
 .sum-cards { display: flex; flex-wrap: wrap; gap: 6px; }
 .sum-card { --rc: #e5e7eb; font-size: 13px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--rc); color: var(--rc); background: color-mix(in srgb, var(--rc) 12%, transparent); cursor: default; }
 .sum-card.weapon::before { content: '⚔ '; }
 .sum-none { font-size: 13px; color: #777; }
+
+/* ---- 結算畫面：勝者為王（client/summary-ui.js 的 showVersus；#summary 加 .versus，兩隊分兩欄） ---- */
+#summary.versus .summary-panel { width: min(96vw, 980px); }
+#summary.draw .summary-panel h1 { color: #e2e8f0; }   /* 平手 / 觀戰：不分輸贏 */
+.summary-list.teams { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); align-items: start; }
+.sum-team { --tc: #cbd5e1; display: grid; gap: 10px; }
+.sum-team.blue { --tc: #60a5fa; }   /* 隊伍的強調色（同大廳 / 戰場上的隊名） */
+.sum-team.red { --tc: #f87171; }
+.sum-team-head { display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: bold; color: var(--tc); text-align: left;
+  padding: 0 4px 6px; border-bottom: 2px solid color-mix(in srgb, var(--tc) 55%, transparent); }
+.sum-team-head .won-tag { font-size: 13px; padding: 1px 10px; border-radius: 999px; background: #fde047; color: #111; }
+.sum-team .sum-player { border-left: 4px solid var(--tc); }
+.sum-team .sum-stat .v { font-size: 22px; }
+.sum-stat.kills .v { color: #fde047; }
+.sum-tag { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: normal; vertical-align: 2px; }
+.sum-tag.bot { border: 1px solid #94a3b8; color: #cbd5e1; }
+.sum-tag.down { background: rgba(148, 163, 184, 0.14); color: #94a3b8; }
+.sum-player.down .sum-name { color: #a1a1aa; }   /* 倒下的人：名字淡一點就好，數字照常看 */
 
 /* ---- 反應貼圖（彈幕） ---- */
 /* 圖層由 client/stickers.js 對齊到 canvas；cqw / cqh 跟著 canvas 顯示大小縮放 */

@@ -1,4 +1,4 @@
-# Shooting Hero（彈彈堂風格 PVE 共鬥，最多 4 人）
+# Shooting Hero（彈彈堂風格 PVE 共鬥最多 4 人，另有勝者為王 3v3 對戰）
 
 純 HTML5 Canvas + vanilla JS 客戶端，Node + `ws` 伺服器。同一份遊戲邏輯（`shared/`）在伺服器與瀏覽器上跑，
 伺服器是唯一的裁判，瀏覽器只送輸入、收結果播動畫。
@@ -38,7 +38,9 @@ npm start
 
 ## 大廳
 
-- **難度**（選單最上面，單人練習、建立房間都照這裡選的；記在瀏覽器裡）：**一般** / **菁英之路**（見「肉鴿流程」）。底下一行照那個難度實際的設定寫出哪幾關是菁英關、敵人傷害打不打折。
+- **模式**（選單最上面，記在瀏覽器裡）：**冒險**（PVE 共鬥，最多 4 人）/ **勝者為王 3v3**（對戰，見「勝者為王」）。單人練習、建立房間都照這裡選的；
+  選勝者為王時沒有難度可選，單人練習 = 自己加 5 個電腦玩家（自己在藍隊）。大廳列表上勝者為王的房間另外標「勝者為王」。
+- **難度**（單人練習、建立房間都照這裡選的；記在瀏覽器裡）：**一般** / **菁英之路**（見「肉鴿流程」）。底下一行照那個難度實際的設定寫出哪幾關是菁英關、敵人傷害打不打折。
   房間裡、大廳列表上會標出難度（列表只標不是一般的）；一般以外的難度第 1 關開場的橫幅多一行難度說明，結算畫面也會寫。
 - **單人練習**：不連線，裁判直接在瀏覽器裡跑，流程跟多人完全一樣。
 - 打開頁面就會連上伺服器，選單下方的 **大廳 · 公開房間** 即時列出所有公開房間（房號、房主、人數，點一列就加入；
@@ -47,6 +49,9 @@ npm start
   房主在房間裡可以隨時切換公開 / 私人（其他人只看得到標籤）。
 - **輸入房號加入**：公開、私人房間都能用房號進場。
 - 所有人按「準備」後，房主按「開始遊戲」。遊戲開始後不能再加入。
+- 偵測到瀏覽器好像沒開 **硬體加速**（只拿得到軟體繪圖的 WebGL，見 `client/gpu-check.js`）時，標題下方會出現提醒：這個瀏覽器怎麼打開，
+  加上可以複製的設定頁網址（網頁不能直接連到 `chrome://` 之類的網址）。按「知道了」這個分頁就不再出現。
+  Safari / iPhone / iPad / 手機沒有這個開關，不偵測；Firefox 關掉加速時 WebGL 照樣用顯示卡，多半偵測不到。
 - 標題旁是版本階段（目前 **BETA**）。大廳下方是 **版本履歷**：直接條列每一版改了什麼（新增 / 調整 / 修正，最新的在最上面、預設展開，
   舊版本點一下展開），右邊的「收合」按鈕把整塊收起來（記在瀏覽器裡；出了新版本會自動再展開，最新那版標 `NEW`）。
 
@@ -257,6 +262,32 @@ npm start
   另外**從第一個王關之後每多一關 +15%**（`RUN.bossHpPerStage`）：第 5 關的王照原本的血量，**第 10 關的王 ×1.75**（後面幾關玩家的牌多、數值好，不加會太好打）。
   召喚的樹妖、閉目養神的回血也一起放大。
 - 相關數值都在 `shared/core/config.js` 的 `RUN`。
+
+## 勝者為王（3v3 對戰）
+
+2026-10-29 加的對戰模式（名稱暫定）。兩隊（**藍隊** / **紅隊**，每隊最多 3 人）在一張對戰地圖上打一場，**一隊全倒 = 另一隊贏**（同一下兩隊最後的人一起倒下 = 平手）。
+流程在 `shared/game/versus.js`（`Versus`，跟冒險的 `Run` 同一套介面，伺服器房間與單人練習都用它），數值在 `config.VERSUS`。
+
+- **房間**：大廳選「勝者為王 3v3」再建立房間。新來的人自動分到人少的那一隊，可以按「加入這一隊」換隊（那一隊要有空位）。
+  人不夠時**房主可以在空位加電腦玩家**（「＋ 電腦」），也可以移除；電腦玩家算人數（房間最多 6 個，含電腦玩家）、一直算準備好。
+  所有真人都準備好、**兩隊都有人**（真人或電腦玩家，人數可以不一樣）才能開始。單人練習 = 自己在藍隊、其他 5 個位子都是電腦玩家。
+- **血量**：每個人 **300**（`VERSUS.hp`；牌的血量加成照這個算），開局武器同冒險（大砲 + 狙擊槍）。
+- **回合順序**：兩隊輪流（藍 1 → 紅 1 → 藍 2 → …），哪一隊先攻每一場隨機；人數不一樣的話多出來的排在最後。每回合 30 秒同冒險。
+  藍隊從地圖左邊出生、紅隊從右邊。**同一隊（含自己）的誤傷 ×0.6**，打到另一隊全額；落水同冒險的玩家規則（扣最大血量的 30%、回到站穩的地方）。
+- **電腦玩家**：每回合由 AI 打（跟斷線代打同一套：會走一段、挑對方血最少的人瞄準、避開會炸到隊友的落點；
+  每一發拋射都會打到 / 炸到自己人（含自己，例如跟隊友一起被打進坑裡）時改用狙擊槍，打不到就這回合先不開火——冒險的斷線代打也一樣，敵人照舊）。
+  真人斷線時一樣由 AI 代打、可以重連回來。
+- **每一輪打完選牌**（`VERSUS.pickEvery`，1 = 每一輪：場上所有人各行動一次之後）：戰鬥暫停，**每個還活著的人三選一張牌**（`VERSUS.pickTime` 20 秒，超時 / 斷線隨機選；
+  電腦玩家馬上選，挑稀有度最高的），選完**當場生效**（血量上限、速度、體型、武器欄、加成都換上；加血量上限的牌同時回等量的血），隔 1.5 秒（`resumeDelay`）開始下一輪。
+  抽牌的稀有度照輪數算（同冒險的第幾關，最多算到第 10 關）。給隊友 / 全隊的牌（醫療包、祈願之杖、攜手之伴…）只算同一隊；
+  **對戰不出的牌**：牌上有 `VERSUS.excludeKeys` 的效果（弒神者的對首領傷害、腎上腺素的下一關加成、狂歡派對的狂熱提早）。倒下的人不再復活、也不選牌。
+- **狂熱**：不看人數，**第 11 輪起**所有傷害 +50%，之後每過 10 輪再疊一層（`VERSUS.feverEvery`，算法在 `shared/game/stage-rules.js`，關卡的 `pool: 'versus'`）。
+- **對戰地圖**（`shared/maps/level.js` 的 `pool: 'versus'`，冒險不會抽到）：**王者擂台**（左右兩塊高台，中間一座小島、缺口跳得過去）、**雙峰谷**（兩邊高、中間低的一整片山谷，谷底一個小土丘擋直線）。
+  左右對稱，`teamSpawns` = 左隊、右隊的出生點；沒有敵人、沒有地圖機制。
+- **結算**：打完先看 2.5 秒，再出結算畫面（勝利 / 落敗 / 平手、哪一隊贏、打了幾輪），兩隊分開列每個人的造成 / 承受傷害、命中率、擊殺、誤傷隊友、拿到的牌。
+- 實作：隊伍是角色的 `team`（`blue` / `red`），「是不是玩家角色」另外看 `isPlayer`（`controller === 'human'`，含電腦玩家）；`Match.result()` 回傳贏的那一隊。
+  裁判的 `onRoundEnd` 在一輪打完、下一輪開始前停下來交給 `Versus` 選牌；選完的牌用 `Match.refit` 套到場上的角色，伺服器與客戶端照同一份 `carry`（`roundPicks` 訊息）各套一次，
+  重連的人照更新過的 `match.carry` 建出一樣的角色。
 
 ## 小關：小心擊發（蜂巢與蜜蜂）
 
@@ -671,39 +702,42 @@ npm start
 | `player.hello` | 連線報名字、拿到玩家 id（`oldToken` = 帶了舊 token 卻接不回去） |
 | `player.reconnect` | 用 token 接回原本的房間 / 遊戲（`replaced` = 頂掉了還連著的舊連線） |
 | `lobby.browse` | 開始 / 停止看大廳的公開房間列表（`on`） |
-| `room.create` / `room.join` / `room.join.fail` | 建房（`private` = 私人房間、`difficulty` = 難度）/ 加入（`via`：`list` 從大廳列表點、`code` 輸入房號）/ 加入失敗（`reason`：`notFound` 找不到、`started` 已開始、`full` 已滿） |
+| `room.create` / `room.join` / `room.join.fail` | 建房（`private` = 私人房間、`difficulty` = 難度、`mode: "versus"` = 勝者為王）/ 加入（`via`：`list` 從大廳列表點、`code` 輸入房號；勝者為王帶 `team` = 分到哪一隊）/ 加入失敗（`reason`：`notFound` 找不到、`started` 已開始、`full` 已滿（勝者為王含電腦玩家）） |
+| `room.team` / `room.team.fail` | 勝者為王：換隊（`from` → `team`）/ 換不了（`notVersus` 冒險的房間、`badTeam`、`sameTeam`、`teamFull`） |
+| `room.bot.add` / `room.bot.remove` / `room.bot.fail` | 勝者為王：房主加 / 移除電腦玩家（`bot` = id、`botName`、`team`）/ 被拒（`op`：`add` / `remove`；`reason`：`notVersus`、`notHost`、`badTeam`、`teamFull`、`noBot`） |
 | `room.privacy` / `room.privacy.fail` | 房主切換公開 / 私人（`private`）/ 不是房主想切換被拒（`notHost`） |
 | `lobby.ready` / `lobby.leave` / `room.host` | 按準備（`ready`）/ 在大廳離開 / 房主換人 |
-| `room.start` / `room.start.fail` | 房主開始（成員、seed、牌庫張數、`difficulty`）/ 開始被拒（`notHost`、`notReady` + 誰還沒準備） |
+| `room.start` / `room.start.fail` | 房主開始（成員、seed、牌庫張數、`difficulty`；勝者為王帶 `mode` 與每個人的 `team`、電腦玩家 `bot: true`）/ 開始被拒（`notHost`、`notReady` + 誰還沒準備、`emptyTeam` + 哪一隊沒人） |
 | `player.disconnect` | 離開房間或斷線（`inGame` = 遊戲中，由 AI 代打；`voluntary` = 遊戲中自己按離開；`runOver` = 冒險已經打完，直接移出房間） |
 | `room.over` | 冒險打完（接在 `run.over` 後面）：大廳列表不再列這間；`watching` = 還連著、在看結算畫面的人數，`dropped` = 已經斷線、直接移出的人（全都斷線了房間就跟著回收） |
 | `room.idle` / `room.destroy` | 遊戲中全員斷線、60 秒後回收 / 房間回收（`reason`：`empty` 大家都走了（冒險打完後最後一個人離開結算畫面也是）、`idle`、`shutdown`） |
 | `sticker` / `sticker.drop` | 丟反應貼圖 / 被擋下（`unknown` 不認得、`spam` 洗版） |
 | `chat` / `chat.drop` | 聊天（`text` 是整理過、所有人看到的那句）/ 被擋下（`empty` 整理完是空的、`spam` 洗版） |
 | `stage.start` | 一關開始：關卡、`type`（`normal` / `elite` / `boss`）、每位玩家帶進來的血量、武器欄、牌 |
-| `battle.start` | 戰鬥開始：所有角色（玩家與敵人）的 id、名字、血量、位置；Boss / 菁英開場就抽好的第一招另外帶 `next`（招式）與 `nextLedge` / `nextSeal` / `nextTarget`（同 `ai.turn`，例如大樹守衛的衝鋒一開場就標記的人） |
+| `battle.start` | 戰鬥開始：所有角色（玩家與敵人）的 id、名字、血量、位置；Boss / 菁英開場就抽好的第一招另外帶 `next`（招式）與 `nextLedge` / `nextSeal` / `nextTarget`（同 `ai.turn`，例如大樹守衛的衝鋒一開場就標記的人）；處刑監獄開場就挑好的罪人另外帶 `sinner`（玩家 id） |
 | `round.start` | 新的一輪開始（`round` = 第幾輪；`fx` = 地圖每一輪的變化，沒有就不帶：岩穴 / 地心探險的火把變暗 `{ type: "torchDim", torch, light }`、熄滅 `{ type: "torchOut", torch, light: 0 }`，`torch` = 第幾支、`light` = 現在的亮度；巨蠍巢穴多人先一筆強風 `{ type: "wind" }`，再記被吹熄的火把；火把算好之後巨蠍躲的洞還亮著被逼出來記 `{ type: "reveal", hole }`） |
 | `turn.start` | 輪到誰（`ai` = 由 AI 行動、`takeover` = 斷線代打、`extra` = 時間扭曲的額外回合、`fx` = 中毒 / 回血等回合開始效果，無差別轟炸冷卻中沒轟炸的回合帶 `{ type: "bombardCd", cd }` = 還剩幾回合、`fever` = 狂熱層數、`hazard` = 這回合的危險物，例如流浪劍士的 `{ kind: "swordsman", qi: { row, x, speed, hover }（出發的劍氣）}`、天狗的 `{ kind: "tengu", feathers: [{ id, x0, y0, vx, vy, delay }]（射出去的每一根羽毛）, hover（還浮著幾根）}`；`wind` = 這回合的風（有風的關卡才帶，-10 ~ +10） |
 | `hazard` | 回合中的危險物（流浪劍士的劍氣、天狗的羽毛）打到人或飛完：天狗的帶 `feathers: [{ id, x, y, end: "hit" / "ground" / "out" / "cancel", target }]`（這一次結束的羽毛：打到誰、插在哪）與 `hover`；`kind`、`turn` = 在誰的回合、`changes`（打到的人）、`done` = 這回合都結束了、`qi: { row, x（那時候飛到哪）, done, hover（還浮著的）, recast（飛完馬上再揮的那幾排）}` |
 | `move` / `move.reject` | 移動回報（位置、面向、體力、`vine` 藤蔓；流血時回報的血量讓他扣了血，帶 `hp` = 扣完流血的血量（同一次回報又掉進水裡的話是落水扣血之前的，落水扣的記在後面的 `water`）、`bled` = 這次扣了幾點）/ 位置不合理被擋下（流血的血量照收，一樣帶 `hp` / `bled`） |
 | `weapon` | 換武器 |
 | `slowmo` | 跳起來後瞄準開 / 關慢動作（`on`、當下的體力與位置——客戶端送開 / 關前先補一次位置回報；`why` = 關掉的原因：`fire` 放開開火、`land` 落地 / 抓到藤蔓 / 落水、`stamina` 體力用完、`release` 沒開火就放開、`reconnect` 回合中重新連線）。回合結束時還開著的由裁判補記一筆（`auto: true`，`why` = `fire` / `timeout` / `water` / `bleed` / `disconnected` / `takeover`），開 / 關一定成對；狀態沒變的重複訊息記成 `action.ignored`（`slowUnchanged`） |
-| `fire` → `shot` | 開火（武器、角度、力量、回報的出手位置；`posRejected` = 位置不合理、從伺服器記得的位置出手；`hp` / `bled` 同 `move`，扣到倒下的話這一發沒射出去，後面接 `turn.skip`（`bleed`））→ 結果（打到什麼、擊殺、`changes`；`hitEnemy` = 這一槍有沒有打中敵人，有磨刀霍霍 / 越戰越強 / 被虐體質時帶結算後的層數 `stacks`（`ready` / `hunt` / `hurt`）、有全力一擊時帶這一槍的加成 `exert: { pct }`；岩穴：`falls` = 打下來的鐘乳石、`lights` = 點燃的火把，`ai.turn` 也一樣；`ignited` = 穿過火源著火的是第幾顆，敵人 / Boss 的 `ai.turn` 也一樣；處刑監獄：這一發打倒了放出來的猛獸、處刑官馬上跳下處刑台的帶 `descend` = `{ x0, y0, x, y }`（從哪裡跳到哪裡；三隻都倒下了再帶 `cry: true`），代打的 `ai.turn` 也一樣；蜘蛛巢穴：這一發讓蜘蛛女王換了狀態的帶 `queen` = `[{ from, to, x0, y0, x, y }]`（`hang` 懸吊 / `ground` 被燒到掉在地上 / `hide` 躲在背景：著火的子彈打中她、打破最後一顆蛛卵她從背景回來），代打的 `ai.turn` 也一樣；女王 / 小蜘蛛自己的回合每一招記在 `boss`，換了狀態的那一招帶 `queenTo`，下的蛋 / 放的網 / 孵出來的小蜘蛛記 `spawns`（id）、黏到的人 `caught`、吐絲糾纏到的 `targetIds` 與免疫的 `immune`）；出手位置在水裡的，`fire` 後面接 `water`；無差別轟炸的 `shot` 是 `kind: "bombard"`；流浪劍士的劍氣在回合收尾時一口氣掃完剩下那段的 `shot` 是 `kind: "swordQi"`、天狗的羽毛在回合收尾時一口氣射完的 `shot` 是 `kind: "tenguFeather"`（出手的是劍士 / 天狗：記 `actor` 不記 `pid`，`turn` = 在誰的回合、`row` = 哪一排：0 地面、1 低台、2 中台、3 頂台）；飛鏢的 `shot` 帶 `shotsLeft` = 這一支之後這回合還能射幾次。`hit` 是第一顆停在哪（`terrain` / `entity` / `water` / `out` / `range` = 飛到最長路徑；迴力鏢是折返的地方） |
+| `fire` → `shot` | 開火（武器、角度、力量、回報的出手位置；`posRejected` = 位置不合理、從伺服器記得的位置出手；`hp` / `bled` 同 `move`，扣到倒下的話這一發沒射出去，後面接 `turn.skip`（`bleed`））→ 結果（打到什麼、擊殺、`changes`；`hitEnemy` = 這一槍有沒有打中敵人，有磨刀霍霍 / 越戰越強 / 被虐體質時帶結算後的層數 `stacks`（`ready` / `hunt` / `hurt`）、有全力一擊時帶這一槍的加成 `exert: { pct }`；岩穴：`falls` = 打下來的鐘乳石、`lights` = 點燃的火把，`ai.turn` 也一樣；`ignited` = 穿過火源著火的是第幾顆，敵人 / Boss 的 `ai.turn` 也一樣；處刑監獄：這一發打倒了放出來的猛獸、處刑官馬上跳下處刑台的帶 `descend` = `[{ x0, y0, x, y }]`（從哪裡跳到哪裡；三隻都倒下了再帶 `cry: true`）、把處刑官打到血量門檻、他馬上跳上處刑台放出下一隻的帶 `release` = `[{ cell, beast, x0, y0, x, y, plan, cleared }]`（第幾間牢房、哪種猛獸、牠的第一招、跳上去前清掉的負面狀態 `burn` / `bleed` / `poison` / `entangle` / `stun`；同一發可能跳下來又跳上去，照順序），打中處刑官的帶 `fury` = 他到這一發為止被打了幾下（每下武器傷害 +1%），熊抱著人時打中熊的帶 `hugDmg` = 牠抱著之後被打了多少（到牠最大血量的 25% 就放開），熊放開的帶 `unhug` = `[{ id, targetId, why }]`（熊、被抱的人；`free` 被打到放開 / `stun` 熊被吊燈砸暈 / `dead` 熊或被抱的人倒下了），代打的 `ai.turn` 也一樣；蜘蛛巢穴：這一發讓蜘蛛女王換了狀態的帶 `queen` = `[{ from, to, x0, y0, x, y }]`（`hang` 懸吊 / `ground` 被燒到掉在地上 / `hide` 躲在背景：著火的子彈打中她、打破最後一顆蛛卵她從背景回來），代打的 `ai.turn` 也一樣；女王 / 小蜘蛛自己的回合每一招記在 `boss`，換了狀態的那一招帶 `queenTo`，下的蛋 / 放的網 / 孵出來的小蜘蛛記 `spawns`（id）、黏到的人 `caught`、吐絲糾纏到的 `targetIds` 與免疫的 `immune`）；出手位置在水裡的，`fire` 後面接 `water`；無差別轟炸的 `shot` 是 `kind: "bombard"`；流浪劍士的劍氣在回合收尾時一口氣掃完剩下那段的 `shot` 是 `kind: "swordQi"`、天狗的羽毛在回合收尾時一口氣射完的 `shot` 是 `kind: "tenguFeather"`（出手的是劍士 / 天狗：記 `actor` 不記 `pid`，`turn` = 在誰的回合、`row` = 哪一排：0 地面、1 低台、2 中台、3 頂台）；飛鏢的 `shot` 帶 `shotsLeft` = 這一支之後這回合還能射幾次。`hit` 是第一顆停在哪（`terrain` / `entity` / `water` / `out` / `range` = 飛到最長路徑；迴力鏢是折返的地方） |
 | `turn.resume` | 飛鏢射完一支、還有次數：回合接著繼續（`weapon`、`shotsLeft` 還能射幾次、`timeLeft` 接著倒數的秒數） |
 | `water` / `pickup` | 自己走 / 跳進水裡（扣多少、有沒有淹死、重生點）/ 走路途中喝到蛇血、碰到火把點燃（岩穴，`type: "torch"`）、踩進蜘蛛網被黏住（蜘蛛巢穴，`type: "web"`、`web` = 哪一張網、`x` / `y` = 網移過去包住他的位置；同一段路也點燃了火把再帶 `torch`）；斷線代打的 AI 走路途中撿到的也記一筆（`takeover: true`、`f` = 走到第幾幀撿到的，記在那回合的 `ai.turn` 之前） |
-| `ai.turn` | 敵人 / 代打的回合：走路（`walk` = `{ dir, frames, fall }`：按著方向走幾幀、放開之後又落幾幀到站穩，平常 `fall` 是 0）/ 飄移（`glide` = `{ dx, dy, frames }`：蝙蝠、獨眼巨人）、武器、角度、力量、結果（`noShot` = 沒開火，例如狙擊手被同伴擋住；走路 / 飄移途中流血倒下的另外帶 `died: "bleed"`，`changes` 裡也是 `died: "bleed"`；算到流血來源的擊殺再帶 `killedBy` = 誰拿到這個擊殺、`fx` = 擊殺的效果另外記的（例如噬魂者的 `{ type: "soul", id, soul }`，同燒死時的 `turn.end`））；Boss 是 `boss`（每一招）與 `next`（預定的下一招）；蜜蜂也是 `boss`（`wait` 待機 / `sting` 螫誰 `targetId`）。獨眼巨人也是 `boss`（`pound` 猛捶帶 `ledge` = 衝擊打哪個平台，震下來的鐘乳石記在那一招的 `falls` / `throw` 巨石投擲帶 `targetIds` = 每個人各一顆，照出手的順序 / `seal` 超巨石（同一回合接在一般招式後面）帶 `ledge` = 封住哪個平台、`killed` = 壓死的玩家（`changes` 裡是 `died: "crushed"`）、`rocks` = 壓碎的鐘乳石、`torches` = 壓熄的火把、`cast` / `roar` 震盪獅吼帶 `shattered` = 擊碎的超巨石（封住哪幾個平台的）、`targetIds`、`cast`），預定的下一招是猛捶時另外帶 `nextLedge`（預定打哪個平台，玩家回合的警示帶畫在那上面）、還要丟超巨石時帶 `nextSeal`（要封哪個平台，玩家回合的警示畫在那裡）。大樹守衛也是 `boss`（`charge` 衝鋒帶 `targetId`（衝向誰）、`dmg`（武器傷害，還沒乘敵人倍率）、`dist`、撞到目標帶 `hit`、路上一起撞到的人 `through`（id 用逗號接起來）、貼著坑壁 / 地圖邊衝不出去帶 `blocked` / `bash` 盾擊帶 `facing` / `leap` 躍擊帶起跳點 `x0`、`y0`、落地點 `x`、`y`、`dmg`（看距離算出來的）、`dist` / `slash` 橫劈（躍擊之後的第二招）帶 `dmg`；每一招都帶 `cast`），`next` = 預定的下一招（`charge` / `shield` / `leap`），預定的下一招鎖定了人（衝鋒的標記、躍擊的鎖定）另外帶 `nextTarget`。洞穴巨蠍也是 `boss`（`stunned` 暈眩中 / `shock` 震擊周圍（暈眩醒來）帶 `hole` / `pinch` 巨鉗夾擊帶 `targetId` / `snap` 巨鉗撲空 / `quake` 甲殼地鳴 / `sting` 毒刺（每位玩家各一發；躲著從洞裡射的多帶 `hidden: true`）/ `lurk` 躲在暗處（毒針擊破了、躲著什麼都不做）帶 `hole` / `burrow` 鑽地換洞帶 `from`、`to`、`facing`；每一招都帶 `cast`），沒有預定的下一招（`next` 是 `null`）。流浪劍士也是 `boss`（`iai` 一閃帶 `targetIds`（每一道線對準誰）、`facing`、`dmg`（武器傷害，還沒乘敵人倍率）；格擋的反擊再帶 `counter: true`、`hits`（被打中幾次）、`need`（`targetIds` 只有一個人：第一個打中他的） / `parry` 格擋架勢帶 `need` / `draw` 拔刀帶 `targetId`、`dmg`；每一招都帶 `cast`），`next` = 預定的下一招（`iai` / `parry` / `draw`），預定一閃再帶 `nextTargets`（預警線對準誰；`battle.start` 的開場第一招也是）。天狗也是 `boss`（出招前在天上飄的帶 `glide`，同蝙蝠；`feather` 羽刃帶 `x0`、`y0`（從哪裡飛過去）、`x`、`y`、`hover`（補滿幾根）、`added` / `gust` 風彈帶 `targetId`、`angle`、`power`、`wind`（那時候的風）、`dmg`（照開場人數放大後的）；每一招都帶 `cast` 與 `facing`；玩家都倒下了是 `idle`），`next` = 預定的下一招（`feather` / `gust`）。處刑官與三隻猛獸也是 `boss`（`cleaver` 菜刀丟擲帶 `targetIds` = 丟誰（照出手的順序，本來一個人、每死一隻召喚獸多一個人）/ `flail` 流星錘、`cage` 囚籠、`execute` 處刑帶 `targetId` / `whip` 皮鞭帶 `targetId`（鞭哪隻）、`dmg` / `release` 跳上處刑台開牢房帶 `cell`、`spawns` / `bite` 撕咬、`swipe` 熊掌拍擊、`pounce` 飛撲帶 `targetId`（撲到誰）、`x0`、`y0`、`x`、`y`；飛撲另外帶 `eaten`（吃掉的流血層數）、被路上的人擋下時帶 `markedId`（本來要撲的人）；劍齒虎撲所有流血的人時一撲一招；每一招都帶 `cast`），`next` = 預定的下一招，菜刀另外帶 `nextTargets`（預定丟誰）。蜜蜂飛出來記在打到蜂巢的那筆 `shot` 的 `changes`（`spawned`） |
+| `ai.turn` | 敵人 / 代打的回合：走路（`walk` = `{ dir, frames, fall }`：按著方向走幾幀、放開之後又落幾幀到站穩，平常 `fall` 是 0）/ 飄移（`glide` = `{ dx, dy, frames }`：蝙蝠、獨眼巨人）、武器、角度、力量、結果（`noShot` = 沒開火，例如狙擊手被同伴擋住；走路 / 飄移途中流血倒下的另外帶 `died: "bleed"`，`changes` 裡也是 `died: "bleed"`；算到流血來源的擊殺再帶 `killedBy` = 誰拿到這個擊殺、`fx` = 擊殺的效果另外記的（例如噬魂者的 `{ type: "soul", id, soul }`，同燒死時的 `turn.end`））；Boss 是 `boss`（每一招）與 `next`（預定的下一招）；蜜蜂也是 `boss`（`wait` 待機 / `sting` 螫誰 `targetId`）。獨眼巨人也是 `boss`（`pound` 猛捶帶 `ledge` = 衝擊打哪個平台，震下來的鐘乳石記在那一招的 `falls` / `throw` 巨石投擲帶 `targetIds` = 每個人各一顆，照出手的順序 / `seal` 超巨石（同一回合接在一般招式後面）帶 `ledge` = 封住哪個平台、`killed` = 壓死的玩家（`changes` 裡是 `died: "crushed"`）、`rocks` = 壓碎的鐘乳石、`torches` = 壓熄的火把、`cast` / `roar` 震盪獅吼帶 `shattered` = 擊碎的超巨石（封住哪幾個平台的）、`targetIds`、`cast`），預定的下一招是猛捶時另外帶 `nextLedge`（預定打哪個平台，玩家回合的警示帶畫在那上面）、還要丟超巨石時帶 `nextSeal`（要封哪個平台，玩家回合的警示畫在那裡）。大樹守衛也是 `boss`（`charge` 衝鋒帶 `targetId`（衝向誰）、`dmg`（武器傷害，還沒乘敵人倍率）、`dist`、撞到目標帶 `hit`、路上一起撞到的人 `through`（id 用逗號接起來）、貼著坑壁 / 地圖邊衝不出去帶 `blocked` / `bash` 盾擊帶 `facing` / `leap` 躍擊帶起跳點 `x0`、`y0`、落地點 `x`、`y`、`dmg`（看距離算出來的）、`dist` / `slash` 橫劈（躍擊之後的第二招）帶 `dmg`；每一招都帶 `cast`），`next` = 預定的下一招（`charge` / `shield` / `leap`），預定的下一招鎖定了人（衝鋒的標記、躍擊的鎖定）另外帶 `nextTarget`。洞穴巨蠍也是 `boss`（`stunned` 暈眩中 / `shock` 震擊周圍（暈眩醒來）帶 `hole` / `pinch` 巨鉗夾擊帶 `targetId` / `snap` 巨鉗撲空 / `quake` 甲殼地鳴 / `sting` 毒刺（每位玩家各一發；躲著從洞裡射的多帶 `hidden: true`）/ `lurk` 躲在暗處（毒針擊破了、躲著什麼都不做）帶 `hole` / `burrow` 鑽地換洞帶 `from`、`to`、`facing`；每一招都帶 `cast`），沒有預定的下一招（`next` 是 `null`）。流浪劍士也是 `boss`（`iai` 一閃帶 `targetIds`（每一道線對準誰）、`facing`、`dmg`（武器傷害，還沒乘敵人倍率）；格擋的反擊再帶 `counter: true`、`hits`（被打中幾次）、`need`（`targetIds` 只有一個人：第一個打中他的） / `parry` 格擋架勢帶 `need` / `draw` 拔刀帶 `targetId`、`dmg`；每一招都帶 `cast`），`next` = 預定的下一招（`iai` / `parry` / `draw`），預定一閃再帶 `nextTargets`（預警線對準誰；`battle.start` 的開場第一招也是）。天狗也是 `boss`（出招前在天上飄的帶 `glide`，同蝙蝠；`feather` 羽刃帶 `x0`、`y0`（從哪裡飛過去）、`x`、`y`、`hover`（補滿幾根）、`added` / `gust` 風彈帶 `targetId`、`angle`、`power`、`wind`（那時候的風）、`dmg`（照開場人數放大後的）；每一招都帶 `cast` 與 `facing`；玩家都倒下了是 `idle`），`next` = 預定的下一招（`feather` / `gust`）。處刑官與三隻猛獸也是 `boss`（`cleaver` 菜刀丟擲帶 `targetIds` = 丟誰（照出手的順序，本來一個人、每死一隻召喚獸多一個人；第一把丟罪人，再來被熊抱住的人）/ `flail` 流星錘、`cage` 囚籠、`execute` 處刑帶 `targetId`（囚籠關的是被熊抱住的人、熊把他交出來的再帶 `freedId`） / `whip` 皮鞭帶 `targetId`（鞭哪隻）、`dmg` / `release` 跳上處刑台開牢房帶 `cell`、`spawns`、`cleared`（保險：平常血量一到門檻就當下跳了，記在那一發的 `release`，他的回合不會有這一招） / `bite` 撕咬、`swipe` 熊掌拍擊、`pounce` 飛撲帶 `targetId`（撲到誰）、`x0`、`y0`、`x`、`y` / `hug` 熊抱帶 `targetId`（抱住誰）、`need`（要被打多少才放開）、`x0`、`y0`、`x`、`y` / `slam` 熊抱重摔帶 `targetId`；飛撲另外帶 `eaten`（吃掉的流血層數）、被路上的人擋下時帶 `markedId`（本來要撲的人）；劍齒虎撲所有流血的人時一撲一招；罪人倒下了還沒換、這一回合先補挑的，第一招帶 `sinnerId`（新的罪人）；有飛行物的招式打倒 / 放開被熊抱住的人、砸下吊燈的，那一招另外帶 `unhug` / `hugDmg` / `stuns`（同 `shot`）；每一招都帶 `cast`），`next` = 預定的下一招，菜刀另外帶 `nextTargets`（預定丟誰），猛獸的帶 `nextTarget`（那時候的罪人；熊抱著人時下一招是 `slam`、摔誰）。蜜蜂飛出來記在打到蜂巢的那筆 `shot` 的 `changes`（`spawned`） |
 | `turn.takeover` | 輪到他時斷線，AI 接手這回合（射過飛鏢的回合帶 `shotsLeft`：AI 只能用飛鏢再射一支；飛鏢飛行途中斷線的，在回合接著繼續的那一刻接手） |
 | `turn.skip` | 跳過（`reason`：`timeout` 超時、`water` 淹死、`hazard` 在自己的回合被危險物（流浪劍士的劍氣、天狗的羽毛）打倒、`bleed` 自己走路 / 開火那一刻流血扣到倒下（`changes` 從那筆回報之前算起；`killedBy` = 拿到擊殺的流血來源，來源有擊殺的效果時另外帶 `fx`，同 `ai.turn`）、`disconnected`） |
-| `turn.end` | 回合結束（`fx` = 燃燒、流血止血 `{ type: "bleed", id, stacks, dmg }`（止住幾層、這回合流血扣了幾點）、神佑之石、時間扭曲、石假面扣血 `{ type: "stoneMask", id, dmg }`、處刑官跳下處刑台 `{ type: "descend", id, x0, y0, x, y }`（放出來的猛獸在自己的回合結束被燒死；三隻都倒下了再帶 `cry: true`）、糾纏用完 `{ type: "untangle", id }`、蜘蛛女王身上的燃燒結算完沒了、爬回天上 `{ type: "queen", id, from: "ground", to: "hang", x0, y0, x, y }`…，與它們造成的 `changes`） |
-| `battle.over` | 一關打完（`win` / `lose`、每位玩家剩多少血、擊殺數） |
-| `pick.offer` / `pick` / `pick.done` | 發牌（每人三選一的牌；打贏菁英關的帶 `type: "elite"` 與稀有度加成 `bonus`）/ 某人選了（`discard` 丟掉的武器、`link` 連結對象）/ 選牌結果（`auto` = 超時或斷線由系統隨機選） |
-| `run.over` | 整場冒險結束（`win` / `lose`、打到第幾關、`difficulty`、每個人最後的牌、結算統計 dealt / taken / shots / hits） |
+| `turn.end` | 回合結束（`fx` = 燃燒、流血止血 `{ type: "bleed", id, stacks, dmg }`（止住幾層、這回合流血扣了幾點）、神佑之石、時間扭曲、石假面扣血 `{ type: "stoneMask", id, dmg }`、處刑官跳下處刑台 `{ type: "descend", id, x0, y0, x, y }`（放出來的猛獸在自己的回合結束被燒死；三隻都倒下了再帶 `cry: true`）、處刑官跳上處刑台放出下一隻 `{ type: "release", id, cell, beast, x0, y0, x, y, spec, plan, cleared }`（回合結束時他的血量已經在門檻，例如自己的回合結束被燒到門檻）、熊或被熊抱住的人被燒死、放開 `{ type: "unhug", id, targetId, bearId, why: "dead" }`（`id` = 被抱的人）、罪人倒下了換新的罪人 `{ type: "sinner", id, from }`、糾纏用完 `{ type: "untangle", id }`、蜘蛛女王身上的燃燒結算完沒了、爬回天上 `{ type: "queen", id, from: "ground", to: "hang", x0, y0, x, y }`…，與它們造成的 `changes`） |
+| `battle.over` | 一關打完（`win` / `lose`、每位玩家剩多少血、擊殺數；勝者為王是贏的那一隊 `blue` / `red` / `draw`，每個人帶 `team`） |
+| `pick.offer` / `pick` / `pick.done` | 發牌（每人三選一的牌；打贏菁英關的帶 `type: "elite"` 與稀有度加成 `bonus`）/ 某人選了（`discard` 丟掉的武器、`link` 連結對象）/ 選牌結果（`auto` = 超時或斷線由系統隨機選）。勝者為王每一輪打完也是這三筆：帶 `round`（第幾輪打完的，不帶 `stage`），只有活著的人，每個人帶 `team`；電腦玩家帶 `bot: true`（發牌時就選好、記一筆 `pick`） |
+| `run.over` | 整場冒險結束（`win` / `lose`、打到第幾關、`difficulty`、每個人最後的牌、結算統計 dealt / friendlyDealt（誤傷隊友，打到自己不算）/ taken / shots / hits） |
+| `versus.start` / `versus.over` | 勝者為王開打（地圖、照回合順序的名單：每個人的 `team`、電腦玩家 `bot`、血量）/ 打完（`result` = 贏的那一隊或 `draw`、打到第幾輪、每個人最後的牌、武器欄與結算統計 dealt / friendlyDealt / taken / shots / hits / kills）。中間的回合紀錄同冒險（`turn.start` 電腦玩家的回合帶 `bot: true`、不是 `takeover`） |
 | `action.ignored` / `msg.ignored` | 收到但不處理的操作（`reason`：`notYourTurn`、`phase:resolving`、`dead`、`weaponNotOwned`、`weaponLocked`（射過飛鏢後換別把 / 用別把開火）、`cardNotOffered`、`unchanged`（公開 / 私人沒變）、`noRun`（遊戲還沒建好）、`notMember`…，連他送來的武器 / 角度 / 力量 / 牌一起記），查「有按卻沒反應」用 |
 | `msg.unlogged` | 收到的訊息處理完卻一筆紀錄都沒寫（`t` = 訊息種類）：入口補的保底，出現就代表某條路徑漏記了，要補上 |
 | `msg.bad` / `msg.error` | 解析不了的訊息 / 處理訊息時出錯（含 stack 與訊息內容前 500 字） |
 | `error` / `crash` | 計時器、斷線處理裡出錯（`where`：`timer`、`close`、`idle`）/ 沒接住的錯誤讓伺服器當掉（都會先記下來再當掉） |
 | `log.suppressed` | 亂送 / 被擋下的訊息太多（每條連線 10 秒超過 30 筆），少記了幾筆（`count`） |
-| `solo.start` / `solo.end` | 單人練習開始（`version` = 版本、`difficulty` = 難度）/ 結束（關分頁、重新整理；帶結束時在第幾關、哪個階段；只出現在 `SOLO-xxxx`） |
+| `solo.start` / `solo.end` | 單人練習開始（`version` = 版本、`difficulty` = 難度；勝者為王的單人練習帶 `mode: "versus"` 與名單 `players`（自己 + 電腦玩家、各在哪一隊））/ 結束（關分頁、重新整理；帶結束時在第幾關、哪個階段；只出現在 `SOLO-xxxx`） |
 | `log.dropped` | 單人練習的紀錄送不回伺服器、攢太多丟掉了幾筆（`unload` = 關頁面時最後一批裝不下的） |
 
 ## 測試
@@ -825,6 +859,10 @@ npm test
 - `test/danmaku.js`：彈幕的三排軌道（`client/danmaku-lanes.js`）——三排都在頂部 HUD 正下方、不超過畫面上方三分之一、排跟排不重疊（一則的高度照 `css/style.css` 的 `.dm`）；
   同時來三則分到三排一起飄、好幾排空著放最上面那排、三排都滿了等最早空出來的那排；同一排前後兩則從頭到尾不重疊（後面比較長、跑比較快的也追不上）、照順序出場；
   隨機壓力（不重疊、不插隊、三排比一排等得少很多）；`client/stickers.js` 用這套算法排、不自己另外排。
+- `test/gpu-check.js`：硬體加速偵測（`client/gpu-check.js`）——軟體繪圖的顯示卡名稱（SwiftShader、WARP 的 Microsoft Basic Render Driver、llvmpipe…）、
+  只要得到軟體 WebGL、錯誤訊息寫 `GL_RENDERER = Disabled` 算沒開，真的顯示卡不會被誤判；兩種 WebGL 都要不到、原因看不出來（公司政策、擴充…）不提醒；
+  Safari / iPhone / iPad / 手機不偵測；要 WebGL 的流程（每次新畫布、先掛錯誤事件、Chrome 從 `WEBGL_debug_renderer_info` 拿名稱、Firefox 不碰它、要完放掉、丟錯不會壞）、
+  各瀏覽器的打開說明、大廳提示框的 id 對得上。
 - `test/effects.js`：效果（`shared/cards/effects/`）——登記表涵蓋 cards.json 用到的每個鍵，原本的 44 個鍵都在而且排在最前面（說明一字不差）、
   鍵 / 效果 id / 狀態欄位 / 同步欄位不重複、算出來的 mods / 立即效果 / 武器限定 / 多人限定以原本的清單開頭（新的效果只排在後面；
   mods 連順序都一樣）、同步格式不變（`toState` 原本的欄位與順序，只多出效果狀態的欄位）、README 的效果表跟登記表的說明一字不差、
@@ -841,13 +879,17 @@ npm test
 - `test/difficulty.js`：難度——`config.DIFFICULTY`（菁英之路是使用者定的）、`difficultyOf`（亂送的當一般、不丟錯）、`difficultyConfig`（一般原封不動、不改傳進來的設定與全域 CONFIG）、
   菁英之路的關卡種類與敵人傷害倍率（每一關、每種地圖池都 ×1，血量 / 狂熱不變）、大廳的說明文字、一整場菁英之路（菁英池輪流不連續、每關 ×1、
   開場 / 結束的訊息與紀錄帶難度、每個菁英關都有獎勵）、一般難度照舊、Match 真的照難度結算、伺服器的房間（建房帶難度、房間 / 列表 / 紀錄、開始的冒險用那個難度）。
+- `test/versus.js`：勝者為王——對戰地圖（冒險抽不到、左右對稱、六個人站得住）、`Match` 的兩隊（順序 / 出生點 / 面向 / 顏色、勝負與平手、同隊誤傷）、狂熱第 11 輪起、
+  開場訊息帶隊伍與電腦玩家、真人等操作 / 電腦玩家由 AI 打、每一輪打完的選牌（電腦玩家馬上選、超時 / 斷線代選、選牌中的操作記 `phase:pick`）、
+  牌當場套用且客戶端照 `roundPicks` / 重連的 `carry` 建出一樣的角色、同一隊才算的牌（祈願之杖、攜手之伴）、不出的牌、真人開火的重播、
+  一隊全倒 → 結算（贏的那一隊、擊殺、`io.ended`）、選牌中重連、電腦玩家打完整場；伺服器的房間（模式、分隊、換隊、加 / 移除電腦玩家、開始的條件、真人都走了就回收、冒險的房間不受影響）。
 - `test/version.js`：版本號設定與版本履歷——版本號格式、最上面一筆 = 目前版本、由新到舊不重複、日期合法不倒退、每筆都有內容、
   `package.json` 的 version 對得上、大廳需要的元素都在 `index.html`。
 - `test/log.js`：紀錄（LOG）——檔案格式（欄位順序、資料蓋不掉時間、跨午夜換檔、寫不進去不當掉）、一關裡每一步都有記
   （開始、回合、移動、換武器、開火與結果、不處理的操作、超時、AI、斷線代打、過關、選牌含系統代選、全滅）、`LOG.moves` 開關、
   單人練習的 `POST /log`（房號蓋成 `SOLO-xxxx`、壞掉 / 太大的拒收、關掉紀錄就不寫）。
 - `test/log-coverage.js`：「每個動作都要記」的結構保證——客戶端會送的訊息種類從 `client/` 的原始碼抓（新加的訊息自動被測到），
-  每一種在每個階段（還沒 hello、大廳、房間裡、遊戲中；戰鬥輪到自己 / 別人、結算中、選牌、選完、結束）都有處理的程式自己記的紀錄；
+  每一種在每個階段（還沒 hello、大廳、房間裡、遊戲中；戰鬥輪到自己 / 別人、結算中、選牌、選完、結束；勝者為王的房間與每一輪打完的選牌也是）都有處理的程式自己記的紀錄；
   入口的保底 `msg.unlogged`（伺服器、單人）；模糊測試（一次把一個欄位換成超長字串、`toString` 壞掉的物件、陣列、`NaN`：
   照樣有紀錄、紀錄裡不會原封不動帶著亂送的值、處理的程式不丟錯）。
 - `test/e2e-ws.js`：真的開伺服器，用 WebSocket 客戶端跑大廳列表（公開房間即時更新、私人房間不列但能用房號進、只有房主能切換）→ 建房 → 加入 → 開始 → 移動 → 反應貼圖（轉發、洗版上限）→ 聊天（整理怪字元與長度、轉發、洗版上限）→ 開火 →
@@ -909,6 +951,7 @@ client/
   main.js       進入點與主迴圈
   lobby.js      大廳 DOM（含難度的選擇）
   changelog-ui.js  大廳的版本號與版本履歷面板
+  gpu-check.js  偵測瀏覽器有沒有開硬體加速（拿 WebGL 間接看）與各瀏覽器怎麼打開；沒開時大廳提醒（Lobby.showGpuHint）
   stickers.js   反應貼圖按鈕與彈幕（DOM 疊在 canvas 上；聊天的字也走這三排軌道）
   danmaku-lanes.js  彈幕的三排軌道：每排的位置、下一則放哪一排（純計算，不碰 DOM）
   chat.js       聊天輸入框（Enter 打開）與最近的訊息

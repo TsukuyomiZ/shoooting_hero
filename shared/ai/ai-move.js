@@ -79,9 +79,9 @@ export function planWalk(match, actor) {
         const n = match.simulateWalk(g, dir, f, true, gap).frames;
         const d = Math.abs(g.x - actor.x);
         if (d < 1) break;
-        // 斷線代打的玩家（players 那一隊；敵人照舊）：分身走這一段流血扣到倒下（或只剩 TAKEOVER_BLEED_HP 點）就不選，試短一點的；
+        // 斷線代打的玩家（玩家角色，含勝者為王的電腦玩家；敵人照舊）：分身走這一段流血扣到倒下（或只剩 TAKEOVER_BLEED_HP 點）就不選，試短一點的；
         // 每一段都會這樣 → 這回合不走（站著開火）。不替斷線的人把自己走死
-        if (actor.team === 'players' && g.hp < actor.hp && g.hp <= TAKEOVER_BLEED_HP) continue;
+        if (actor.isPlayer && g.hp < actor.hp && g.hp <= TAKEOVER_BLEED_HP) continue;
         // n < f = 半路就被擋下來（走到邊上 / 同伴前面）
         pick = better(pick, { dir, f, gap, d, tier: tierOf(fire(g.x, g.y), d, goal, n < f) });
         if (pick.tier === 1) break;

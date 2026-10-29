@@ -150,10 +150,11 @@ export function applyCard(stats, card) {
   return now;
 }
 
-// 由基礎值與 stats 算出這一關的實際數值：各效果的基礎數值（maxHp、maxStamina、moveSpeed、jumpSpeed、size）+ 戰鬥的 mods
-export function derivePlayerStats(stats) {
+// 由基礎值與 stats 算出這一關的實際數值：各效果的基礎數值（maxHp、maxStamina、moveSpeed、jumpSpeed、size）+ 戰鬥的 mods。
+// base = 基礎值（預設 CONFIG.PLAYER；勝者為王換成血量 VERSUS.hp 的一份）
+export function derivePlayerStats(stats, base = CONFIG.PLAYER) {
   return {
-    ...deriveStats(stats, CONFIG.PLAYER),
+    ...deriveStats(stats, base),
     mods: Object.fromEntries(Object.keys(DEFAULT_MODS).map(k => [k, stats[k] || 0])),
   };
 }

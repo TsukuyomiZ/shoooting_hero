@@ -36,7 +36,7 @@ export class Run {
         hp: CONFIG.PLAYER.hp, stats: baseStats(), cards: [],
         weapons: CONFIG.EQUIP.startWeapons.slice(),   // 武器欄
         links: [],                                    // 攜手之伴：自己選的連結對象（對方也算連結著自己，見 linksOf）
-        totals: { dealt: 0, taken: 0, shots: 0, hits: 0 },   // 結算畫面：整場冒險的造成 / 承受傷害、開槍 / 命中次數
+        totals: { dealt: 0, friendlyDealt: 0, taken: 0, shots: 0, hits: 0 },   // 結算畫面：整場冒險的造成 / 誤傷隊友 / 承受傷害、開槍 / 命中次數
       };
       Effects.initRunPlayer(rp);   // 效果自己的欄位（帶著走的狀態、腎上腺素的暫時加成…）
       return [p.id, rp];

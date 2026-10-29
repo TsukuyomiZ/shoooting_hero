@@ -45,7 +45,7 @@ const STATE_KEYS = {
   scorpion: ['def', 'lit', 'fallen', 'windy', 'hole', 'facing', 'out', 'stunned'],
   swordsman: ['def', 'next', 'qi', 'parry', 'flying', 'roam'],
   tengu: ['def', 'next', 'hover', 'flying', 'flyingTurn', 'seq', 'clock', 'roam'],
-  prison: ['def', 'hpScale', 'released', 'up', 'mood', 'cryLeft', 'next', 'beastNext', 'whip', 'guard', 'stuns', 'cage', 'spawned', 'seq', 'fallen'],
+  prison: ['def', 'hpScale', 'released', 'up', 'mood', 'cryLeft', 'next', 'beastNext', 'whip', 'sinner', 'hug', 'stuns', 'cage', 'spawned', 'seq', 'fallen', 'fury'],
   spider: ['def', 'lit', 'fallen', 'hpScale', 'mode', 'cleansed', 'next', 'eggs', 'stuck', 'spawned', 'seq'],
 };
 

@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CONFIG } from '../shared/core/config.js';
 import { Run } from '../shared/game/run.js';
+import { Versus } from '../shared/game/versus.js';
 import { validateCards } from '../shared/cards/cards.js';
 import { STICKERS } from '../shared/social/stickers.js';
 import { RoomManager } from '../server/rooms.js';
@@ -42,7 +43,7 @@ const TYPES = [...new Set(jsFiles('client').flatMap(f => [...fs.readFileSync(f, 
 const TEMPLATE = {
   hello: () => ({ name: '甲', token: 'x' }),
   browse: () => ({ on: true }),
-  create: () => ({ private: true, name: '乙', difficulty: 'elite' }),
+  create: () => ({ private: true, name: '乙', difficulty: 'elite', mode: 'versus' }),
   join: (c) => ({ code: c.code || 'ZZZZ', via: 'list', name: '丙' }),
   ready: () => ({ ready: true }),
   privacy: () => ({ private: true }),
@@ -56,6 +57,10 @@ const TEMPLATE = {
   slow: () => ({ on: true, why: 'land' }),
   weapon: () => ({ weapon: 'sniper' }),
   fire: (c) => ({ weapon: 'cannon', angle: 45, power: 50, x: c.me ? c.me.x : 1, y: c.me ? c.me.y : 1, vy: 0, facing: 1, stamina: 0, vine: -1, hp: c.me ? c.me.hp - 1 : 1 }),
+  // 勝者為王的房間：換隊、房主加 / 移除電腦玩家
+  team: () => ({ team: 'red' }),
+  addBot: () => ({ team: 'red' }),
+  removeBot: (c) => ({ id: c.botId || 'bot1' }),
 };
 const messageOf = (t, c) => ({ t, ...(TEMPLATE[t] ? TEMPLATE[t](c) : {}) });
 
@@ -101,6 +106,29 @@ const ROOM_PHASES = {
   runOver: () => {
     const s = ROOM_PHASES.inGame();
     s.who.room.run.referee.gameOver('lose');
+    return s;
+  },
+  // 勝者為王：房主（加了一個電腦玩家）、成員、開始了（電腦玩家一起）、打完
+  versusHost: () => {
+    const m = manager(); const a = m.conn();
+    m.mgr.onMessage(a, { t: 'hello', name: '甲' }); m.mgr.onMessage(a, { t: 'create', mode: 'versus' }); m.mgr.onMessage(a, { t: 'addBot', team: 'red' });
+    return { ...m, who: a, ctx: { code: a.room.code, botId: a.room.bots[0].id } };
+  },
+  versusMember: () => {
+    const s = ROOM_PHASES.versusHost(); const b = s.conn();
+    s.mgr.onMessage(b, { t: 'hello', name: '乙' }); s.mgr.onMessage(b, { t: 'join', code: s.ctx.code });
+    return { ...s, who: b };
+  },
+  versusInGame: () => {
+    const s = ROOM_PHASES.versusHost();
+    s.mgr.onMessage(s.who, { t: 'ready', ready: true }); s.mgr.onMessage(s.who, { t: 'start' });
+    assert(s.who.room.started, 'versus started');
+    return s;
+  },
+  versusOver: () => {
+    const s = ROOM_PHASES.versusInGame();
+    s.who.room.run.referee.gameOver('red');
+    s.who.room.run.runOver('red');
     return s;
   },
 };
@@ -171,6 +199,39 @@ function sendToRun(phase, make) {
   return s.io.records.slice();
 }
 
+// 勝者為王（Versus + 裁判，假時鐘）：真人 p1（藍）、p2（紅）+ 各一個電腦玩家（不走不開火，快一點）；
+// 輪到自己 / 輪到別人、每一輪打完的選牌（自己還沒選 / 選了）、打完
+const VERSUS_PHASES = ['ownTurn', 'otherTurn', 'pick', 'picked', 'over'];
+function versusAt(phase) {
+  const io = new FakeIo();
+  const players = [
+    { id: 'p1', name: '甲', team: 'blue' }, { id: 'p2', name: '乙', team: 'red' },
+    { id: 'bot1', name: '電腦 1', team: 'blue', bot: true, connected: false }, { id: 'bot2', name: '電腦 2', team: 'red', bot: true, connected: false },
+  ];
+  const v = new Versus({ players, seed: 3, io, cards: CARDS });
+  v.start();
+  v.match.planAiTurn = () => ({ walk: null, plan: null });
+  const who = phase === 'otherTurn' ? 'p2' : 'p1';
+  if (phase === 'ownTurn' || phase === 'otherTurn') assert(until(io, () => v.referee.phase === 'turn' && v.referee.currentId === who), who + ' turn');
+  for (const e of v.match.players) e.bleed = 2;   // 同 runAt：move / fire 的 hp 會被收、記進紀錄
+  if (phase === 'pick' || phase === 'picked') {
+    assert(until(io, () => v.phase === 'pick'), 'versus pick');
+    if (phase === 'picked') v.handle('p1', { t: 'pick', cardId: v.offers.p1.find(c => !c.weapon).id });
+  }
+  if (phase === 'over') {
+    for (const e of v.match.players) if (e.team === 'red') e.die('hit');
+    assert(until(io, () => v.phase === 'over'), 'versus over');
+  }
+  io.records.length = 0;
+  return { io, run: v, who, ctx: { me: v.match.byId(who), offer: v.offers && v.offers[who] && v.offers[who][0] } };
+}
+function sendToVersus(phase, make) {
+  const s = versusAt(phase);
+  s.run.handle(s.who, make(s.ctx));
+  s.run.stop();
+  return s.io.records.slice();
+}
+
 await test('客戶端會送的訊息種類從原始碼抓得到（含已知的 15 種），每一種都有範本或只帶 t', () => {
   const KNOWN = ['hello', 'browse', 'create', 'join', 'ready', 'privacy', 'start', 'leave', 'sticker', 'chat', 'pick', 'move', 'slow', 'weapon', 'fire'];
   assert(KNOWN.every(t => TYPES.includes(t)), 'missing from the scan: ' + KNOWN.filter(t => !TYPES.includes(t)));
@@ -195,6 +256,16 @@ await test('戰鬥 / 選牌（肉鴿流程 + 裁判）：每種訊息在每個�
   }
   assert(!bad.length, 'no record:\n        ' + bad.join('\n        '));
   return { phases: RUN_PHASES.length };
+});
+
+await test('勝者為王（Versus + 裁判）：每種訊息在每個階段都有紀錄（每一輪打完的選牌中、選完、打完也是）', () => {
+  const bad = [];
+  for (const phase of VERSUS_PHASES) for (const t of [...TYPES, 'zzz']) {
+    const recs = sendToVersus(phase, (c) => messageOf(t, c));
+    if (!recs.length) bad.push(`${phase}/${t}`);
+  }
+  assert(!bad.length, 'no record:\n        ' + bad.join('\n        '));
+  return { phases: VERSUS_PHASES.length };
 });
 
 await test('飛鏢兩支之間（這回合鎖定飛鏢）：換別把 / 用別把開火 → action.ignored weaponLocked；換回飛鏢、射下一支照常記（fire + shot 帶 shotsLeft）', () => {
@@ -290,6 +361,12 @@ await test('模糊測試（伺服器的大廳 / 房間）：照樣有紀錄、�
 
 await test('模糊測試（戰鬥 / 選牌）：照樣有紀錄、亂送的值不會原封不動寫進紀錄，處理的程式也不會丟錯', () => {
   const { bad, cases } = fuzz(sendToRun, ['ownTurn', 'betweenDarts', 'pick']);
+  assert(!bad.length, `${bad.length} problems:\n        ` + bad.slice(0, 40).join('\n        '));
+  return { cases };
+});
+
+await test('模糊測試（勝者為王的戰鬥 / 每一輪的選牌）：照樣有紀錄、亂送的值不會原封不動寫進紀錄，處理的程式也不會丟錯', () => {
+  const { bad, cases } = fuzz(sendToVersus, ['ownTurn', 'pick']);
   assert(!bad.length, `${bad.length} problems:\n        ` + bad.slice(0, 40).join('\n        '));
   return { cases };
 });

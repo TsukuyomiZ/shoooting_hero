@@ -71,6 +71,26 @@ export const CONFIG = {
   // Boss 關有自己的機制，不套用狂熱（inBoss 改成 true 才會套用）
   FEVER: { everyRounds: { 1: 9, 2: 8, 3: 8, 4: 7 }, damagePct: 50, inBoss: false },
 
+  // ---- 勝者為王（3v3 對戰，2026-10-29）----
+  // 兩隊玩家（真人 + 電腦玩家）在對戰地圖（level 的 pool 'versus'）上打一場：一隊全倒 = 另一隊贏。流程在 shared/game/versus.js。
+  // 使用者定的：每位玩家血量 300、每一輪結束每個人選一張牌、10 輪之後進入狂熱。其他是我抓的
+  VERSUS: {
+    name: '勝者為王',
+    teamSize: 3,                        // 每隊最多幾人（人不夠可以加電腦玩家）
+    teams: ['blue', 'red'],             // 隊伍 id：第一隊站地圖左邊、第二隊站右邊；回合順序兩隊輪流（先攻隨機）
+    teamNames: { blue: '藍隊', red: '紅隊' },
+    teamColors: { blue: ['#3b82f6', '#22d3ee', '#818cf8'], red: ['#ef4444', '#f97316', '#f472b6'] },   // 隊裡第 1 / 2 / 3 位的顏色
+    hp: 300,                            // 每位玩家的基礎血量（牌的血量加成照這個算）
+    pickEvery: 1,                       // 每幾輪打完選一次牌（1 = 每一輪：場上所有人各行動一次之後）
+    pickTime: 20,                       // 選牌秒數，超時 / 斷線隨機選；電腦玩家馬上選
+    offers: 3,                          // 每次給幾張牌
+    resumeDelay: 1.5,                   // 選完牌之後隔幾秒開始下一輪
+    feverEvery: 10,                     // 狂熱：每 10 輪疊一層（第 11 輪起所有傷害 +50%、第 21 輪起 +100%…，加成同 FEVER.damagePct）
+    // 對戰不出的牌：牌上有這些效果 key 的不出（打首領、看下一關 / 關卡的、改狂熱時間的，在對戰裡沒有意義或不公平）
+    excludeKeys: ['bossDamagePct', 'nextDamagePct', 'nextMaxHp', 'feverStartRound'],
+    botName: '電腦',                    // 電腦玩家的名字（後面接編號）
+  },
+
   PLAYER: {
     hp: 150,
     stamina: 200,         // 耐力上限，每回合開始回滿
@@ -393,6 +413,7 @@ export const CONFIG = {
     whipDamage: 20,
     whipPct: 30,            // 被鞭過的召喚獸下一次攻擊的傷害 +30%（用掉就沒了）
     cleaverGap: 8,          // 菜刀丟好幾個人時（每死一隻召喚獸多丟一個人，2026-10-22 使用者），每把間隔幾幀出手
+    furyPct: 1,             // 處刑官每被攻擊（打中、扣到血）一次，他的武器傷害 +N%（一直累積到這一場結束，2026-10-28 使用者）
     cageHpPerPlayer: 50,    // 囚籠的血量 = 這個 × 玩家人數（2026-10-19 使用者：原本 80 照人數放大，2 回合內打不破，改成 40 × 人數；10-22 4 人局順手波及就破，改成 50 × 人數）
     cageRounds: 3,          // 關進去之後撐過幾輪還沒出來就處刑（2026-10-19 使用者從 2 改 3）
     cryTurns: 2,            // 召喚獸全倒之後哭幾個自己的回合
@@ -402,13 +423,15 @@ export const CONFIG = {
     cast: { release: 1.5, descend: 0.9, cleaver: 0.8, whip: 0.9, cage: 1.0, execute: 2.4, cry: 1.4, rage: 1.4, flail: 0.9, stunned: 0.8 },
   },
   // 處刑官的三隻猛獸（牢房 I / II / III）：血量照一般敵人的倍率放大。2026-10-19 使用者採用我建議的招式
-  WOLF: { hp: 90, hw: 22, h: 40, cast: 0.8 },                          // 撕咬（使用者定的）：衝向一名玩家（有流血的優先）。血量 150 → 90（方案 A）
-  BEAR: {                                                              // 熊掌拍擊（最近的人）/ 護主（擋在囚籠前面、受到的傷害 -30%）
-    hp: 120, hw: 32, h: 54, guardCut: 30,   // 血量 200 → 120（方案 A）
-    weights: { swipe: 65, guard: 35 }, cageWeights: { swipe: 45, guard: 55 },
+  // 2026-10-28 使用者：處刑官開場隨機挑一個「罪人」（倒下才換），所有攻擊都先打罪人（劍齒虎撲流血的人除外）
+  WOLF: { hp: 90, hw: 22, h: 40, cast: 0.8 },                          // 撕咬（使用者定的）：衝向罪人（沒有罪人就有流血的優先）。血量 150 → 90（方案 A）
+  BEAR: {                                                              // 熊掌拍擊 / 熊抱（2026-10-28 使用者：取代護主），都衝向罪人
+    hp: 120, hw: 32, h: 54,   // 血量 200 → 120（方案 A）
+    weights: { swipe: 60, hug: 40 },
+    hugBreakPct: 25,        // 熊抱著人的時候，被打到牠最大血量的 N% 就放開（被抱的人自己打的也算）；輪到牠時還抱著就重摔（WEAPONS.bearSlam）
     cast: 0.9,
   },
-  TIGER: { hp: 150, hw: 30, h: 42, bleedBonus: 2, cast: 0.8 },         // 血量 250 → 150（方案 A）。標記血最少的人 → 飛撲（路上第一個人先被撲到）、吃掉流血層數每層 +2
+  TIGER: { hp: 150, hw: 30, h: 42, bleedBonus: 2, cast: 0.8 },         // 血量 250 → 150（方案 A）。撲所有流血的人；沒人流血就撲罪人（路上第一個人先被撲到）、吃掉流血層數每層 +2
 
   // ---- Boss 關：蜘蛛巢穴的蜘蛛女王（規則在 shared/maps/spider.js）----
   // 2026-10-22 使用者定的：hp 400，一開始懸吊在右上角。招式：
@@ -1001,7 +1024,7 @@ export const CONFIG = {
       shellRadius: 22,
       color: '#6b7280',
     },
-    bearSwipe: {          // 棕熊熊掌拍擊：撲向最近的人，一掌拍飛（35 → 方案 A 21）
+    bearSwipe: {          // 棕熊熊掌拍擊：撲向罪人，一掌拍飛（35 → 方案 A 21）
       id: 'bearSwipe', name: '熊掌拍擊', enemyOnly: true, passOwner: true, bodyHit: true,
       damage: 21,
       knockback: 250,
@@ -1013,7 +1036,19 @@ export const CONFIG = {
       shellRadius: 32,
       color: '#6f4326',
     },
-    tigerPounce: {        // 劍齒虎飛撲：撲向標記的人，路上第一個人先被撲到；吃掉流血層數，每層再 +TIGER.bleedBonus（45 → 方案 A 27）
+    bearSlam: {           // 棕熊熊抱重摔（2026-10-28）：輪到熊時還抱著人（沒被救出來）→ 把他往前斜斜甩出去（擊退方向照熊面向的那邊，見 prison.js 的 slamStep）
+      id: 'bearSlam', name: '熊抱重摔', enemyOnly: true, passOwner: true, bodyHit: true,
+      damage: 35,
+      knockback: 300,
+      radius: 0,
+      gravity: 0,
+      speed: 560,
+      hitRadius: 32,
+      passTerrain: true, passAllies: true,
+      shellRadius: 32,
+      color: '#6f4326',
+    },
+    tigerPounce: {        // 劍齒虎飛撲：撲向所有流血的人（沒人流血就撲罪人，路上第一個人先被撲到）；吃掉流血層數，每層再 +TIGER.bleedBonus（45 → 方案 A 27）
       id: 'tigerPounce', name: '飛撲', enemyOnly: true, passOwner: true, bodyHit: true,
       damage: 27,
       knockback: 100,
