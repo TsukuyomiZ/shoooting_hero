@@ -22,9 +22,9 @@ export const swordsman = {
     return state;
   },
 
-  // 開場：先揮出第一輪劍氣（浮在右邊），再抽第一招（一閃：第一個玩家回合就擺出拔刀的架勢、對每個人劃好預警線）
+  // 開場：先揮出第一輪劍氣（浮在右邊；這一輪不出在地面那一排），再抽第一招（一閃：第一個玩家回合就擺出拔刀的架勢、對每個人劃好預警線）
   ready(match) {
-    castQi(match);
+    castQi(match, { opening: true });
     planSwordsmanNext(match);
   },
 

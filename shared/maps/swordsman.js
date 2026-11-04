@@ -15,7 +15,8 @@ import { weightedPick, nearestPlayerAt, bossProjectile, bossShot, stillResult } 
 // - 劍士站在地面最右邊（level.mechanic.swordsman），不受重力、不會被擊退（fixed），每回合出招前沿著地面走一段
 //   （SWORDSMAN.walk，左右範圍 def.roam：右下石台的右邊，見 shared/ai/ai-move.js 的 planGlide；預定一閃的時候不走）。
 //   血量 SWORDSMAN.hp，跟一般敵人一樣依人數、關數放大（菁英關不是 Boss 關：不算首領）。打倒他 = 過關。
-// - 劍氣（2026-10-19 使用者第三輪：一直都有，不是他的招式）：開場就揮出 qiCount 道半月形的劍氣（4 排裡隨機挑幾排、隨機順序），浮在地圖右邊那一排的高度；
+// - 劍氣（2026-10-19 使用者第三輪：一直都有，不是他的招式）：開場就揮出 qiCount 道半月形的劍氣（4 排裡隨機挑幾排、隨機順序；
+//   開場這一輪不挑地面那一排，2026-11-04 使用者），浮在地圖右邊那一排的高度；
 //   每一位玩家的回合開始時，最前面的那一道出發，在這個回合裡**慢慢**往左飛過整排（SWORDSMAN.qiSpeed px/s）：
 //   碰到那一排的玩家就打（WEAPONS.swordsmanQi，範圍見 qiBand；每人一次、不擊退），玩家看得到它飛過來、跳開 / 離開那一排就躲得掉。
 //   回合在它飛完之前就結束（開火、超時、AI 代打），剩下的那一段在回合收尾時一口氣掃完（照回合結束時大家的位置）。
@@ -152,11 +153,13 @@ export function copyPlan(next) {
 }
 
 // 揮出一輪劍氣：4 排裡隨機挑 qiCount 排（match.rng 洗牌，洗出來的順序 = 出發的順序），接在浮著的後面。回傳揮出去的那幾排
-export function castQi(match) {
+// opening = 開場那一輪（2026-11-04 使用者：第一回合不出在地面那一排——大家都還站在出生的地上，只有第一位玩家躲得掉）：
+// 只從地面以外的排挑（qiCount 3 = 低台 / 中台 / 頂台各一道，順序照樣隨機）；之後飛完再揮的照舊四排隨機
+export function castQi(match, { opening = false } = {}) {
   const S = swordsmanState(match);
   if (!S) return [];
-  const n = S.def.rows.length;
-  const order = Array.from({ length: n }, (_, i) => i);
+  const order = S.def.rows.map((_, i) => i).filter(i => !(opening && i === 0));
+  const n = order.length;
   for (let i = n - 1; i > 0; i--) {   // Fisher–Yates（rng.int 包含兩端）
     const j = match.rng.int(0, i);
     [order[i], order[j]] = [order[j], order[i]];

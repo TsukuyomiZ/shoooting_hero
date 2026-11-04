@@ -18,7 +18,7 @@ import { CONFIG } from '../shared/core/config.js';
 import { LEVELS, levelsInPool } from '../shared/maps/level.js';
 import { Match } from '../shared/game/match.js';
 import { Referee } from '../shared/game/referee.js';
-import { qiBand, parryNeed, planSwordsmanNext, drawTarget, bladePoint, slashLine } from '../shared/maps/swordsman.js';
+import { qiBand, parryNeed, planSwordsmanNext, drawTarget, bladePoint, slashLine, castQi } from '../shared/maps/swordsman.js';
 import { replayChecked } from './replay-check.js';
 
 const results = [];
@@ -350,16 +350,26 @@ const QX = () => CONFIG.WORLD_W - 30;   // 劍氣浮著 / 出發的地方（地�
 // 劍氣從出發到碰到 e 身體右邊要幾 ms（判定半徑 18）
 const reachMs = (m, e) => (m.terrain.maxX - 30 - (e.x + e.hw + 18)) / CONFIG.SWORDSMAN.qiSpeed * 1000;
 
-await test('劍氣：開場就揮出 3 道（四排裡不同的三排、隨機順序、同一個種子一樣）；不是劍士的招式（抽下一招抽不到）', () => base(() => {
+await test('劍氣：開場就揮出 3 道（地面以外的三排 = 低台 / 中台 / 頂台、隨機順序、同一個種子一樣）；不是劍士的招式（抽下一招抽不到）', () => base(() => {
   const orders = new Set();
   for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
     const m = make(2, { seed });
     const qi = m.mechState.qi;
-    assert(qi.length === 3 && new Set(qi).size === 3 && qi.every(i => i >= 0 && i < ROWS.length) && m.mechState.flying === null && !('slash' in m.mechState), 'opening qi ' + J(qi));
+    assert(qi.length === 3 && new Set(qi).size === 3 && qi.every(i => i >= 1 && i < ROWS.length) && m.mechState.flying === null && !('slash' in m.mechState), 'opening qi (no ground row) ' + J(qi));
     assert(J(make(2, { seed }).mechState.qi) === J(qi), 'same seed, same rows');
     orders.add(J(qi));
   }
   assert(orders.size >= 4, 'random picks: ' + [...orders]);
+  // 之後飛完再揮的那一輪照舊四排隨機（地面也會出現）
+  let ground = 0;
+  for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const m = make(2, { seed });
+    m.mechState.qi = [];
+    const rows = castQi(m);
+    assert(rows.length === 3 && new Set(rows).size === 3 && rows.every(i => i >= 0 && i < ROWS.length), 'recast ' + J(rows));
+    if (rows.includes(0)) ground++;
+  }
+  assert(ground > 0, 'later casts can use the ground row');
   assert(!('qi' in CONFIG.SWORDSMAN.weights), 'qi is not one of his moves');
   return { orders: orders.size };
 }));
