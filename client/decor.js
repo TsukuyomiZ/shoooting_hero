@@ -17,8 +17,14 @@ export function buildDecor(decor, W, H) {
   const back = layer();
   const ctx = back.getContext('2d');
   if (decor.trunk) drawTrunk(ctx, decor.trunk);
+  for (const t of decor.trunks || []) drawTrunk(ctx, t);   // 好幾棵樹（大樹遊俠）
+  for (const v of decor.swings || []) drawSwing(ctx, v);   // 樹冠之間垂下來的藤蔓（頑皮猴王），在樹冠後面
   if (decor.canopy) drawCanopy(ctx, decor.canopy);
+  for (const b of decor.bananas || []) drawBananas(ctx, b);
+  for (const c of decor.coconuts || []) drawCoconut(ctx, c);
   if (decor.twigs) drawTwigs(ctx, decor.twigs);
+  for (const m of decor.stems || []) drawStem(ctx, m);
+  for (const m of decor.toadstools || []) drawToadstool(ctx, m);
   if (decor.burrows) drawBurrows(ctx, decor.burrows);
   if (decor.pillars) drawPrisonWall(ctx, decor, W);
   for (const cell of decor.cells || []) drawCell(ctx, cell);
@@ -30,6 +36,94 @@ export function buildDecor(decor, W, H) {
     if (decor.scaffold) drawChoppingBlock(front.getContext('2d'), decor.scaffold);
   }
   return { back, front };
+}
+
+// ---------- 香蕉林（頑皮猴王） ----------
+// swings = 樹冠之間垂下來的藤蔓 { x0, y0, x1, y1, sag（中間往下垂多少）}；bananas = 樹冠底下掛的香蕉串 { x, y（掛點）, s（大小）}；
+// coconuts = 地上的椰子 { x, y（地面）, s }
+
+function drawSwing(ctx, { x0, y0, x1, y1, sag }) {
+  const mx = (x0 + x1) / 2, my = Math.max(y0, y1) + sag;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#2f4a1c';
+  ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(mx, my, x1, y1); ctx.stroke();
+  ctx.strokeStyle = 'rgba(120,170,70,0.5)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(x0, y0 - 1); ctx.quadraticCurveTo(mx, my - 1, x1, y1 - 1); ctx.stroke();
+  for (let k = 1; k < 6; k++) {   // 藤蔓上的小葉子
+    const t = k / 6;
+    const x = (1 - t) * (1 - t) * x0 + 2 * t * (1 - t) * mx + t * t * x1;
+    const y = (1 - t) * (1 - t) * y0 + 2 * t * (1 - t) * my + t * t * y1;
+    ctx.fillStyle = k % 2 ? '#4f8a34' : '#3b6e2a';
+    ctx.beginPath(); ctx.ellipse(x + 3, y + 3, 4.5, 2.4, k % 2 ? 0.7 : -0.6, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawBananas(ctx, { x, y, s }) {
+  ctx.strokeStyle = '#4a3a1a';
+  ctx.lineWidth = 2 * s;
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 8 * s); ctx.stroke();
+  for (let k = 0; k < 5; k++) {   // 一根根往上翹的香蕉
+    const a = -0.9 + k * 0.45;
+    ctx.save();
+    ctx.translate(x + Math.sin(a) * 4 * s, y + 10 * s + (k % 2) * 4 * s);
+    ctx.rotate(a);
+    ctx.fillStyle = k % 2 ? '#f6d548' : '#e9c22f';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(7 * s, 6 * s, 3 * s, 16 * s);
+    ctx.quadraticCurveTo(1 * s, 8 * s, -3 * s, 1 * s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#5c4a1c';
+    ctx.fillRect(2 * s, 15 * s, 2 * s, 2 * s);
+    ctx.restore();
+  }
+}
+
+function drawCoconut(ctx, { x, y, s }) {
+  const r = 7 * s;
+  const g = ctx.createRadialGradient(x - r * 0.4, y - r * 1.3, r * 0.2, x, y - r, r);
+  g.addColorStop(0, '#9a6a3c'); g.addColorStop(1, '#4e321a');
+  ctx.fillStyle = g;
+  ellipse(ctx, x, y - r + 1, r, r * 0.92); ctx.fill();
+  ctx.fillStyle = '#2a1a0c';
+  for (const [dx, dy] of [[-2.2, -1.2], [2.2, -1.2], [0, 1.6]]) { ellipse(ctx, x + dx * s, y - r + dy * s - 1, 1.1 * s, 1.1 * s); ctx.fill(); }
+}
+
+// ---------- 蘑菇林（調皮妖精） ----------
+// stems = 蘑菇傘平台底下的菇柄 { x, top（菇傘底下）, bottom（藏進地面）, r（半寬）}，中間一圈菇環；
+// toadstools = 地上的小蘑菇 { x, y（地面）, s（大小）, glow（發光的顏色，沒有就是一般的紅蘑菇）}
+
+function drawStem(ctx, { x, top, bottom, r }) {
+  const g = ctx.createLinearGradient(x - r, 0, x + r, 0);
+  g.addColorStop(0, '#cbbd9f'); g.addColorStop(0.45, '#f1e7d0'); g.addColorStop(1, '#b3a483');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(x - r * 0.8, top); ctx.lineTo(x + r * 0.8, top);
+  ctx.quadraticCurveTo(x + r, (top + bottom) / 2, x + r * 1.35, bottom);
+  ctx.lineTo(x - r * 1.35, bottom);
+  ctx.quadraticCurveTo(x - r, (top + bottom) / 2, x - r * 0.8, top);
+  ctx.fill();
+  const ry = top + Math.min(26, (bottom - top) * 0.25);   // 菇環
+  ctx.fillStyle = '#e4d8bd';
+  ellipse(ctx, x, ry, r * 1.5, 5); ctx.fill();
+  ctx.strokeStyle = 'rgba(90,70,40,0.35)'; ctx.lineWidth = 1;
+  ellipse(ctx, x, ry + 1, r * 1.5, 5); ctx.stroke();
+}
+
+function drawToadstool(ctx, { x, y, s, glow }) {
+  ctx.save();
+  if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 12 * s; }
+  ctx.fillStyle = glow ? '#e8f7f2' : '#efe4cc';
+  ctx.fillRect(x - 2.5 * s, y - 9 * s, 5 * s, 9 * s);
+  ctx.fillStyle = glow || '#c43c32';
+  ctx.beginPath(); ctx.ellipse(x, y - 9 * s, 9 * s, 7 * s, 0, Math.PI, 0); ctx.closePath(); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  for (const [dx, dy] of [[-4, -3], [3, -5], [5, -1.5]]) { ellipse(ctx, x + dx * s, y - 9 * s + dy * s, 1.4 * s, 1.1 * s); ctx.fill(); }
+  ctx.restore();
 }
 
 // ---------- 監獄 ----------

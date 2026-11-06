@@ -3,7 +3,7 @@ import { LEVELS } from '../maps/level.js';
 import { Rng } from '../core/rng.js';
 import { Terrain } from '../physics/terrain.js';
 import { Entity, poisonTick } from '../physics/entities.js';
-import { launchVelocity, makeProjectile, hitAction, bounceProjectile, shotTraits, blastRadius, shotRange, applyRecoil, isEquippable } from '../physics/weapons.js';
+import { peekHit, launchVelocity, makeProjectile, hitAction, bounceProjectile, shotTraits, blastRadius, shotRange, applyRecoil, isEquippable } from '../physics/weapons.js';
 import { runVolley } from '../physics/volley.js';
 import { windMaxOf, rollWind, windAccel } from '../physics/wind.js';
 import { catchFire, burnOf } from '../physics/fire.js';
@@ -147,7 +147,7 @@ export class Match {
   }
 
   isSettled() {
-    return this.entities.every(e => !e.alive || e.fixed || e.onVine >= 0 || (e.onGround && Math.abs(e.vx) < 2));
+    return this.entities.every(e => !e.alive || e.fixed || e.onVine >= 0 || (e.onGround && Math.abs(e.vx) < 2 && !(e.slide > 0)));   // 被迫滑行（香蕉皮）滑完才算
   }
 
   settle(maxFrames = 300) {
@@ -180,12 +180,13 @@ export class Match {
       if (fx) pickups.push({ f: n + fall, ...fx, hp: e.hp, mhp: e.maxHp, lk: e.poisonLock });
     };
     e.moveDir = dir;
-    while ((n < maxFrames || (!e.onGround && n < maxFrames + LAND_FRAMES)) && e.moveDir === dir && e.stamina > 0 && canStep(this, e, dir, allyGap)) {
+    // 踩到香蕉皮（被迫滑行，e.slide）就放開方向鍵，剩下的在下面放開之後的幀裡滑完（客戶端照 fall 幀重播，滑進水坑也在這裡）
+    while ((n < maxFrames || (!e.onGround && n < maxFrames + LAND_FRAMES)) && e.moveDir === dir && !(e.slide > 0) && e.stamina > 0 && canStep(this, e, dir, allyGap)) {
       n++;
       frame();
     }
     e.moveDir = 0;
-    while (e.alive && !e.onGround && e.onVine < 0 && fall < FALL_FRAMES) {
+    while (e.alive && (!e.onGround || e.slide > 0) && e.onVine < 0 && fall < FALL_FRAMES) {
       fall++;
       frame();
     }
@@ -229,6 +230,7 @@ export class Match {
     e.y = ny;
     e.vx = 0;
     e.vy = 0;
+    e.slide = 0;   // 被迫滑行（香蕉皮）由他自己的畫面跑；這一段路又踩到的話 moved 會再設
     if (facing === 1 || facing === -1) e.facing = facing;
     if (Number.isFinite(stamina)) e.stamina = clamp(stamina, 0, e.stamina);   // 只能減不能加
     if (!e.alive) return { ok: true, water: null, pickup: null, ...bleed };   // 流血倒下（上面）：倒在這裡，不抓藤蔓、不撿道具、不落水
@@ -303,6 +305,17 @@ export class Match {
   }
   hazardFinish() {
     return this.mechanic.hazardFinish(this);
+  }
+
+  // 行動玩家被困住時掙扎一下（客戶端的 struggle：連打 A / D 的其中一下，dir = -1 左 / 1 右；例如大樹遊俠的藤蔓陷阱）。
+  // 裁判呼叫，now = 裁判的時鐘（ms）。規則在地圖機制的 struggle：回傳 { ok, reason, count, need, freed } 或 null（沒被困住）
+  struggle(e, dir, now) {
+    return this.mechanic.struggle(this, e, dir, now);
+  }
+
+  // 玩家 e 這回合由遊戲接手（地圖機制的 takeover，例如調皮妖精的魅惑；裁判在回合開始時問）：{ reason, label } 或 null
+  takeover(e) {
+    return e && e.isPlayer ? this.mechanic.takeover(this, e) : null;
   }
 
   // 無差別轟炸一次（不看有沒有這張牌）：舊的進入點，留給測試與工具直接呼叫；規則在 shared/cards/effects/bombard.js
@@ -423,7 +436,7 @@ export class Match {
   // 一次射擊結算完：有沒有打中敵人（直擊或波及到敵方都算，傷害 0 也算，例如閉上的古樹之口）。
   // 效果的 afterShot（磨刀霍霍、越戰越強）與結算畫面的命中率都照這個
   hitEnemy(events) {
-    return events.some(ev => ev.damages && ev.damages.some(d => !d.friendly));
+    return events.some(ev => ev.damages && ev.damages.some(d => !d.friendly && !d.noCredit));
   }
 
   // 受到的傷害 -N%（效果的 armor 槽，例如健壯藥丸類、團結力量大、威嚇）；allies = 活著的隊友數；
@@ -551,8 +564,10 @@ export class Match {
     for (const f of later) f();   // 這時候才出現的角色（蜜蜂）不會被這一下打到
     // 結算統計：打在敵方身上的傷害（含分給連結對象的份、地圖機制寫的那幾筆）算攻擊者造成的；
     // 誤傷另外記成誤傷隊友（含分給連結對象的份），打到自己（含分回自己身上的份）不算
+    // 地圖機制標了 noCredit 的那幾筆（例如調皮妖精的分身被打破、炸開來炸到的人）不算攻擊者的（命中、吸血也不算）
     if (attacker) {
       for (const d of damages) {
+        if (d.noCredit) continue;
         if (!d.friendly) attacker.dealt += d.dmg;
         else if (d.id !== attacker.id) attacker.friendlyDealt += d.dmg;
       }
@@ -599,7 +614,7 @@ export class Match {
   // 吸血：這一下對敵人造成的傷害 × 吸血 %（pct 預設照現在的場面算；開火結算傳入打中之前的，孤狼傳說才不會被這一下改變）
   lifesteal(attacker, damages, pct = attacker ? this.lifestealOf(attacker) : 0) {
     if (!attacker || !(pct > 0)) return 0;
-    const dealt = damages.reduce((s, d) => s + (d.friendly ? 0 : d.dmg), 0);
+    const dealt = damages.reduce((s, d) => s + (d.friendly || d.noCredit ? 0 : d.dmg), 0);
     return dealt > 0 ? this.heal(attacker, dealt * pct / 100) : 0;
   }
 
@@ -624,6 +639,8 @@ export class Match {
     actor.aiming = false;
     actor.moveDir = 0;
     actor.vineDir = 0;
+    actor.vx = 0;   // 還在滑（被擊退、踩到香蕉皮）也停下來：客戶端重播擺射手時一律從站著不動開始（volley.js 的 place），兩邊才一樣
+    actor.slide = 0;
     // 在空中開火時 vy ≠ 0，客戶端從同一個狀態接著播；sx / sy = 最後站穩的地方、hp = 現在的血量
     // （這回合掉過水的話客戶端手上的可能是舊的）：把自己摔進水裡時兩邊才會扣一樣的血、在同一個地方重生。
     // vn = 抓著第幾條藤蔓（掛在藤蔓上開火，重播時才不會掉下去）
@@ -702,6 +719,12 @@ export class Match {
     let damages = null;
     let blast = 0;   // 這一下的爆炸半徑（沒爆炸 = 0），給地圖機制的 struck
     const pick = p.hitCount ? capPick(p.hitCount, weapon.maxHits) : null;   // 每一隻最多被這一波打到幾次（見下面）
+    // 穿透衰減（武器的 pierceFalloff，大樹遊俠的貫穿箭）：這顆已經穿過幾個角色（p.pierced），這一下的傷害就再 × falloff 幾次
+    // （第一個 100%、第二個 50%…）。換一份改了 damage 的武器結算（id 不變，客戶端照事件的傷害播）
+    if (target && weapon.pierceFalloff > 0) {
+      weapon = { ...weapon, damage: weapon.damage * Math.pow(weapon.pierceFalloff, p.pierced || 0) };
+      p.pierced = (p.pierced || 0) + 1;
+    }
     switch (act) {
       case 'end':
         break;
@@ -770,10 +793,17 @@ export class Match {
   }
 
   // 一顆飛行物這一幀從 (x0, y0) 飛到現在的位置、沒撞到東西（shared/physics/volley.js 的 runVolley 呼叫）：地圖機制要它留下記號的話
-  // （例如玩家的子彈從火把旁邊飛過去 → 點燃）、或它穿過場上的火源著火了（ignite，見 shared/physics/fire.js）寫成一個 pass 事件（飛行物照樣繼續飛），不然 null
+  // （例如玩家的子彈從火把旁邊飛過去 → 點燃）、或它穿過場上的火源著火了（ignite，見 shared/physics/fire.js）寫成一個 pass 事件（飛行物照樣繼續飛），不然 null。
+  // 地圖機制把它攔下來（回傳的欄位帶 stop，例如頑皮猴王接住砲彈）：寫成 snatch 事件，飛行物到此為止（不爆炸、不著火）。
+  // seg.ahead() 給地圖機制問「照現在的樣子飛下去第一個撞到什麼」（peekHit：拿一份複本試飛，不動這顆）
   resolvePass(owner, p, i, frame, x0, y0) {
-    const seg = { x0, y0, x1: p.x, y1: p.y, r: p.hitRadius, weapon: p.weapon.id };
+    const world = this.world;
+    const seg = { x0, y0, x1: p.x, y1: p.y, r: p.hitRadius, weapon: p.weapon.id, ignore: p.ignore, ahead: () => peekHit(world, p) };
     const extra = this.mechanic.passed(this, owner, seg);
+    if (extra && extra.stop) {
+      const { stop, ...rest } = extra;
+      return { f: frame, p: i, type: 'snatch', x: p.x, y: p.y, ...rest };
+    }
     const ignite = catchFire(this, owner, p.weapon, p, seg);
     if (!extra && !(ignite > 0)) return null;
     return { f: frame, p: i, type: 'pass', x: p.x, y: p.y, ...extra, ...(ignite > 0 ? { ignite } : {}) };
@@ -782,6 +812,7 @@ export class Match {
   // AI 回合：先走動（站在地上的走路 walk = { dir, frames, fall }，代打的玩家路上撿到道具再帶 pickups；
   // 有活動範圍 roam 的飄移 glide = { dx, dy, frames }，見 ai-move.js），再從走到（落地）的地方規劃一發。回傳 { walk, glide, plan }；
   // 由地圖機制出招的角色（Boss、蜜蜂）不走也不開火，而是出招並直接結算好：回傳 { boss: { steps, next } }（見 mechanics/ 的 aiTurn）；
+  // 這一發由地圖機制決定的（aiShot，例如被魅惑的人）不走動，回傳 { plan, forced（紀錄要帶的）}；
   // 有活動範圍的（獨眼巨人）先飄移再出招。weapons = 這一發只能用哪些武器（射過飛鏢的回合被代打：只能用飛鏢）；不給 = 武器欄全部。
   // 流血的角色飄移 / 走路途中會扣血（見 Entity.bleedFor）：扣的算流血來源的，扣到倒下就不出招、不開火（plan、boss 都是 null；
   // 客戶端照樣播完走動，在同一幀倒下）。算到流血來源的擊殺時另外回傳 kill = { by, fx }（見 creditBleed；裁判記進 ai.turn、跟著 aiTurn 給客戶端飄字）
@@ -792,6 +823,9 @@ export class Match {
     if (!actor.alive) return { walk: null, glide, plan: null, boss: null, kill };
     const boss = this.mechanic.aiTurn(this, actor);
     if (boss) return { walk: null, glide, plan: null, boss };
+    // 這一發由地圖機制決定（例如調皮妖精魅惑的人打隊友、代打的玩家隨機挑一個妖精）：不走動，forced = 紀錄要帶的（有才帶）
+    const forced = this.mechanic.aiShot(this, actor, weapons);
+    if (forced) return { walk: null, glide, plan: forced.plan, ...(forced.info ? { forced: forced.info } : {}) };
     bled = actor.bledThisTurn;
     const walk = actor.roam ? null : planWalk(this, actor);
     kill = this.creditBleed(actor, actor.bledThisTurn - bled);
@@ -872,9 +906,9 @@ function capPick(hitCount, max) {
 // 第一顆飛行物最後停在哪（terrain / entity / water / out / range = 飛到最長路徑），給記錄與相容用。
 // 迴力鏢看折返的地方（路上穿過的敵人不算停下來）
 function summarizeHit(events) {
-  const ev = events.find(e => e.p === 0 && ['explode', 'return', 'water', 'out', 'range'].includes(e.type));
+  const ev = events.find(e => e.p === 0 && ['explode', 'return', 'water', 'out', 'range', 'snatch'].includes(e.type));
   if (!ev) return { type: 'out', x: 0, y: 0, entityId: null };
   const type = ev.type === 'return' ? ev.on || 'terrain'
-    : ev.type === 'water' || ev.type === 'out' || ev.type === 'range' ? ev.type : (ev.target ? 'entity' : 'terrain');
+    : ev.type === 'water' || ev.type === 'out' || ev.type === 'range' || ev.type === 'snatch' ? ev.type : (ev.target ? 'entity' : 'terrain');
   return { type, x: ev.x, y: ev.y, entityId: ev.target || null };
 }

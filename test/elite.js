@@ -128,7 +128,7 @@ await test('關卡種類：第 3、8 關是菁英關、第 5、10 關是 Boss �
   assert(types.join() === 'normal,normal,elite,normal,boss,normal,normal,elite,normal,boss', 'types ' + types);
   const overlap = { ...CONFIG, RUN: { ...CONFIG.RUN, eliteStages: [2, 5], bossStages: [5] } };
   assert(stageType(5, overlap) === 'boss' && !isEliteStage(5, overlap) && isBossStage(5, overlap) && stageType(2, overlap) === 'elite', 'boss wins over elite');
-  assert(J(levelsInPool('elite')) === '["depths","forestGuard","wanderer","tenguPeak"]' && LEVELS.depths.name === '地心探險' && LEVELS.forestGuard.name === '大樹守衛' && LEVELS.wanderer.name === '流浪劍士' && LEVELS.tenguPeak.name === '天狗', 'elite pool ' + J(levelsInPool('elite')));
+  assert(J(levelsInPool('elite')) === '["depths","forestGuard","wanderer","tenguPeak","forestRanger","forestFairy","forestMonkey"]' && LEVELS.depths.name === '地心探險' && LEVELS.forestRanger.name === '大樹遊俠' && LEVELS.forestGuard.name === '大樹守衛' && LEVELS.wanderer.name === '流浪劍士' && LEVELS.tenguPeak.name === '天狗', 'elite pool ' + J(levelsInPool('elite')));
   for (const id of levelsInPool('elite')) assert(!levelsInPool('normal').includes(id) && !levelsInPool('boss').includes(id), id + ' only in the elite pool');
   // 菁英關照小關的規則：血量吃人數 × 關數、有狂熱
   const r = stageRules({ stage: 3, players: 2, pool: 'elite' });

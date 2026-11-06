@@ -11,7 +11,7 @@ import { Music } from './music.js';
 import { audio } from './audio.js';
 import { sfx } from './sfx.js';
 import { STAGE_LOOK, stageTypeOf, stageLook, difficultyName } from './stage-look.js';
-import { difficultyOf, difficultyDesc, difficultyConfig, showsRangeHints } from '../shared/game/stage-rules.js';
+import { difficultyOf, difficultyDesc, runConfig, showsRangeHints } from '../shared/game/stage-rules.js';
 
 const FPS = 60;
 const inRect = (p, r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
@@ -153,7 +153,8 @@ export class GameView {
       // resume（飛鏢射完一發、回合接著繼續）一定要等那一發重播完才套：重播中能操作的話，按著的方向鍵會混進重播的物理
       // hazard（回合中的危險物打到人 / 飛完）也是：扣的血不能被之後才播的舊快照蓋回去
       // roundPick / roundPicks（勝者為王每一輪打完的選牌）：最後一發播完才停下來選；選完的新數值（refit）一定要照順序套——重播靠角色的大小算命中
-      case 'turn': case 'aiTurn': case 'shot': case 'skip': case 'turnFx': case 'gameOver': case 'water': case 'pickup': case 'slow': case 'resume': case 'hazard':
+      // struggle（被困住的人掙扎、掙脫）也是：不能比困住他的那則 pickup 先套
+      case 'turn': case 'aiTurn': case 'shot': case 'skip': case 'turnFx': case 'gameOver': case 'water': case 'pickup': case 'slow': case 'resume': case 'hazard': case 'struggle':
       case 'roundPick': case 'roundPicks':
         if (msg.t === 'turn' && document.hidden) this.cueTurn(msg);   // 分頁在背景：輪到自己的提示音收到就響，不等前面的動畫播完
         if (msg.t === 'resume' || msg.t === 'roundPick') msg.at = performance.now();   // 伺服器收到這則就開始倒數：剩下的秒數從收到的時候算
@@ -246,9 +247,9 @@ export class GameView {
     this.holdMoves = false;
     this.heldMoves = new Map();
     if (this.slowMo) this.setSlowMo(false);
-    // 關卡規則照這場的難度算（跟伺服器的 Match 一樣，見 difficultyConfig）
-    const difficulty = (msg.stageInfo || msg.run || {}).difficulty;
-    this.match = new Match({ levelId: msg.levelId, players: msg.players, seed: msg.seed, carry: msg.carry || {}, stage: msg.stage || 1, config: difficultyConfig(difficulty) });
+    // 關卡規則照這場的難度與主題算（跟伺服器的 Match 一樣，見 runConfig）
+    const { difficulty, theme } = msg.stageInfo || msg.run || {};
+    this.match = new Match({ levelId: msg.levelId, players: msg.players, seed: msg.seed, carry: msg.carry || {}, stage: msg.stage || 1, config: runConfig({ difficulty, theme }) });
     this.rangeHints = showsRangeHints(difficulty);   // 這場的難度畫不畫菁英怪招式的提示範圍（地圖畫面的 c.rangeHints）
     this.match.applySnapshot(msg.snapshot);
     this.looks = new WeakMap();
@@ -266,12 +267,15 @@ export class GameView {
       this.showBanner(`${V.name}：${this.stageInfo.levelName}`, '#fde047', sub, { hold: msg.t === 'start' });
     } else if (this.stageInfo) {
       const L = stageLook(this.stageInfo);
-      // 菁英關多一行說明；不是一般難度的冒險，第 1 關多一行難度的說明（菁英之路：哪幾關是菁英關、敵人傷害不打折）。
+      // 菁英關多一行說明；不是一般難度的冒險，第 1 關多一行難度的說明（菁英之路：哪幾關是菁英關、敵人傷害不打折）；
+      // 主題副本的第 1 關多一行主題的名字（加上難度的說明）。
       // 剛開場（start，不是重連的 state）時停滿時間（hold）：第一個回合的橫幅等它播完才出來
       const si = this.stageInfo;
       const hard = difficultyOf(si.difficulty) !== 'normal';
+      const theme = CONFIG.THEMES[si.theme];
+      const intro = [theme && theme.name, hard && difficultyName(si.difficulty), (hard || theme) && difficultyDesc(si.difficulty, CONFIG, si.theme)].filter(Boolean).join('　');
       const sub = stageTypeOf(si) === 'elite' ? '強力的菁英怪鎮守　打贏後選牌比較容易出稀有牌'
-        : hard && si.stage === 1 ? `${difficultyName(si.difficulty)}　${difficultyDesc(si.difficulty)}` : null;
+        : intro && si.stage === 1 ? intro : null;
       this.showBanner(L.name ? `${L.name}：${this.stageInfo.levelName}` : `第 ${this.stageInfo.stage} 關：${this.stageInfo.levelName}`, L.banner, sub, { hold: !!sub && msg.t === 'start' });
     }
     for (const e of this.match.entities) if (!e.alive) this.look(e).deathHandled = true;   // 重連時不要重播死亡特效
@@ -311,6 +315,7 @@ export class GameView {
       get match() { return view.match; },
       get time() { return view.time; },
       get currentId() { return view.currentId; },
+      get myId() { return view.myId; },
       get projectiles() { return view.projectiles; },
       get rangeHints() { return view.rangeHints !== false; },
       clock: () => view.clock(),
@@ -468,6 +473,9 @@ export class GameView {
       case 'pickup':
         this.onPickup(msg);
         break;
+      case 'struggle':
+        this.onStruggle(msg);
+        break;
       case 'hazard':
         this.onHazard(msg);
         break;
@@ -580,7 +588,14 @@ export class GameView {
       this.showBanner(`你的${kind}`, msg.extra ? '#c4b5fd' : '#7dd3fc', fever);
     } else {
       // 玩家角色由 AI 打：斷線代打寫「AI 代打」、勝者為王的電腦玩家寫「電腦」；顏色照敵我（勝者為王照隊伍）
-      const tag = msg.ai && actor.isPlayer ? (this.bots.has(actor.id) ? this.botTag(actor) : '（AI 代打）') : '';
+      // 地圖機制接手的回合（msg.forced，例如被調皮妖精魅惑）寫它的說明；是自己的話橫幅寫給自己看
+      const forced = msg.forced && msg.forced.label;
+      if (forced && msg.actorId === this.myId) {
+        this.showBanner(`你${forced}！這回合由遊戲接手`, '#f9a8d4', fever);
+        return;
+      }
+      const tag = forced ? `（${forced}）`
+        : msg.ai && actor.isPlayer ? (this.bots.has(actor.id) ? this.botTag(actor) : '（AI 代打）') : '';
       this.showBanner(`${actor.name} 的${kind}${tag}`, msg.extra ? '#c4b5fd' : (this.relation(actor) !== 'foe' ? '#86efac' : '#fca5a5'), fever);
     }
   }
@@ -982,6 +997,17 @@ export class GameView {
     this.mapView.onPickup(this.mapCtx, e, msg, msg.id === this.myId);
   }
 
+  // 被困住的人掙扎了一下（伺服器的 struggle：連打數、掙脫了沒、伺服器算的體力）：怎麼套由地圖畫面決定。
+  // 體力：別人的照伺服器的；自己的只往下修（自己的畫面一直在扣）。掙脫的是自己：放開按著的 A / D（不然一掙脫就直接走掉）
+  onStruggle(msg) {
+    const e = this.match.byId(msg.id);
+    if (!e) return;
+    const self = msg.id === this.myId;
+    if (Number.isFinite(msg.stamina) && (!self || msg.stamina < e.stamina)) e.stamina = msg.stamina;
+    this.mapView.onStruggle(this.mapCtx, e, msg, self);
+    if (self && msg.freed) { this.keys.KeyA = false; this.keys.KeyD = false; }
+  }
+
   // skip / aiTurn 帶來的水花：伺服器自己讓大家落地、客戶端沒有重播的那段，照伺服器給的播。淹死的由 onDeath 播；
   // 自己的角色在本地物理裡已經掉過那一次（例如超時那一刻正往水裡掉）就不再播——要在套用狀態之前比落水次數
   serverSplashes(list) {
@@ -1028,6 +1054,11 @@ export class GameView {
       if (['KeyA', 'KeyD', 'Space'].includes(code)) ev.preventDefault();   // 空白鍵不捲動頁面、也不觸發剛點過的按鈕
       if (ev.repeat) return;
       this.keys[code] = true;
+      // 被困住（Entity.held）時的 A / D 是掙扎：每按一下，地圖畫面說算數（例如左右交替）就告訴伺服器
+      const dir = code === 'KeyA' ? -1 : code === 'KeyD' ? 1 : 0;
+      if (dir && this.canAct && !this.waiting && this.me && this.me.alive && this.me.held && this.mapView.struggle(this.mapCtx, this.me, dir)) {
+        this.transport.send({ t: 'struggle', dir });
+      }
       if (code === 'Space' && this.canAct && this.me && this.me.alive) this.me.wantJump = true;   // 空白鍵跳躍
       if (code in SLOT_KEYS && this.me) this.selectWeapon(this.me.weapons[SLOT_KEYS[code]]);
       if (code === 'KeyR' && this.runOver) location.reload();
@@ -1074,7 +1105,8 @@ export class GameView {
       return;
     }
     me.weapon = id;
-    if (this.canAct) this.transport.send({ t: 'weapon', weapon: id });
+    // 還沒輪到自己也送：伺服器先記著，輪到自己時回合開始的快照才不會把它蓋回原本那把
+    this.transport.send({ t: 'weapon', weapon: id });
   }
 
   // 依滑鼠位置算角度（方向）與力量（距離）
@@ -1115,6 +1147,7 @@ export class GameView {
     this.canAct = false;
     this.mouse.down = false;
     me.moveDir = 0;
+    me.slide = 0;   // 還在被迫滑行（香蕉皮）也停在回報的地方
     me.vineDir = 0;
     const s = this.lastSent;
     if (me.alive && (!s || s.x !== me.x || s.y !== me.y || s.facing !== me.facing || s.vine !== me.onVine)) this.sendMove(me);
@@ -1162,6 +1195,10 @@ export class GameView {
       this.setSlowMo(want, why);
     }
     if (this.slowMo) me.stamina = Math.max(0, me.stamina - S.cost * me.staminaMult * realDt);   // 糾纏中消耗變多
+    // 自己的回合裡體力持續流失（Entity.staminaDrain，由地圖機制設定；伺服器照它的規則自己算、照牆上的時鐘）：
+    // 飛鏢射出去、等重播的時候（waiting）也扣，跟伺服器一樣
+    const myTurn = !!(me && me.alive && this.currentId === this.myId && !this.currentIsAi && (this.canAct || this.waiting));
+    if (myTurn && me.staminaDrain > 0) me.stamina = Math.max(0, me.stamina - me.staminaDrain * realDt);
     this.timeScale = this.slowMo ? Math.max(S.scale, this.timeScale - (1 - S.scale) * realDt / Math.max(0.001, S.rampIn)) : 1;
   }
 
@@ -1330,7 +1367,7 @@ export class GameView {
     sfx.play('splash', { x: s.x });
     e.hurtTimer = 0.35;
     this.floatText(e, `-${s.dmg} 落水`, this.relation(e) !== 'foe' ? '#ff6b6b' : '#ffd166');
-    this.spawnParticles(e.cx, e.cy, 10, { speed: 90, life: 0.5, size: 3, color: '#9ed0ff', gravity: 500 });
+    this.spawnParticles(e.cx, e.cy, 10, { speed: 90, life: 0.5, size: 3, color: this.splashColor(), gravity: 500 });
     this.showBanner(`${e.name} 掉進水裡了！`, '#93c5fd');
   }
 
@@ -1366,8 +1403,14 @@ export class GameView {
     this.floatTexts.push({ id: e.id, x: e.cx, y: e.y - e.h - 22 - stacked * 20, text: str, life: 1.1, color, size });
   }
 
+  // 水花的顏色：關卡指定了水色（waterColors，例如泥水坑）就用它的第三個（水花色），不然一般的淺藍
+  splashColor() {
+    const t = this.match && this.match.level.waterColors;
+    return t && t[2] ? t[2] : '#9ed0ff';
+  }
+
   splash(x) {
-    this.spawnParticles(x, CONFIG.WATER_LEVEL, 18, { speed: 180, life: 0.8, size: 3, color: '#9ed0ff', gravity: 800 });
+    this.spawnParticles(x, CONFIG.WATER_LEVEL, 18, { speed: 180, life: 0.8, size: 3, color: this.splashColor(), gravity: 800 });
   }
 
   spawnParticles(x, y, n, o) {

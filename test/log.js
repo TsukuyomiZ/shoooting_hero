@@ -187,6 +187,13 @@ await test('一關的每一步都有紀錄：開始、回合、移動、換武�
   assert(io.last('action.ignored').reason === 'unknown' && io.last('action.ignored').t === 'dance', 'unknown message');
   run.handle('p1', { t: 'weapon', weapon: 'nukes' });
   assert(io.last('action.ignored').reason === 'weaponNotOwned', 'weapon not owned');
+  // 還沒輪到自己也可以先換武器（輪到他時回合開始的快照就是這把，不會跳回去）
+  const p2 = run.match.byId('p2');
+  const spare = p2.weapons.find(w => w !== p2.weapon);
+  run.handle('p2', { t: 'weapon', weapon: spare });
+  assert(p2.weapon === spare && io.last('weapon') && io.last('weapon').pid === 'p2' && io.last('weapon').weapon === spare, 'weapon switch off-turn: ' + JSON.stringify(io.last('weapon')));
+  run.handle('p2', { t: 'weapon', weapon: 'nukes' });
+  assert(io.last('action.ignored').pid === 'p2' && io.last('action.ignored').reason === 'weaponNotOwned', 'off-turn weapon not owned');
   run.handle('p1', { t: 'fire', weapon: 'cannon', angle: NaN, power: 50 });
   const bad = io.last('action.ignored');
   assert(bad.reason === 'badAim' && bad.weapon === 'cannon' && bad.angle === 'NaN' && bad.power === 50, 'bad aim keeps what was sent: ' + JSON.stringify(bad));

@@ -50,6 +50,9 @@ function sceneChanges(shot) {
   if (unhug.length) out.unhug = unhug;
   const queen = shot ? [...shot.events.filter(ev => ev.queen).map(ev => ev.queen), ...(shot.queen ? [shot.queen] : [])] : [];
   if (queen.length) out.queen = queen;
+  // 調皮妖精：這一發打到本尊 → 消失的分身（vanish）、打破的分身（blasts：在哪炸開、誰打的、魅惑了誰）、剛生氣（angry）
+  const fairy = shot ? shot.events.filter(ev => ev.fairy).map(ev => ev.fairy) : [];
+  if (fairy.length) out.fairy = fairy;
   return out;
 }
 const hpOf = (match) => new Map(match.entities.map(e => [e.id, { hp: e.hp, alive: e.alive }]));
@@ -72,10 +75,12 @@ const killOf = (kill) => (kill ? { killedBy: kill.by, ...(kill.fx.length ? { fx:
 const killFxOf = (kill) => (kill && kill.fx.length ? { fx: kill.fx } : {});
 // 預定的下一招（Boss / 菁英的 next；只記純量）：next = 招式；nextLedge = 預定打哪個平台（獨眼巨人的猛捶，玩家回合的警示帶畫在那根上）；
 // nextSeal = 一般招式之後還要丟超巨石、封哪個平台（獨眼巨人，玩家回合的警示畫在那裡）；
-// nextTarget = 鎖定了某個人（例如大樹守衛的衝鋒標記、躍擊鎖定）的 id。ai.turn（出完招再排的）與 battle.start（開場就排好的第一招）都照這個記
+// nextTarget = 鎖定了某個人（例如大樹守衛的衝鋒標記、躍擊鎖定）的 id；nextSide = 預定打哪一邊（-1 左 / 1 右，例如蓋亞的神掌・天罰）。
+// ai.turn（出完招再排的）與 battle.start（開場就排好的第一招）都照這個記
 const nextOf = (next) => ({
   next: next && next.action,
   ...(next && Number.isInteger(next.ledge) ? { nextLedge: next.ledge } : {}),
+  ...(next && Number.isInteger(next.side) ? { nextSide: next.side } : {}),
   ...(next && Number.isInteger(next.seal) ? { nextSeal: next.seal } : {}),
   ...(next && typeof next.targetId === 'string' ? { nextTarget: next.targetId } : {}),
   ...(next && Array.isArray(next.targetIds) ? { nextTargets: next.targetIds.slice() } : {}),
@@ -183,9 +188,25 @@ export class Referee {
     this.record('action.ignored', { pid: playerId, t: logValue(msg.t), reason, ...sent });
   }
 
-  // 來自行動玩家的訊息（其他人的訊息一律忽略）
+  // 換武器：輪到他的回合裡、或還沒輪到他（別人的回合、子彈還在飛、兩回合之間）都收。
+  // 這回合射過飛鏢、還有次數（兩支之間）：只能用它，換不了別把；最後一支射出去之後就可以先換好下回合要用的
+  chooseWeapon(playerId, msg) {
+    const actor = this.match.byId(playerId);
+    if (!actor || !actor.weapons) return this.ignored(playerId, msg, 'notPlayer');
+    if (playerId === this.currentId && this.lockWeapon && this.shotsLeft > 0 && msg.weapon !== this.lockWeapon) {
+      return this.ignored(playerId, msg, 'weaponLocked');
+    }
+    if (!actor.weapons.includes(msg.weapon)) return this.ignored(playerId, msg, 'weaponNotOwned');   // 只能切換自己武器欄裡的武器
+    actor.weapon = msg.weapon;
+    this.record('weapon', { pid: actor.id, name: actor.name, weapon: msg.weapon });
+    this.io.broadcast({ t: 'weapon', id: actor.id, weapon: msg.weapon }, playerId);
+  }
+
+  // 來自行動玩家的訊息（其他人的訊息一律忽略；換武器例外，見 chooseWeapon）
   handle(playerId, msg) {
     if (!msg || typeof msg !== 'object') return;
+    // 換武器不用等輪到自己：還沒輪到 / 子彈還在飛的時候先選好，輪到他時伺服器的狀態就是這把（不然回合開始的快照會把他畫面上換好的武器蓋回去）
+    if (msg.t === 'weapon' && !(this.phase === 'turn' && playerId === this.currentId)) return this.chooseWeapon(playerId, msg);
     if (this.phase !== 'turn') return this.ignored(playerId, msg, 'phase:' + this.phase);
     if (playerId !== this.currentId) return this.ignored(playerId, msg, 'notYourTurn');
     const actor = this.match.byId(playerId);
@@ -234,18 +255,9 @@ export class Referee {
         this.io.broadcast({ t: 'slow', id: actor.id, on }, playerId);
         break;
       }
-      case 'weapon': {
-        // 這回合已經射過一回合可以射好幾次的武器（飛鏢）：只能用它，換不了別把
-        if (this.lockWeapon && msg.weapon !== this.lockWeapon) return this.ignored(playerId, msg, 'weaponLocked');
-        if (actor.weapons.includes(msg.weapon)) {   // 只能切換自己武器欄裡的武器
-          actor.weapon = msg.weapon;
-          this.record('weapon', { pid: actor.id, name: actor.name, weapon: msg.weapon });
-          this.io.broadcast({ t: 'weapon', id: actor.id, weapon: msg.weapon }, playerId);
-        } else {
-          this.ignored(playerId, msg, 'weaponNotOwned');
-        }
+      case 'weapon':
+        this.chooseWeapon(playerId, msg);
         break;
-      }
       case 'fire': {
         if (!actor.weapons.includes(msg.weapon) || !Number.isFinite(msg.angle) || !Number.isFinite(msg.power)) {
           return this.ignored(playerId, msg, actor.weapons.includes(msg.weapon) ? 'badAim' : 'weaponNotOwned');
@@ -288,6 +300,24 @@ export class Referee {
         this.io.broadcast({ t: 'shot', ...shot, ...left });
         if (again) this.schedule(() => this.resumeTurn(actor, timeLeft), (shot.flightFrames + shot.settleFrames) / 60 + CONFIG.TIMING.againPad);
         else this.schedule(() => this.finishTurn(), shotSeconds(shot));
+        break;
+      }
+      case 'struggle': {
+        // 被困住時掙扎一下（連打 A / D 的其中一下，例如大樹遊俠的藤蔓陷阱；規則在地圖機制的 struggle）：
+        // 沒被困住、同一邊連按、體力流光了都擋下來記 action.ignored；算數的每一下都記、告訴所有人（掙脫了帶 freed）
+        const dir = msg.dir === -1 || msg.dir === 1 ? msg.dir : 0;
+        if (!dir) return this.ignored(playerId, msg, 'badDir');
+        const r = this.match.struggle(actor, dir, this.io.now());
+        if (!r) return this.ignored(playerId, msg, 'notTrapped');
+        if (!r.ok) {
+          // 體力流光了：告訴他（他的畫面卡頓、飛鏢的重播時扣得比較慢的話，體力條才對得上）
+          if (r.reason === 'noStamina') this.io.broadcast({ t: 'struggle', id: actor.id, count: r.count, need: r.need, freed: false, stamina: actor.stamina });
+          return this.ignored(playerId, msg, r.reason || 'struggleRejected');
+        }
+        this.record('struggle', {
+          pid: actor.id, name: actor.name, dir, count: r.count, need: r.need, stamina: r1(actor.stamina), ...(r.freed ? { freed: true } : {}),
+        });
+        this.io.broadcast({ t: 'struggle', id: actor.id, count: r.count, need: r.need, freed: !!r.freed, stamina: actor.stamina });
         break;
       }
       default:
@@ -533,7 +563,9 @@ export class Referee {
 
     const fx = this.match.turnStartEffects(actor);
     const human = this.humans.get(actor.id);
-    const isHuman = actor.isPlayer && !!human && human.connected;
+    // 這回合由遊戲接手（地圖機制的 takeover，例如調皮妖精的魅惑）：照 AI 回合跑（他自己的畫面不能操作），turn 帶 forced 給畫面說明
+    const forced = actor.alive ? this.match.takeover(actor) : null;
+    const isHuman = actor.isPlayer && !!human && human.connected && !forced;
     const { entities, items } = this.match.snapshot();
     // 這個回合裡即時移動的危險物（例如流浪劍士的劍氣）：現在出發，跟著 turn 的 hazard 給客戶端畫
     this.turnSeq++;
@@ -541,10 +573,12 @@ export class Referee {
     const hazard = started ? { ...started, seq: this.turnSeq } : null;
     const withHazard = hazard ? { hazard } : {};
     const windy = this.match.windMax ? { wind: this.match.wind } : {};   // 有風的關卡：這個回合的風（客戶端的預覽、HUD 照它）
-    // ai = 敵人、斷線玩家的代打（takeover）或電腦玩家（bot）；fx = 回合開始的效果（中毒、喝蛇血、回血）；diedAtStart = 被毒倒，這回合不開始；hazard = 這回合出發的危險物
+    // ai = 敵人、斷線玩家的代打（takeover）、電腦玩家（bot）或地圖機制接手（forced = 原因，例如 'charm'）；
+    // fx = 回合開始的效果（中毒、喝蛇血、回血）；diedAtStart = 被毒倒，這回合不開始；hazard = 這回合出發的危險物
     this.record('turn.start', {
       ...actorOf(actor), team: actor.team, ai: !isHuman,
-      ...(actor.isPlayer && !isHuman ? (human && human.bot ? { bot: true } : { takeover: true }) : {}),
+      ...(actor.isPlayer && !isHuman ? (human && human.bot ? { bot: true } : forced && human && human.connected ? {} : { takeover: true }) : {}),
+      ...(forced ? { forced: forced.reason } : {}),
       ...(this.extraTurn ? { extra: true } : {}),
       hp: r1(actor.hp), maxHp: r1(actor.maxHp), ...(this.match.fever ? { fever: this.match.fever } : {}),
       ...(isHuman ? { turnTime: this.turnTimeFor(actor) } : {}),
@@ -571,7 +605,10 @@ export class Referee {
       this.io.broadcast({ t: 'turn', actorId: actor.id, round: this.round, ai: false, turnTime: secs, entities, items, fx, extra: this.extraTurn, ...withHazard, ...windy });
       this.schedule(() => this.skipTurn('timeout'), secs);
     } else {
-      this.io.broadcast({ t: 'turn', actorId: actor.id, round: this.round, ai: true, turnTime: null, entities, items, fx, extra: this.extraTurn, ...withHazard, ...windy });
+      this.io.broadcast({
+        t: 'turn', actorId: actor.id, round: this.round, ai: true, turnTime: null, entities, items, fx, extra: this.extraTurn,
+        ...(forced ? { forced } : {}), ...withHazard, ...windy,
+      });
       this.runAiTurn(actor);
     }
   }
@@ -631,11 +668,12 @@ export class Referee {
     // 會留下落地前的 vy，不歸零的話走路 / 落地的模擬跟客戶端差一點，瞄準完重播開火時又被拉回去
     this.match.applyEntities(entities);
     // 已經射過飛鏢的回合被接手：AI 只能用鎖定的那把，射這一支就結束（不會再回到他手上：剩下的次數歸零，重連的狀態也照這個）
-    const { walk, glide, plan, boss, kill = null } = this.match.planAiTurn(actor, this.lockWeapon ? [this.lockWeapon] : null);
+    // forced = 這一發由地圖機制決定（例如被魅惑的人打隊友：targetId、aimed = 有沒有瞄準），紀錄帶著
+    const { walk, glide, plan, boss, kill = null, forced = null } = this.match.planAiTurn(actor, this.lockWeapon ? [this.lockWeapon] : null);
     if (this.shotsLeft !== null) this.shotsLeft = 0;
     const T = CONFIG.TIMING;
     const h = this.humans.get(actor.id);
-    const who = { ...actorOf(actor), ...(actor.isPlayer ? (h && h.bot ? { bot: true } : { takeover: true }) : {}) };
+    const who = { ...actorOf(actor), ...(actor.isPlayer ? (h && h.bot ? { bot: true } : forced && h && h.connected ? {} : { takeover: true }) : {}), ...(forced ? { forced } : {}) };
     // 飄移（蝙蝠、獨眼巨人，見 ai-move.js）：客戶端照 { dx, dy, frames } 重播，紀錄也帶著
     const moved = glide ? { glide: { dx: glide.dx, dy: glide.dy, frames: glide.frames } } : {};
     const glideSecs = glide ? glide.frames / 60 : 0;

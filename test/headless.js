@@ -5,7 +5,7 @@ import { CONFIG } from '../shared/core/config.js';
 import { LEVELS, levelsInPool } from '../shared/maps/level.js';
 import { Terrain } from '../shared/physics/terrain.js';
 import { Match } from '../shared/game/match.js';
-import { stageRules, stageType } from '../shared/game/stage-rules.js';
+import { stageRules, stageType, difficultyConfig } from '../shared/game/stage-rules.js';
 import { Referee } from '../shared/game/referee.js';
 import { planShot } from '../shared/ai/ai.js';
 import { Rng } from '../shared/core/rng.js';
@@ -591,7 +591,7 @@ test('肉鴿流程：Boss 關比 Boss 池多的時候，王都打過一輪才重
   }
 });
 
-test('肉鴿流程：小關地圖一開始機率一樣，這場每出現過一次權重就 × normalRepeatWeight，不會連續同一張', () => {
+test('肉鴿流程：小關地圖一開始機率一樣，這場每出現過一次權重就 × normalRepeatWeight，不會連續同一張；正式設定整場小關都不重複（一般、菁英之路）', () => {
   const pool = levelsInPool('normal');
   // 照 nextStage 的順序抽一場：pickLevel → noteLevel；回傳每一關抽到的地圖
   const runPicks = (config, seed) => {
@@ -618,24 +618,26 @@ test('肉鴿流程：小關地圖一開始機率一樣，這場每出現過一�
     for (let i = 1; i < picked.length; i++) assert(picked[i] !== picked[i - 1], `seed ${seed}: same map twice in a row: ${picked}`);
     assert(Object.values(run.normalSeen).reduce((a, b) => a + b, 0) === picked.length, 'normalSeen counts every normal stage');
   }
-  // 正式的排法（10 關、王關 / 菁英關不算）：同一張出現 3 次以上很少見（不下調時約 16% 的場次、×0.25 約 0.6%），平均一場看到的不同小地圖比不下調多
-  const stats = (k) => {
-    let triple = 0, distinct = 0;
-    const config = rulesCfg({ RUN: { normalRepeatWeight: k } });
+  // 正式的排法（10 關、王關 / 菁英關不算）：使用者 2026-11-02 定的「整場小關都不要重複」（normalRepeatWeight 0）→ 每一場的小關都是不同的地圖
+  // （一般冒險的小關比小地圖少）；不下調時同一張出現 3 次以上約 16% 的場次，平均一場看到的不同小地圖也比較少
+  const stats = (k, difficulty = 'normal') => {
+    let triple = 0, repeat = 0, distinct = 0;
+    const config = difficultyConfig(difficulty, rulesCfg({ RUN: { normalRepeatWeight: k } }));
     for (let seed = 1; seed <= 400; seed++) {
       const { run, picked } = runPicks(config, seed);
       const counts = Object.values(run.normalSeen);
       assert(counts.reduce((a, b) => a + b, 0) === picked.filter((_, i) => stageType(i + 1, config) === 'normal').length, 'normalSeen only counts normal stages');
       for (let i = 1; i < picked.length; i++) assert(picked[i] !== picked[i - 1], `seed ${seed}: same map twice in a row: ${picked}`);
       if (Math.max(...counts) >= 3) triple++;
+      if (Math.max(...counts) >= 2) repeat++;
       distinct += counts.length;
     }
-    return { triple, distinct: distinct / 400 };
+    return { triple, repeat, distinct: distinct / 400 };
   };
   const flat = stats(1), decayed = stats(CONFIG.RUN.normalRepeatWeight);
-  assert(CONFIG.RUN.normalRepeatWeight < 1, 'normalRepeatWeight lowers the weight');
-  assert(decayed.triple <= 8 && decayed.triple * 5 < flat.triple, `a map shows up 3+ times too often: ${JSON.stringify(decayed)} vs flat ${JSON.stringify(flat)}`);
-  assert(decayed.distinct > flat.distinct + 0.4, `not more variety: ${JSON.stringify(decayed)} vs flat ${JSON.stringify(flat)}`);
+  assert(CONFIG.RUN.normalRepeatWeight === 0, 'normal maps never repeat within a run: ' + CONFIG.RUN.normalRepeatWeight);
+  assert(decayed.repeat === 0 && stats(CONFIG.RUN.normalRepeatWeight, 'elite').repeat === 0, `a normal map repeats within a run: ${JSON.stringify(decayed)}`);
+  assert(flat.triple > 0 && decayed.distinct > flat.distinct + 0.4, `not more variety: ${JSON.stringify(decayed)} vs flat ${JSON.stringify(flat)}`);
 });
 
 test('Boss 關血量：第一個王關照原本的，之後每多一關 +bossHpPerStage（第 10 關 ×1.75）；樹妖一起放大；不是排定的王關、或成長設 0 就不變', () => {

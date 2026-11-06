@@ -4,7 +4,7 @@
 import { CONFIG } from '../shared/core/config.js';
 import { audio } from './audio.js';
 
-const GAP = { step: 0.06, explode: 0.05, hurt: 0.06, splash: 0.15, plop: 0.05, buzz: 0.2, yourTurn: 0.5, thunk: 0.05, fizzle: 0.1 };
+const GAP = { step: 0.06, explode: 0.05, hurt: 0.06, splash: 0.15, plop: 0.05, buzz: 0.2, yourTurn: 0.5, thunk: 0.05, fizzle: 0.1, chime: 0.06 };
 const R = (a, b) => a + Math.random() * (b - a);
 
 let noiseBuf = null;
@@ -213,6 +213,85 @@ const SOUNDS = {
     noise(ctx, out, t, { filter: 'highpass', f0: 2500, f1: 5000, dur: 0.12, vol: 0.22, attack: 0.01 });
     tone(ctx, out, t, { type: 'sine', f0: 1800, f1: 900, dur: 0.1, vol: 0.03 });
   },
+  // 大樹遊俠放箭（貫穿箭、箭雨）：弓弦「嘣」的一聲（低音往下滑、帶一點顫）＋ 箭破風的「咻」
+  bow(ctx, out, t) {
+    tone(ctx, out, t, { type: 'triangle', f0: 220, f1: 120, dur: 0.22, vol: 0.18, attack: 0.003 });
+    tone(ctx, out, t, { type: 'sine', f0: 440, f1: 260, dur: 0.12, vol: 0.06, attack: 0.003 });
+    noise(ctx, out, t + 0.02, { filter: 'highpass', f0: 1800, f1: 4200, dur: 0.18, vol: 0.2, attack: 0.01 });
+  },
+  // 藤蔓陷阱（放下、困住人、被打斷）：葉子沙沙響 ＋ 藤蔓拉緊的「啪」
+  snare(ctx, out, t) {
+    noise(ctx, out, t, { filter: 'bandpass', f0: 1600, f1: 900, q: 0.9, dur: 0.28, vol: 0.22, attack: 0.02 });
+    noise(ctx, out, t + 0.12, { filter: 'bandpass', f0: 2400, q: 1.4, dur: 0.05, vol: 0.4 });
+    tone(ctx, out, t + 0.12, { type: 'square', f0: 320, f1: 180, dur: 0.06, vol: 0.05 });
+  },
+  // 調皮妖精（閃現、星屑彈、調包、咬耳朵）：一串亮亮的「叮鈴鈴」往上滑（像搖鈴）
+  twinkle(ctx, out, t) {
+    [1568, 2093, 2637, 3136].forEach((f, i) => tone(ctx, out, t + i * 0.045, { type: 'sine', f0: f, f1: f * 1.02, dur: 0.18, vol: 0.07 }));
+    noise(ctx, out, t, { filter: 'highpass', f0: 6000, dur: 0.2, vol: 0.05, attack: 0.02 });
+  },
+  // 分身被打破：「啵」一聲炸開 ＋ 一陣往下掉的叮鈴（像泡泡破掉）
+  pop(ctx, out, t) {
+    tone(ctx, out, t, { type: 'sine', f0: 900, f1: 180, dur: 0.12, vol: 0.25, attack: 0.002 });
+    noise(ctx, out, t, { filter: 'bandpass', f0: 1200, q: 0.8, dur: 0.18, vol: 0.35 });
+    [2637, 2093, 1568].forEach((f, i) => tone(ctx, out, t + 0.08 + i * 0.05, { type: 'sine', f0: f, dur: 0.12, vol: 0.05 }));
+  },
+  // 魅惑：兩個音「嗚～」往上又往下的甜甜的滑音
+  charm(ctx, out, t) {
+    tone(ctx, out, t, { type: 'sine', f0: 660, f1: 990, dur: 0.25, vol: 0.12, attack: 0.03 });
+    tone(ctx, out, t + 0.22, { type: 'sine', f0: 990, f1: 740, dur: 0.35, vol: 0.1, attack: 0.02 });
+  },
+
+  // 頑皮猴王（丟東西、盪樹枝、生氣）：猴子叫「嗚嗚、啊啊」兩聲往上衝的短促叫聲
+  ook(ctx, out, t) {
+    [[420, 760, 0], [480, 900, 0.13]].forEach(([f0, f1, dt]) => {
+      tone(ctx, out, t + dt, { type: 'sawtooth', f0, f1, dur: 0.09, vol: 0.07, attack: 0.01 });
+      tone(ctx, out, t + dt, { type: 'sine', f0: f0 * 2, f1: f1 * 2, dur: 0.08, vol: 0.05, attack: 0.01 });
+    });
+  },
+  // 猴王接住砲彈：「啪」一聲拍在手掌上（短促的雜訊 ＋ 悶悶的一下）
+  snatch(ctx, out, t) {
+    noise(ctx, out, t, { filter: 'bandpass', f0: 1800, q: 0.9, dur: 0.07, vol: 0.45 });
+    tone(ctx, out, t, { type: 'triangle', f0: 220, f1: 110, dur: 0.09, vol: 0.18 });
+  },
+  // 踩到香蕉皮：卡通的滑音一路往下「咻～」，最後「咚」一下
+  slip(ctx, out, t) {
+    tone(ctx, out, t, { type: 'sine', f0: 1400, f1: 260, dur: 0.38, vol: 0.12, attack: 0.01 });
+    tone(ctx, out, t + 0.38, { type: 'triangle', f0: 140, f1: 70, dur: 0.12, vol: 0.2 });
+  },
+
+  // 大地之母・蓋亞的巨掌・捏碎：兩隻石手拍在一起的「啪碰！」（很重的低音 ＋ 一聲乾脆的拍擊 ＋ 碎石灑下來）
+  clap(ctx, out, t) {
+    noise(ctx, out, t, { filter: 'bandpass', f0: 1400, f1: 700, q: 0.8, dur: 0.12, vol: 0.7 });
+    tone(ctx, out, t, { type: 'sine', f0: 90, f1: 35, dur: 0.6, vol: 0.9 });
+    noise(ctx, out, t + 0.02, { filter: 'lowpass', f0: 800, f1: 120, dur: 0.6, vol: 0.5 });
+    noise(ctx, out, t + 0.12, { filter: 'bandpass', f0: 500, f1: 200, q: 0.7, dur: 0.5, vol: 0.2 });
+  },
+  // 撿到自然之花 / 光球飛進祭壇：一聲清亮的鈴「叮——」（兩個泛音）
+  chime(ctx, out, t) {
+    for (const [f, v] of [[1319, 0.12], [1976, 0.06], [2637, 0.03]]) tone(ctx, out, t, { type: 'sine', f0: f, dur: 0.6, vol: v, attack: 0.005 });
+  },
+  // 祭壇淨化 / 護盾張開 / 最後之光：一個大三和弦慢慢湧上來再散開（像詩班的「啊——」），上面灑一點亮亮的雜訊
+  purify(ctx, out, t) {
+    for (const [f, v] of [[523, 0.09], [659, 0.07], [784, 0.07], [1047, 0.05]]) {
+      tone(ctx, out, t, { type: 'triangle', f0: f, f1: f * 1.005, dur: 1.1, vol: v, attack: 0.25 });
+    }
+    noise(ctx, out, t + 0.1, { filter: 'highpass', f0: 5000, dur: 0.8, vol: 0.05, attack: 0.2 });
+  },
+  // 大地震動（蓋亞暴走、誅滅的預兆、倒下）：很長的低頻轟隆聲
+  quake(ctx, out, t) {
+    noise(ctx, out, t, { filter: 'lowpass', f0: 260, f1: 70, dur: 1.6, vol: 0.9, attack: 0.15 });
+    tone(ctx, out, t, { type: 'sine', f0: 48, f1: 32, dur: 1.5, vol: 0.6, attack: 0.15 });
+    noise(ctx, out, t + 0.3, { filter: 'bandpass', f0: 380, f1: 150, q: 0.7, dur: 1.1, vol: 0.18, attack: 0.1 });
+  },
+  // 誅滅：光落下來的一聲巨響（高頻的「鏘」＋ 很重的爆炸低音 ＋ 拖長的殘響）
+  judge(ctx, out, t) {
+    noise(ctx, out, t, { filter: 'highpass', f0: 3000, f1: 8000, dur: 0.4, vol: 0.35 });
+    for (const [f, v] of [[880, 0.08], [1320, 0.05]]) tone(ctx, out, t, { type: 'sine', f0: f, f1: f * 0.98, dur: 1.4, vol: v });
+    tone(ctx, out, t, { type: 'sine', f0: 70, f1: 25, dur: 1.2, vol: 1 });
+    noise(ctx, out, t, { filter: 'lowpass', f0: 1200, f1: 80, dur: 1.4, vol: 0.8 });
+  },
+
   // 輪到你了（單人、多人都響，見 GameView.cueTurn）：木琴似的三個音往上「叮、叮、叮——」，最後一個音拉長；不分左右聲道
   yourTurn(ctx, out, t) {
     const notes = [[784, 0], [1047, 0.09], [1568, 0.18]];   // G5 → C6 → G6

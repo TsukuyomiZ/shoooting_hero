@@ -82,8 +82,10 @@ export function advanceProjectile(world, p, dt) {
 
     if (p.y > CONFIG.WATER_LEVEL) return { type: 'water', x: p.x, y: p.y, px, py };
     if (p.x < -80 || p.x > world.w + 80 || p.y < -2500) return { type: 'out', x: p.x, y: p.y, px, py };
-    // 平台是別隊的掩體時（小心擊發的樹枝）平台也擋，見 Terrain.blocksShot
-    if (!p.passTerrain && world.terrain.blocksShot(p.x, p.y, p.owner && p.owner.team)) return { type: 'terrain', x: p.x, y: p.y, px, py };
+    // 平台是別隊的掩體時（小心擊發的樹枝）平台也擋，見 Terrain.blocksShot；
+    // 子彈從下面打得穿的地形（大地祭壇的斜坡）往上飛 / 已經在裡面的穿過去，從上面落下來的照樣撞到，見 Terrain.shotPasses
+    if (!p.passTerrain && world.terrain.blocksShot(p.x, p.y, p.owner && p.owner.team) &&
+        !world.terrain.shotPasses(p.x, p.y, px, py, p.vy)) return { type: 'terrain', x: p.x, y: p.y, px, py };
 
     for (const e of world.entities) {
       if (!canHit(p, e)) continue;
@@ -107,13 +109,30 @@ export function advanceProjectile(world, p, dt) {
   return null;
 }
 
+// 這顆飛行物照現在的樣子（位置、速度、風、已經穿過 / 不會再撞到的）繼續飛下去，第一個撞到的東西（advanceProjectile 的撞擊）；
+// 一波最長的時間（TIMING.maxShotSeconds）內都沒撞到 = null。拿一份複本試飛，p 本身不動。
+// 地圖機制決定要不要攔下一顆飛行物時用（例如頑皮猴王：會直接打中他的不接，見 Match.resolvePass 的 seg.ahead）
+export function peekHit(world, p) {
+  const q = { ...p, ignore: new Set(p.ignore) };
+  const frames = Math.round(CONFIG.TIMING.maxShotSeconds * 60);
+  for (let f = 0; f < frames; f++) {
+    const hit = advanceProjectile(world, q, CONFIG.FIXED_DT);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 // 撞到東西之後怎麼辦（伺服器結算與瞄準預覽共用同一套規則）：
 //   end = 落水 / 飛出場外 / 飛到最長路徑（高壓水炮消散）；return = 迴力鏢折返（到了最長路徑，或先撞到地形 / 落水 / 飛出場外）；
 //   pierce = 穿過角色繼續飛（迴力鏢一律穿過；撞到 p.stopAt 那個角色就不穿過去、停在他身上）；bounce = 在地形上彈射；explode = 爆炸
 export function hitAction(p, hit) {
   if (p.boomerang) return hit.type === 'entity' ? 'pierce' : 'return';
   if (hit.type === 'water' || hit.type === 'out' || hit.type === 'range') return 'end';
-  if (hit.type === 'entity') return p.pierce && hit.entity !== p.stopAt ? 'pierce' : 'explode';
+  if (hit.type === 'entity') {
+    // 武器有 maxPierce 的（大樹遊俠的貫穿箭）：打到第 maxPierce 個角色就停在他身上（p.pierced = 已經穿過幾個，見 Match.resolveHit）
+    const full = p.weapon && p.weapon.maxPierce > 0 && (p.pierced || 0) + 1 >= p.weapon.maxPierce;
+    return p.pierce && hit.entity !== p.stopAt && !full ? 'pierce' : 'explode';
+  }
   return p.bouncesLeft > 0 ? 'bounce' : 'explode';
 }
 

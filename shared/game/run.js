@@ -6,8 +6,9 @@ import { Referee } from './referee.js';
 import { baseStats, drawOffers, applyCard, derivePlayerStats, needsDiscard, equipWeapon } from '../cards/cards.js';
 import * as Effects from '../cards/effects/index.js';
 import { logValue } from '../core/utils.js';
-import { isBossStage, isEliteStage, stageType, difficultyOf, difficultyConfig } from './stage-rules.js';
+import { isBossStage, isEliteStage, stageType, difficultyOf, themeOf, runConfig } from './stage-rules.js';
 import { weightedPick } from '../maps/mechanics/common.js';
+import { themeLevels } from './themes.js';
 
 // 一場冒險（肉鴿流程）：
 //   共 RUN.stageCount 關，關卡規則說是 Boss 關的那幾關（RUN.bossStages，見 shared/game/stage-rules.js）從 Boss 池抽地圖（同一場不重複同一隻王），
@@ -21,12 +22,15 @@ import { weightedPick } from '../maps/mechanics/common.js';
 // 攜手之伴的連結記在玩家的 links（雙向，見 linksOf）
 // io 同 Referee：{ broadcast(msg, exceptId), schedule(fn, ms), cancel(h), now() }，可以多給 ended(result)：整場冒險打完時呼叫（送出 runOver 之後）
 // config = 關卡規則讀的設定（總關數、哪幾關是王關，再一路傳給每一關的 Match；測試換自己的數字用，其他設定還是全域 CONFIG）
-// difficulty = 難度（config.DIFFICULTY 的 key，例如 'elite' = 菁英之路；不認得的當 'normal'）：this.config 換成那個難度的一份設定（見 difficultyConfig）
+// difficulty = 難度（config.DIFFICULTY 的 key，例如 'elite' = 菁英之路；不認得的當 'normal'）：this.config 換成那個難度（與主題）的一份設定（見 runConfig）
+// theme = 主題副本（config.THEMES 的 key；沒給 / 不認得 = 一般冒險）：關數、菁英 / Boss 關的位置換成主題的，
+// 地圖只從主題的清單抽（Boss 關固定那一張，見 pickLevel）
 export class Run {
-  constructor({ players, seed, io, cards, config = CONFIG, difficulty = 'normal' }) {
+  constructor({ players, seed, io, cards, config = CONFIG, difficulty = 'normal', theme = null }) {
     this.io = io;
     this.difficulty = difficultyOf(difficulty, config);
-    this.config = difficultyConfig(this.difficulty, config);
+    this.theme = themeOf(theme, config);
+    this.config = runConfig({ difficulty: this.difficulty, theme: this.theme }, config);
     this.cards = cards;
     this.seed = seed >>> 0;
     this.rng = new Rng(this.seed);
@@ -42,7 +46,7 @@ export class Run {
       return [p.id, rp];
     }));
     this.stage = 0;
-    this.stageCount = config.RUN.stageCount;
+    this.stageCount = this.config.RUN.stageCount;
     this.phase = 'idle';   // idle | battle | pick | over
     this.match = null;
     this.referee = null;
@@ -78,10 +82,12 @@ export class Run {
 
   // ---- 關卡 ----
   // 小關：每張一開始權重一樣，這場每出現過一次權重就 × RUN.normalRepeatWeight，也不跟上一關同一張。
-  // Boss 關 / 菁英關：先挑這場還沒打過的，都打過了才重複（也避開上一關）
+  // Boss 關 / 菁英關：先挑這場還沒打過的，都打過了才重複（也避開上一關）。
+  // 主題副本：地圖池換成主題這一關的清單（Boss 關只有固定的那一張）；排不到地圖（主題王還沒做）就丟錯
   pickLevel() {
     const type = this.stageType;
-    const pool = levelsInPool(type);
+    const pool = this.theme ? themeLevels(this.theme, this.stage, this.config) : levelsInPool(type);
+    if (!pool.length) throw new Error(`主題 ${this.theme} 第 ${this.stage} 關沒有地圖`);
     if (type === 'normal') {
       const choices = pool.length > 1 ? pool.filter(id => id !== this.lastLevelId) : pool;
       const k = this.config.RUN.normalRepeatWeight ?? 1;
@@ -139,6 +145,7 @@ export class Run {
   stageInfo() {
     return {
       stage: this.stage, stageCount: this.stageCount, isBoss: this.isBoss, type: this.stageType, difficulty: this.difficulty,
+      ...(this.theme ? { theme: this.theme } : {}),
       levelId: this.match ? this.match.levelId : null,
       levelName: this.match ? LEVELS[this.match.levelId].name : null,
       cards: Object.fromEntries([...this.players.values()].map(p => [p.id, p.cards.map(c => c.id)])),
@@ -163,7 +170,7 @@ export class Run {
     this.phase = 'battle';
     // 這一關每位玩家帶進來的血量、武器欄、手上的牌
     this.record('stage.start', {
-      stage: this.stage, stageCount: this.stageCount, boss: this.isBoss, type: this.stageType, level: levelId,
+      stage: this.stage, stageCount: this.stageCount, boss: this.isBoss, type: this.stageType, level: levelId, ...(this.theme ? { theme: this.theme } : {}),
       players: list.map(p => ({ pid: p.id, name: p.name, hp: carry[p.id].hp, maxHp: carry[p.id].maxHp, weapons: p.weapons.slice(), cards: p.cards.map(c => c.id) })),
     });
     this.match = new Match({ levelId, players: list, seed: this.rng.int(0, 0xffffffff), carry, stage: this.stage, config: this.config });
@@ -189,7 +196,7 @@ export class Run {
     }
     for (const p of this.players.values()) Effects.endStage(p);
     if (result === 'lose') return this.runOver('lose');
-    if (this.isLastStage) return this.runOver('win');   // 打贏最後一關（現在是第二隻王）= 通關；中間的 Boss 關打贏照樣選牌、往下打
+    if (this.isLastStage) return this.runOver('win');   // 打贏最後一關（一般冒險是第二隻王、主題副本是主題王）= 通關；中間的 Boss 關打贏照樣選牌、往下打
 
     // 過關回血 + 發牌（先讓大家看 2.5 秒勝利畫面，廣播 stageClear 後才進入選牌階段）
     this.phase = 'clear';
@@ -344,11 +351,12 @@ export class Run {
     this.result = result;
     // 整場冒險結束（win = Boss 打倒、lose = 全滅）：打到第幾關、每個人最後的牌與結算統計
     this.record('run.over', {
-      result, stage: this.stage, stageCount: this.stageCount, difficulty: this.difficulty,
+      result, stage: this.stage, stageCount: this.stageCount, difficulty: this.difficulty, ...(this.theme ? { theme: this.theme } : {}),
       players: [...this.players.values()].map(p => ({ pid: p.id, name: p.name, hp: p.hp, cards: p.cards.map(c => c.id), weapons: p.weapons.slice(), ...p.totals })),
     });
     this.io.broadcast({
       t: 'runOver', result, stage: this.stage, stageCount: this.stageCount, type: this.stageType, difficulty: this.difficulty,
+      ...(this.theme ? { theme: this.theme } : {}),
       cards: this.stageInfo().cards, summary: this.summary(),
     });
     if (typeof this.io.ended === 'function') this.io.ended(result);   // 伺服器的房間：列表不再列、走掉的人移出

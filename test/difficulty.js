@@ -157,7 +157,7 @@ await test('一整場菁英之路：第 2、3、4、7、8、9 關從菁英池抽
     assert(run.phase === 'over' && run.result === 'win' && run.difficulty === 'elite', 'won ' + run.result);
     assert(stages.map(s => s.type).join() === 'normal,elite,elite,elite,boss,normal,elite,elite,elite,boss', 'types ' + stages.map(s => s.type));
     const elites = stages.filter(s => s.type === 'elite').map(s => s.level);
-    assert(elites.every(id => elitePool.includes(id)) && new Set(elites).size === elitePool.length, 'elite maps ' + elites);
+    assert(elites.every(id => elitePool.includes(id)) && new Set(elites).size === Math.min(elitePool.length, elites.length), 'elite maps ' + elites);   // 菁英地圖比菁英關多（2026-11-03 起 7 張）：六關都不一樣
     for (let i = 1; i < stages.length; i++) assert(stages[i].level !== stages[i - 1].level, `no back-to-back repeat: ${stages[i - 1].level} → ${stages[i].level}`);
     // 敵人實際的倍率 = 關卡規則 × 地圖（洞穴的陰影 ×1.3），不會比 1 小
     assert(stages.every(s => s.dmg === 1 && s.enemy >= 1), 'no damage cut: ' + J(stages.map(s => [s.stage, s.dmg, s.enemy])));

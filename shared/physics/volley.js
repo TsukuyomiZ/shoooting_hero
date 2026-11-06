@@ -17,7 +17,8 @@ import { applyIgnite } from './fire.js';
 // 它們不在 shot.projectiles 裡（那是開火當下就有的）
 //
 // 飛過去（pass）：飛行物這一幀沒撞到東西，但地圖機制要它留下記號（例如玩家的子彈從火把旁邊飛過去 → 點燃）。
-// 伺服器寫成一個 type 'pass' 的事件（位置 = 這一幀結束的位置），狀態機不變（繼續飛），客戶端照事件套用地圖機制帶的欄位
+// 伺服器寫成一個 type 'pass' 的事件（位置 = 這一幀結束的位置），狀態機不變（繼續飛），客戶端照事件套用地圖機制帶的欄位。
+// 被攔下（snatch）：同一個時間點，地圖機制把它攔下來（例如頑皮猴王接住砲彈）：type 'snatch'，飛行物到此為止（狀態機的「其他」）
 //
 // 著火：事件帶 ignite = 燃燒層數（飛行物穿過場上的火源，例如洞穴的火把；規則在 shared/physics/fire.js。飛過去的寫在 pass 事件、
 // 撞到東西那一幀穿過的寫在那個事件上）→ 兩邊都在套用那個事件時把飛行物的 fire 設成它（applyIgnite），之後一直燒到這顆結束（彈射、穿透、迴力鏢回程都還燒著）。
@@ -158,7 +159,7 @@ export function runVolley(match, owner, weapon, projs, burn) {
 // ---------- 內部 ----------
 
 // 飛行物的狀態機（唯一的一份）：bounce / pierce / pass 繼續飛（迴力鏢回程打到人也是 pierce）；return 開始沿原路回程；
-// 其他（explode、water、out、range（飛到最長路徑消散）、catch）結束
+// 其他（explode、water、out、range（飛到最長路徑消散）、catch、snatch（被地圖機制攔下））結束
 function transition(p, ev) {
   switch (ev.type) {
     case 'bounce': case 'pierce': case 'pass': return;
@@ -234,6 +235,7 @@ function place(a, shot) {
   if (s.x !== undefined) a.x = s.x;
   if (s.y !== undefined) a.y = s.y;
   a.vx = 0;
+  a.slide = 0;   // 伺服器開火時也歸零（Match.resolveShot）
   a.vy = s.vy || 0;
   if (s.sx !== undefined) { a.safeX = s.sx; a.safeY = s.sy; }   // 把自己摔進水裡時兩邊才會扣一樣的血、在同一個地方重生
   if (s.hp !== undefined) a.hp = s.hp;

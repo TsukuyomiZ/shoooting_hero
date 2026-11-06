@@ -32,8 +32,8 @@ function test(name, fn) {
 const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
 const J = JSON.stringify;
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
-const HOOKS = ['build', 'ready', 'cascade', 'moved', 'hazardStart', 'hazardStep', 'hazardFinish', 'turnStart', 'turnEnd', 'roundStart', 'attackMult', 'defenseMult', 'hurt', 'struck', 'passed', 'fireSources', 'absorbHit', 'eventExtras', 'replayEvent', 'aiTurn', 'snapshot', 'restore'];
-const WANT = { treeGarden: 'tree', jungleSerpent: 'snake', beehive: 'hive', cave: 'cave', depths: 'cyclops', forestGuard: 'guardian', scorpionDen: 'scorpion', prisonYard: 'prison', wanderer: 'swordsman', tenguPeak: 'tengu', spiderNest: 'spider' };
+const HOOKS = ['build', 'ready', 'cascade', 'moved', 'hazardStart', 'hazardStep', 'hazardFinish', 'struggle', 'takeover', 'aiShot', 'turnStart', 'turnEnd', 'roundStart', 'attackMult', 'defenseMult', 'hurt', 'struck', 'passed', 'fireSources', 'absorbHit', 'eventExtras', 'replayEvent', 'aiTurn', 'snapshot', 'restore'];
+const WANT = { treeGarden: 'tree', jungleSerpent: 'snake', beehive: 'hive', cave: 'cave', depths: 'cyclops', forestGuard: 'guardian', scorpionDen: 'scorpion', prisonYard: 'prison', wanderer: 'swordsman', tenguPeak: 'tengu', spiderNest: 'spider', forestRanger: 'ranger', forestFairy: 'fairy', forestMonkey: 'monkey', gaiaSanctum: 'gaia' };
 // 每個機制的狀態（match.mechState）的欄位：跟搬進來之前的 match.tree / snake / hive 一樣，巨蟒多了場上的蛇血（items，原本的 match.items）
 const STATE_KEYS = {
   tree: ['def', 'hpScale', 'minions', 'seq', 'next'],
@@ -47,6 +47,10 @@ const STATE_KEYS = {
   tengu: ['def', 'next', 'hover', 'flying', 'flyingTurn', 'seq', 'clock', 'roam'],
   prison: ['def', 'hpScale', 'released', 'up', 'mood', 'cryLeft', 'next', 'beastNext', 'whip', 'sinner', 'hug', 'stuns', 'cage', 'spawned', 'seq', 'fallen', 'fury'],
   spider: ['def', 'lit', 'fallen', 'hpScale', 'mode', 'cleansed', 'next', 'eggs', 'stuck', 'spawned', 'seq'],
+  ranger: ['def', 'next', 'perch', 'trapped', 'spawned', 'seq', 'lastHitBy', 'clock', 'pending'],
+  fairy: ['def', 'whisper', 'lastWhisper', 'angry', 'revealed', 'charm', 'burnHold', 'fx'],
+  monkey: ['def', 'perch', 'held', 'peels', 'seq', 'angry', 'fx'],
+  gaia: ['def', 'hpScale', 'next', 'fog', 'nextFog', 'orbs', 'need', 'flowers', 'stunned', 'rage', 'lightAt', 'light', 'seq'],
 };
 
 // 一個關卡暫時加進 LEVELS，建 Match 看會不會丟錯

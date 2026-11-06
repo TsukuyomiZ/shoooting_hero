@@ -60,18 +60,19 @@ const summaryUi = new SummaryUi(document.getElementById('summary'));   // 冒險
 new ChangelogUi(document.getElementById('lobby'));   // 大廳下方的版本號與版本履歷
 
 const lobby = new Lobby(document.getElementById('lobby'), {
-  // difficulty = 大廳選的難度（單人練習、建立房間都照它）；mode = 大廳選的模式（'coop' 冒險 / 'versus' 勝者為王：單人練習就是對電腦玩家）
-  onSolo(name, difficulty, mode) {
+  // difficulty = 大廳選的難度（單人練習、建立房間都照它）；mode = 大廳選的模式（'coop' 冒險 / 'versus' 勝者為王：單人練習就是對電腦玩家 /
+  // 'theme' 主題副本：theme = 哪個主題）
+  onSolo(name, difficulty, mode, theme) {
     if (transport) transport.close();   // 看大廳列表用的連線用不到了
     transport = new LocalTransport();
     attach(transport);
-    transport.start(name, difficulty, mode);
+    transport.start(name, difficulty, mode, theme);
     lobby.hide();
   },
   // 暱稱跟著送：連上大廳之後才改的名字也要算數
-  async onCreate(name, isPrivate, difficulty, mode) {
+  async onCreate(name, isPrivate, difficulty, mode, theme) {
     await connect(name);
-    transport.send({ t: 'create', name, private: isPrivate, difficulty, mode });
+    transport.send({ t: 'create', name, private: isPrivate, difficulty, mode, ...(theme ? { theme } : {}) });
   },
   // via：code = 輸入房號、list = 從大廳列表點的（只用來記錄）
   async onJoin(name, code, via) {

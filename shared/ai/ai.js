@@ -12,7 +12,9 @@ export function lineBlocker(world, shooter, target) {
   for (let i = 1; i <= steps; i++) {
     const x = m.x + (tx - m.x) * i / steps;
     const y = m.y + (ty - m.y) * i / steps;
-    if (world.terrain.blocksShot(x, y, shooter.team)) return 'terrain';
+    // 子彈從下面打得穿的地形（大地祭壇的斜坡）：往上的直線穿過去，跟飛行物同一條規則（Terrain.shotPasses；直線的方向不變）
+    if (world.terrain.blocksShot(x, y, shooter.team) &&
+        !world.terrain.shotPasses(x, y, m.x + (tx - m.x) * (i - 1) / steps, m.y + (ty - m.y) * (i - 1) / steps, ty - m.y)) return 'terrain';
     for (const e of world.entities) {
       // 目標關著的人（囚籠裡、被熊抱住的隊友）站在它裡面：不算擋住（要救的就是他）
       if (!e.alive || e === shooter || e === target || (e.allyPass && e.team === shooter.team) || (target.heldId && e.id === target.heldId)) continue;
@@ -49,8 +51,8 @@ export function canFire(world, shooter, weapons = shooter.weapons) {
 // 這一發要打誰：{ avoid, arcId, lineId, inReach, pool }；沒有目標、或只有直線武器而打得到的都被自己人擋住 → null
 function targeting(world, shooter, weapons) {
   // 已經閉上的古樹之口不用再打（張著的嘴「血量」是 1，七成機率會被當成最好打的目標，等於 AI 會優先把嘴打閉）；
-  // 蜂巢不打（打一下就放出一隻蜜蜂，斷線代打的玩家去戳它只會害到隊伍）
-  const avoid = (e) => e.kind === 'hive';
+  // 蜂巢不打（打一下就放出一隻蜜蜂，斷線代打的玩家去戳它只會害到隊伍）；分身（decoy，例如調皮妖精的）也不打（打到會爆炸）
+  const avoid = (e) => e.kind === 'hive' || e.decoy;
   const targets = world.entities.filter(e => e.alive && !e.intangible && e.team !== shooter.team && !(e.closeOnHit && e.closedTurns > 0) && !avoid(e));
   if (!targets.length) return null;
   const arcId = ARC_PREFERENCE.find(id => weapons.includes(id));
@@ -75,6 +77,46 @@ function targeting(world, shooter, weapons) {
     if (!pool.length) return null;
   }
   return { avoid, arcId, lineId, inReach, pool };
+}
+
+// AI 會拿哪一把（照一般 AI 的偏好：拋射武器優先，沒有才用直線武器）；都沒有 = null
+export function preferredWeapon(shooter, weapons = shooter.weapons) {
+  return ARC_PREFERENCE.find(id => weapons.includes(id)) || LINE_PREFERENCE.find(id => weapons.includes(id)) || null;
+}
+
+// 指定目標、指定武器的一發（地圖機制接手玩家的回合用，例如調皮妖精的魅惑：打隊友）：不管敵我、不避開自己人。
+// hit = true：瞄著 target 打；false：打偏——拋射武器瞄在 target 左或右 miss px 的地方（落點不會直接打在他身上），
+// 直線武器把角度往上或往下偏開（經過他的時候離他身體中心約 miss px）。error = true：再加上一般 AI 的瞄準誤差（shooter.ai，沒有就 CONFIG.ENEMY）。
+// 直線武器（LINE_PREFERENCE）照直線瞄，其他照拋射掃描角度 × 力量。回傳 { weapon, angle, power, facing, targetId }；沒有這把武器 / 沒有目標 = null
+export function planShotAt(world, shooter, rng, target, weaponId, { hit = true, miss = 130, error = false } = {}) {
+  const weapon = CONFIG.WEAPONS[weaponId];
+  if (!weapon || !target) return null;
+  const ai = shooter.ai || CONFIG.ENEMY;
+  const noise = (a) => (error ? (rng.float() * 2 - 1) * a : 0);
+  if (LINE_PREFERENCE.includes(weaponId)) {
+    const m = shooter.muzzle();
+    let angle = Math.atan2(-(target.cy - m.y), target.cx - m.x) * 180 / Math.PI;
+    if (!hit) angle += (rng.chance(0.5) ? -1 : 1) * Math.atan2(miss, Math.max(1, Math.hypot(target.cx - m.x, target.cy - m.y))) * 180 / Math.PI;
+    return { weapon: weaponId, angle: angle + noise(ai.sniperSpread ?? 1.2), power: 100, facing: target.cx >= shooter.cx ? 1 : -1, targetId: target.id };
+  }
+  const tx = hit ? target.cx : target.cx + (rng.chance(0.5) ? -1 : 1) * miss;
+  const ty = target.cy;
+  const facing = tx >= shooter.cx ? 1 : -1;
+  const traits = shotTraits(shooter, weaponId);
+  let best = null;
+  for (let a = 10; a <= 85; a += 5) {
+    const angle = facing > 0 ? a : 180 - a;
+    for (let power = 15; power <= 100; power += 5) {
+      const r = simulateShot(world, shooter, weapon, angle, power, 6, 0, traits);
+      const onTarget = r.hit.type === 'entity' && r.hit.entity === target;
+      let score;
+      if (hit) score = onTarget ? 0 : Math.hypot(r.hit.x - tx, r.hit.y - ty);
+      else score = onTarget ? 5000 : Math.hypot(r.hit.x - tx, r.hit.y - ty);
+      if (!onTarget && r.hit.type !== 'terrain' && r.hit.type !== 'entity') score += 400;
+      if (!best || score < best.score) best = { score, angle, power };
+    }
+  }
+  return { weapon: weaponId, angle: best.angle + noise(ai.aimError.angle), power: clamp(best.power + noise(ai.aimError.power), 10, 100), facing, targetId: target.id };
 }
 
 // planShot 的後半：從 pool 挑目標、瞄準（targeting 算好的武器與目標）

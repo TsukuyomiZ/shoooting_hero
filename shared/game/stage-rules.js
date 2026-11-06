@@ -72,6 +72,41 @@ export function difficultyConfig(id, config = CONFIG) {
   };
 }
 
+// ---- 主題副本（一場冒險開場選的，見 config.THEMES；每一關排哪張地圖見 shared/game/themes.js）----
+
+// 認得的主題（config.THEMES 的 key）；沒給、不認得、亂送的（不是字串）都是 null（= 一般冒險）
+export function themeOf(id, config = CONFIG) {
+  return typeof id === 'string' && Object.hasOwn(config.THEMES || {}, id) ? id : null;
+}
+
+// 這個主題的一份設定：總關數、哪幾關是菁英 / Boss 關換成主題的。沒有主題原封不動。
+// 要套在難度（difficultyConfig）之後：菁英之路改的菁英關位置會被蓋回主題的，只留傷害倍率（見 runConfig）
+export function themeConfig(id, config = CONFIG) {
+  const key = themeOf(id, config);
+  if (!key) return config;
+  const t = config.THEMES[key];
+  return {
+    ...config,
+    RUN: { ...config.RUN, stageCount: t.stageCount, eliteStages: t.eliteStages.slice(), bossStages: t.bossStages.slice() },
+  };
+}
+
+// 大廳的主題說明：「莫利亞森林：11 關同一種地形，第 5、10 關 Boss，最後一關主題王」
+export function themeDesc(id, config = CONFIG) {
+  const key = themeOf(id, config);
+  if (!key) return '';
+  const c = themeConfig(key, config);
+  const n = c.RUN.stageCount;
+  const bosses = Array.from({ length: n - 1 }, (_, i) => i + 1).filter(s => isBossStage(s, c));
+  return `${config.THEMES[key].name}：${n} 關同一種地形，${bosses.length ? `第 ${stageList(bosses)} 關 Boss，` : ''}最後一關主題王`;
+}
+
+// 一場冒險實際用的設定：難度（difficultyConfig）再套主題副本（themeConfig：關數、菁英 / Boss 關的位置換成主題的）。
+// Run 與客戶端重建的 Match 都照這個算，關卡規則（王的血量倍率看 Boss 關的位置）兩邊才會一樣
+export function runConfig({ difficulty = 'normal', theme = null } = {}, config = CONFIG) {
+  return themeConfig(theme, difficultyConfig(difficulty, config));
+}
+
 // 這個難度畫不畫菁英怪招式的提示範圍（DIFFICULTY 的 rangeHints: false = 不畫，例如菁英之路：大樹守衛的躍擊、衝鋒）。
 // 只影響畫面（客戶端的地圖畫面 c.rangeHints），招式本身不變
 export function showsRangeHints(id, config = CONFIG) {
@@ -79,9 +114,10 @@ export function showsRangeHints(id, config = CONFIG) {
   return !(d && d.rangeHints === false);
 }
 
-// 大廳的難度說明，照這個難度實際的設定寫：「菁英關：第 3、8 關　敵人傷害：第 1 ~ 5 關打 7 折」
-export function difficultyDesc(id, config = CONFIG) {
-  const c = difficultyConfig(id, config);
+// 大廳的難度說明，照這個難度實際的設定寫：「菁英關：第 3、8 關　敵人傷害：第 1 ~ 5 關打 7 折」。
+// theme = 主題副本（菁英關的位置照主題的，見 themeConfig）
+export function difficultyDesc(id, config = CONFIG, theme = null) {
+  const c = runConfig({ difficulty: id, theme }, config);
   const stages = Array.from({ length: c.RUN.stageCount }, (_, i) => i + 1);
   const elite = stages.filter(s => isEliteStage(s, c));
   const mult = (s) => stageRules({ stage: s }, c).enemyDamage;

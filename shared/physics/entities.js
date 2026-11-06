@@ -11,6 +11,8 @@ export const VINE_HAND = 4;
 const VINE_REACH = 4;      // 身體邊緣離藤蔓多近就抓得到
 const VINE_REGRAB = 15;    // 放手 / 從藤蔓上跳開後，幾幀內不會再抓（不然按著 W 一跳開又馬上抓回去）
 const UNSTICK = 12;        // 卡進地形時最多往上推幾 px（見 update 最後、standing）
+const SLIDE_SPEED = 360;   // 被迫滑行的速度（px/s，見 Entity.slide）
+const SLIDE_DROP = 8;      // 被迫滑行時腳下幾 px 內沒有地面就算滑出邊緣（停下來、往下掉）
 
 // 玩家與敵人共用的角色類別。(x, y) 是腳底中心點。
 // 物理只用加減乘除與比較，所以伺服器與所有客戶端跑出來的結果一致。
@@ -35,10 +37,14 @@ export class Entity {
     this.optional = !!o.optional;  // 打不打都可以：全隊只剩這種敵人也算過關（蜂巢、蜜蜂）
     this.allyPass = !!o.allyPass;  // 自己人的子彈會穿過它、也不擋自己人的視線（蜂巢、蜜蜂）
     this.noKill = !!o.noKill;   // 打倒它不算擊殺（蜂巢）
+    this.decoy = !!o.decoy;     // 分身（調皮妖精）：AI 不打它（打到會爆炸），跟蜂巢一樣落點離它太近也避開
     // 碰不到：子彈穿過去、爆炸波及不到、AI 不瞄它（躲在洞穴深處的洞穴巨蠍）。由地圖機制照它的狀態設定（兩邊各自推，不同步）
     this.intangible = !!o.intangible;
     // 被關住：走不動、跳不起來、不會被擊退（處刑監獄的囚籠），照樣可以開火（打在籠子上、自己的攻擊傷不到自己）。由地圖機制照它的狀態設定（兩邊各自推，不同步）
     this.held = false;
+    // 自己的回合裡體力每秒持續流失多少（大樹遊俠的藤蔓陷阱困住時）：只有客戶端在自己的畫面上扣（GameView.frame，跟慢動作一樣照真實時間），
+    // 伺服器照它的規則自己算。由地圖機制照它的狀態設定（兩邊各自推，不同步）
+    this.staminaDrain = 0;
     this.heldId = o.heldId || null;   // 這個角色關著誰（囚籠）：被關的人開火，一出砲口就打在籠子上（往哪裡射都一樣）
     // 血量扣不到這個值以下（處刑官：到門檻先停住，等他跳上處刑台、打開牢房）。只有伺服器在用（客戶端照伺服器的結果套血量）
     this.hpFloor = o.hpFloor || 0;
@@ -76,6 +82,10 @@ export class Entity {
     this.onGround = false;
     this.facing = o.facing || 1;
     this.moveDir = 0;            // -1 / 0 / 1
+    // 被迫滑行（例如踩到頑皮猴王的香蕉皮）：還要往 slideDir 滑幾 px（不耗體力、不算流血，照走路的方式貼著地形走；滑出邊緣就停、直直掉下去；被擋住就停）。
+    // 不在同步的狀態裡：只在自己的回合（客戶端自己跑）、AI 代打走路（兩邊照同一幀開始滑）裡發生，開火、位置回報、落水都歸零
+    this.slide = 0;
+    this.slideDir = 0;
     this.wantJump = false;
     this.airJumpsLeft = this.mods.extraJumps;   // 雲霧之瓶：離地後還能再跳幾次，落地就補滿
     // 這次離地是自己跳起來的（jump 成功才設，落地 / 抓藤蔓 / 落水 / 校正狀態就清掉）：慢動作只認這個。
@@ -306,8 +316,20 @@ export class Entity {
       if (!this.alive) return;
     }
     if (this.wantJump) {
-      if (!this.held) this.jump(terrain);
+      if (!this.held && !(this.slide > 0)) this.jump(terrain);   // 被迫滑行中跳不起來（不然一跳就把滑行取消了）
       this.wantJump = false;
+    }
+
+    // 被迫滑行（見 constructor 的 slide）：每秒 SLIDE_SPEED px，滑完 / 被擋住 / 腳離地（滑出平台、滑到坑邊）就停，接著照重力往下掉
+    // 腳下 SLIDE_DROP px 內都沒有地面才算離地（平緩的下坡會懸空零點幾 px，不算）
+    if (this.slide > 0) {
+      let ground = false;
+      for (let k = 0; k <= SLIDE_DROP && !ground; k++) ground = this.standing(terrain, this.x, this.y + k);
+      if (!ground) this.slide = 0;
+    }
+    if (this.slide > 0) {
+      const step = Math.min(this.slide, SLIDE_SPEED * dt);
+      this.slide = this.tryMove(terrain, this.slideDir, step) ? this.slide - step : 0;
     }
 
     // 擊退產生的水平速度
@@ -364,7 +386,7 @@ export class Entity {
   // 按住 W / S 時身體碰到藤蔓（手在藤蔓的範圍裡）就抓住：x 對齊藤蔓、停在半空，空中的跳躍次數補滿。
   // 站在橋上搆不到藤蔓的下端，要先跳起來。自己的回合沒體力就抓不住（抓了也馬上會鬆手）
   grabVine(terrain) {
-    if (!(this.vineSpeed > 0) || this.vineRegrab > 0 || (this.hangDrain && this.stamina <= 0)) return false;
+    if (!(this.vineSpeed > 0) || this.vineRegrab > 0 || this.held || (this.hangDrain && this.stamina <= 0)) return false;   // 被關住 / 困住的抓不了藤蔓
     const vines = terrain.vines;
     for (let i = 0; i < vines.length; i++) {
       const v = vines[i];
@@ -506,6 +528,7 @@ export class Entity {
     this.airJumpsLeft = this.mods.extraJumps;
     this.jumped = false;
     this.moveDir = 0;      // 走路 / 跳躍被打斷（AI 走路也就此停下）
+    this.slide = 0;
     this.wantJump = false;
     this.aiming = false;
     this.onVine = -1;
@@ -607,6 +630,7 @@ export class Entity {
   applyState(s) {
     this.x = s.x;
     this.y = s.y;
+    this.slide = 0;   // 被迫滑行不在同步的狀態裡：套用伺服器的狀態就停下（快照、結果都是站好的樣子）
     if (s.mhp !== undefined) this.maxHp = s.mhp;   // 落水扣的是最大血量的 %，客戶端重播時要跟伺服器用同一個數
     this.hp = s.hp;
     this.stamina = s.stamina;

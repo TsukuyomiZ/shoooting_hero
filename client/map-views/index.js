@@ -10,6 +10,10 @@ import { prison } from './prison.js';
 import { swordsman } from './swordsman.js';
 import { tengu } from './tengu.js';
 import { spider } from './spider.js';
+import { ranger } from './ranger.js';
+import { fairy } from './fairy.js';
+import { monkey } from './monkey.js';
+import { gaia } from './gaia.js';
 
 // 地圖畫面（見 GLOSSARY.md）：某一張地圖特有的畫面與演出——Boss 出招的動畫、王與招式的畫法、場景、HUD 上的提示、選曲、死亡特效。
 // 跟地圖機制（shared/maps/mechanics/）成對：機制決定發生什麼，畫面決定怎麼演出來。照 match.mechanic.type 選（一般小關 = plain，什麼都沒有）。
@@ -20,6 +24,7 @@ import { spider } from './spider.js';
 //   c.match         這場的 Match（腳本照伺服器的結果套用：applyEntities、預定的下一招、召喚的角色、掉出來的道具…）
 //   c.time          畫面時間（秒，固定步長推進）
 //   c.currentId     現在輪到誰（眼睛看著他）
+//   c.myId          自己是誰（只在自己的畫面上提示的東西用，例如被困住時的「連點 A/D 可逃脫！」）
 //   c.projectiles   正在重播的飛行物（shotScript 期間 = 重播模組原地更新的那個陣列，其他時候是空的）
 //   c.clock()       真實時間（秒）：畫面時間在卡頓、慢動作時會比真實時間慢，要跟伺服器的時鐘一起動的東西照這個（例如回合裡飛的劍氣）
 //   c.rangeHints    這場的難度畫不畫菁英怪招式的提示範圍（false = 不畫，例如菁英之路：大樹守衛的躍擊警示、衝鋒的路線與準星、流浪劍士一閃的預警線；見 showsRangeHints）
@@ -64,6 +69,8 @@ import { spider } from './spider.js';
 //                                         撿到道具不經過這裡（見 onPickup / predictMove，要的話自己呼叫）
 //   onPickup(c, e, msg, self)             伺服器的 pickup（走路途中撿到道具）；self = 是自己
 //   predictMove(c, me, px, py) → boolean  自己的回合本地走了一幀（從 px, py）：先在本地撿；true = GameView 馬上回報位置
+//   struggle(c, me, dir) → boolean        自己被困住（me.held）時按了一下 A / D（dir = -1 / 1）：true = 這一下算數，GameView 送 struggle 給伺服器
+//   onStruggle(c, e, msg, self)           伺服器的 struggle（被困住的人掙扎了一下：count / need / freed）；self = 是自己
 //   onDeath(c, e) → boolean               角色倒下：true = 處理過了，不播一般的「被擊倒」橫幅
 //   drawScene(ctx2d, c)                   地形（與它前面的裝飾）之後、瞄準線與角色之前：場景
 //   shaded(c) → boolean                   這張地圖有遮光（例如洞穴很暗）：true = 角色畫完之後呼叫 drawShade，瞄準線改畫在遮光上面
@@ -96,6 +103,8 @@ const HOOKS = {
   statusFx: NOOP,
   onPickup: NOOP,
   predictMove: () => false,
+  struggle: () => false,
+  onStruggle: NOOP,
   onDeath: () => false,
   drawScene: NOOP,
   shaded: () => false,
@@ -119,7 +128,7 @@ export function defineMapView(adapter) {
   return Object.freeze(v);
 }
 
-const VIEWS = Object.fromEntries([plain, tree, snake, hive, cave, cyclops, guardian, scorpion, prison, swordsman, tengu, spider].map(a => [a.type, defineMapView(a)]));
+const VIEWS = Object.fromEntries([plain, tree, snake, hive, cave, cyclops, guardian, scorpion, prison, swordsman, tengu, spider, ranger, fairy, monkey, gaia].map(a => [a.type, defineMapView(a)]));
 
 /** 這場（match.mechanic.type）的地圖畫面。沒有對應的畫面 → 丟錯（新的地圖機制要配一個，沒有演出就寫一個空的） */
 export function mapViewFor(match) {

@@ -13,7 +13,7 @@ export class SummaryUi {
   }
 
   // runOver 訊息：{ result, stage, stageCount, type, difficulty, summary: [{ id, name, dealt, friendlyDealt, taken, shots, hits, cards: [...] }] }；
-  // type = 倒在哪一種關卡（'normal' | 'elite' | 'boss'）；difficulty = 這場的難度（一般的不特別寫）
+  // type = 倒在哪一種關卡（'normal' | 'elite' | 'boss'）；difficulty = 這場的難度（一般的不特別寫）；theme = 主題副本的主題（有才寫）
   show(msg, { myId, type = 'normal' }) {
     this.root.classList.toggle('versus', msg.mode === 'versus');
     if (msg.mode === 'versus') { this.showVersus(msg, myId); return; }
@@ -21,7 +21,8 @@ export class SummaryUi {
     const win = msg.result === 'win';
     this.root.classList.toggle('win', win);
     this.$('#summary-title').textContent = win ? '通關！' : '冒險結束';
-    const hard = difficultyOf(msg.difficulty) !== 'normal' ? `　·　${difficultyName(msg.difficulty)}` : '';
+    const hard = (CONFIG.THEMES[msg.theme] ? `　·　${CONFIG.THEMES[msg.theme].name}` : '')
+      + (difficultyOf(msg.difficulty) !== 'normal' ? `　·　${difficultyName(msg.difficulty)}` : '');
     this.$('#summary-sub').textContent = (win
       ? `打倒了全部 ${msg.stageCount} 關`
       : `倒在第 ${msg.stage} / ${msg.stageCount} 關${where ? `（${where}）` : ''}`) + hard;

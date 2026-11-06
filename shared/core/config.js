@@ -22,9 +22,10 @@ export const CONFIG = {
     // 第幾關是菁英關：從菁英池（level 的 pool: 'elite'）抽地圖，一隻強力的菁英怪鎮守（同一場冒險先挑還沒打過的，菁英池只有一張就重複）。
     // 跟 Boss 關重疊的關卡算 Boss 關。血量、傷害、狂熱照小關的規則（見 shared/game/stage-rules.js）；打贏後選牌的稀有度權重另外加 eliteRarityBonus
     eliteStages: [3, 8],
-    // 小關抽地圖：每張小地圖一開始權重一樣，這場冒險每出現過一次，權重就 × 這個（1 → 0.25 → 0.0625…），
-    // 出現越多次越難再抽到，才不會一場裡同一張重複三四次（也不會連續同一張）。1 = 不下調、0 = 小地圖輪完一遍才重複
-    normalRepeatWeight: 0.25,
+    // 小關抽地圖：每張小地圖一開始權重一樣，這場冒險每出現過一次，權重就 × 這個（例如 0.25：1 → 0.25 → 0.0625…），
+    // 出現越多次越難再抽到（也不會連續同一張）。1 = 不下調、0 = 小地圖輪完一遍才重複。
+    // 2026-11-02 使用者：整場冒險小關都不要重複 → 0（小關比小地圖多的時候才會輪第二遍；一般冒險 6 個小關、主題副本照主題的清單）
+    normalRepeatWeight: 0,
     // Boss 關的血量成長：從第一個 Boss 關開始算，之後每多一關 +N（跟小關的 enemyHpPerStage 一樣 15%）。
     // 第 5 關的王照原本的血量，第 10 關的王 ×1.75（後面幾關玩家的牌比較多，不加會太好打）。召喚的樹妖、閉目養神的回血也一起放大
     bossHpPerStage: 0.15,
@@ -48,6 +49,30 @@ export const CONFIG = {
   DIFFICULTY: {
     normal: { name: '一般' },
     elite: { name: '菁英之路', eliteStages: [2, 3, 4, 7, 8, 9], enemyDamage: 1, rangeHints: false },
+  },
+  // 主題副本（2026-11-02）：一整場冒險都在同一種地形，最後一關是主題王（比以往的王更需要合作）。開房 / 單人練習時選「主題副本」模式。
+  // 其他照一般冒險：選牌、回血、狂熱、敵人血量成長都一樣；難度可以選，但菁英之路不改菁英關的位置，
+  // 只留整場敵人傷害不打折、不畫菁英怪招式的提示範圍（使用者定的；換算見 shared/game/stage-rules.js 的 themeConfig / runConfig）。
+  // 每個主題：
+  //   name         大廳、房間、結算顯示的名字
+  //   stageCount   總共幾關（打贏最後一關 = 通關）
+  //   eliteStages  哪幾關是菁英關（從 maps.elite 抽）
+  //   bossStages   哪幾關是 Boss 關（地圖固定照 bosses；最後一關的主題王也算 Boss 關：沒有狂熱、血量照 RUN.bossHpPerStage 成長）
+  //   maps         { normal: [...], elite: [...] }：小關、菁英關從這裡抽（level 的 id），抽法同一般冒險（見 Run.pickLevel）
+  //   bosses       { 第幾關: levelId }：Boss 關固定打哪一張；null = 還沒做
+  // 每一關都排得到地圖才開放（shared/game/themes.js 的 themeReady）：大廳才給選、伺服器才收
+  THEMES: {
+    moria: {
+      name: '莫利亞森林',
+      stageCount: 11,
+      eliteStages: [2, 4, 7, 9],
+      bossStages: [5, 10, 11],
+      maps: {
+        normal: ['grove', 'beehive', 'fallenLog', 'treehouse'],
+        elite: ['forestGuard', 'forestRanger', 'forestFairy', 'forestMonkey'],   // 大樹守衛、大樹遊俠（2026-11-02）、調皮妖精、頑皮猴王（11-03）；4 個菁英關各一張、不重複
+      },
+      bosses: { 5: 'treeGarden', 10: 'jungleSerpent', 11: 'gaiaSanctum' },   // 第 11 關 = 主題王：大地祭壇的大地之母・蓋亞（2026-11-04）
+    },
   },
   RARITY: {
     white:  { name: '白', color: '#e5e7eb' },
@@ -384,6 +409,84 @@ export const CONFIG = {
     cast: { feather: 1.4, gust: 1.0 },
   },
 
+  // ---- 菁英關：大樹遊俠（森林；規則在 shared/maps/ranger.js）。2026-11-02 使用者定的招式與數值 ----
+  // 站在三棵大樹的樹枝上（不受重力、不會被擊退），每回合出完招之後換到另一根樹枝（林間穿梭：被打過就跳到離打她的人最遠的那根；出完招才換，預警線才準）。
+  // 血量跟一般敵人一樣依人數、關數放大。下一招事先抽好（開場一次、之後每回合出完招再抽，weights；場上陷阱滿了不抽陷阱），HUD 標出來：
+  //   pierce = 貫穿箭：一抽到就標記一名玩家（隨機）；輪到她時一箭直線射向他（WEAPONS.rangerArrow），一定打得到他（穿過地形），
+  //            同一條線上的其他玩家也會被射穿：照箭飛過的順序，每多穿一人傷害再減半，最多穿 maxPierce 人
+  //   rain   = 箭雨：用了馬上落下（不預告），以一名玩家為中心、左右合計 rainWidth px 寬（WEAPONS.rangerRain，附加流血）；
+  //            優先挑被藤蔓陷阱困住的玩家，沒有就隨機挑一人
+  //   trap   = 藤蔓陷阱：在地面上隨機的地方放 trap.perCast 個（場上最多 trap.max 個），不會自己消失。
+  //            觸發前被玩家打 trap.hp 下就破；玩家踩到就被困住（走不動、跳不起來，還能開火），踩到的那一下受傷（WEAPONS.rangerTrap）
+  // 被困住的玩家只能在自己的回合連打 A / D（左右交替）trap.need 下掙脫；從他回合開始（回合中才被困住的從被困住起）體力每秒流失 trap.drain，
+  // 體力歸 0 就掙脫不了（等下一回合）。原地連打不算移動（不扣流血）。其他方式（隊友打、技能）都放不了他
+  // 傷害照開場人數：武器的 damage 是每人多少（× 開場人數，見 rangerDamage），再吃一般的敵人傷害倍率
+  RANGER: {
+    hp: 200,              // 同其他菁英
+    weights: { pierce: 40, rain: 35, trap: 25 },
+    maxPierce: 4,         // 使用者定的：最多穿透四名玩家
+    pierceFalloff: 0.5,   // 使用者定的：每穿一人傷害再減半
+    rainWidth: 100,       // 使用者：大約三個人的範圍
+    trap: {
+      perCast: 2,         // 使用者定的：一次放 2 個
+      max: 8,             // 使用者定的：場上最多 8 個
+      hp: 2,              // 使用者定的：觸發前被打 2 下就破
+      need: 10,           // 使用者定的：連打 10 下掙脫
+      drain: 40,          // 使用者定的：被困住時體力每秒流失
+      grace: 0.3,         // 我抓的：伺服器算體力時多給的秒數（他的畫面收到回合開始比伺服器晚一點）
+      hw: 16, h: 8,       // 陷阱的大小（腳底中心在地面上）
+      gap: 60,            // 我抓的：陷阱之間、陷阱與玩家至少隔多遠（放的時候）
+    },
+    perchPad: { left: 18, right: 44 },   // 站在樹枝上的時候離樹枝尖端 / 根部（樹幹）至少多遠
+    cast: { hop: 0.9, pierce: 1.2, rain: 1.0, trap: 0.9 },
+  },
+
+  // ---- 菁英關：調皮妖精（森林；規則在 shared/maps/fairy.js）。2026-11-03 使用者定的規則（數值是我提、使用者說可以的）----
+  // 飄在空中（不受重力、不會被擊退、不走動）。每回合出完招之後閃現（blink）：自己和 2 個分身（clones）各飄到活動範圍（level 的 roam）裡的一點，
+  // 三個長得一模一樣、彼此至少隔 blinkGap px（離活著的玩家至少 playerGap px）；分身 1 滴血，一打就死。
+  // 多人（開場超過 1 人）：每次閃現隨機挑一名玩家「咬耳朵」（不連續同一人），只有他看得到本尊；血量掉到 angryPct 以下就生氣、不再咬耳朵。
+  // 玩家打到分身：分身爆炸（WEAPONS.fairyBlast，炸到範圍內的玩家，含開槍的人）；多人時開槍的人還會被魅惑：
+  //   他的下一個回合由遊戲接手，用他當下的武器打隨機一名活著的隊友（charmHit 的機率瞄準、其他的打偏；沒有活著的隊友就跳過）。
+  // 一發同時打到本尊和分身 → 只算本尊。本尊被打到 → 這一輪的分身全部消失（到她下次閃現前大家都看得到本尊）。
+  // 她的招式（輪到她時抽，weights）：star = 星屑彈（WEAPONS.fairyStar，打隨機一名玩家）、swap = 調包（兩名活著的玩家互換位置，各受 WEAPONS.fairySwap 的傷害；
+  // 只有一個人活著就改成星屑彈）。傷害照開場人數（武器的 damage × 開場人數，同大樹遊俠），再吃一般的敵人傷害倍率
+  FAIRY: {
+    hp: 150,              // 我提、使用者說可以的（只有三分之一的機會打中，比其他菁英的 200 少）
+    weights: { star: 60, swap: 40 },   // 我提、使用者說可以的
+    clones: 2,            // 使用者定的
+    blinkGap: 150,        // 我提、使用者說可以的：三個彼此至少隔多遠
+    playerGap: 60,        // 我抓的：閃現的落點離活著的玩家至少多遠（不要貼在人身上）
+    angryPct: 0.4,        // 使用者定的：血量 40% 以下不再咬耳朵
+    charmHit: 0.7,        // 使用者定的：被魅惑的人打中隊友的機率
+    missOffset: 130,      // 我抓的：打偏的那一發瞄在隊友旁邊多遠
+    cast: { star: 1.0, swap: 1.1, blink: 0.9 },
+  },
+
+  // ---- 菁英關：頑皮猴王（森林；規則在 shared/maps/monkey.js）。2026-11-03 使用者定的規則（數值是我提、使用者說可以的，或使用者改的）----
+  // 待在樹冠上（不受重力、不會被擊退、不走動），每回合結束盪到另一棵樹的樹冠（level 的 perches，不會連續待在同一棵）。
+  // 接住：玩家的飛行物（catchable 那幾把）從他身邊 catchRadius px 內飛過、不會直接打中他 → 被他接住（不爆炸、不挖地，飛行物到此為止）；
+  //   會直接打中他的照常打中。手上最多 maxHeld 顆，滿了就接不了。血量掉到 angryPct 以下生氣：接住範圍變成 angryRadius。
+  // 打中拿著砲彈的他：手上的砲彈全部在他身上爆炸（照原本的武器，炸他自己，算打中他的人的）。
+  // 輪到他：先把手上的砲彈一顆一顆丟回給各自開槍的人（WEAPONS.monkeyThrow：原本武器的基本傷害與爆炸範圍，拋物線，落點隨機偏 0 ~ throwError px；
+  //   開槍的人倒下了那顆就丟掉），再出自己的招（weights）：coconut = 椰子砸（WEAPONS.monkeyCoconut，打隨機一名玩家，落點偏 0 ~ coconutError px）、
+  //   peel = 香蕉皮（丟在一名玩家旁邊 peelGap px 的地上；場上已經有 maxPeels 張就改丟椰子），最後盪到別棵樹。
+  // 香蕉皮：玩家走路踩到 → 往走的方向滑 slip px（可能滑下平台、滑進水坑，落水照一般規則），香蕉皮消失；被爆炸炸到也消失
+  MONKEY: {
+    hp: 200,              // 使用者定的（我提 160）
+    catchRadius: 100,     // 我提、使用者說可以的
+    angryRadius: 150,     // 我提、使用者說可以的
+    angryPct: 0.4,        // 我提、使用者說可以的
+    maxHeld: 3,           // 我提、使用者說可以的
+    catchable: ['cannon', 'plasma', 'darts', 'bombard', 'boomerang'],   // 我提、使用者說可以的（狙擊槍太快、水炮是水、刺劍是近戰：接不到）
+    weights: { coconut: 60, peel: 40 },   // 我提、使用者說可以的
+    throwError: 60,       // 使用者：丟回去要有一點誤差（落點偏 0 ~ 60 px，我提的）
+    coconutError: 30,     // 我抓的
+    maxPeels: 3,          // 我提、使用者說可以的
+    peelGap: [40, 90],    // 我抓的：香蕉皮丟在玩家左邊或右邊多遠
+    slip: 150,            // 我提、使用者說可以的：滑多遠
+    cast: { throw: 0.7, coconut: 0.9, peel: 0.9, swing: 1.0 },
+  },
+
   // ---- Boss 關：巨蠍巢穴的洞穴巨蠍（規則在 shared/maps/scorpion.js）----
   // 牆上三個洞，巨蠍躲在其中一個（只露出發紅的雙眼，打不到）。三個部位各有自己的血量（hp，再照 Boss 的倍率放大），
   // 打到哪個扣哪個；三個都擊破 = 打倒（沒有另外的本體血量）。
@@ -463,6 +566,41 @@ export const CONFIG = {
   SPIDER_WEB: { hp: 1, hw: 30, h: 44 },
   // 小蜘蛛（蛛卵孵出來的）：hp 80（照王的倍率），只會撲咬（10 傷害 + 5 層中毒，撲向最近的人）
   SPIDERLING: { hp: 80, hw: 16, h: 18, cast: 0.7 },
+
+  // ---- 主題王（莫利亞森林第 11 關）：大地祭壇的大地之母・蓋亞（規則在 shared/maps/gaia.js）----
+  // 2026-11-04 使用者定的：背景正上方一張巨大的大地之臉 + 左右兩隻巨掌（手是畫面，不是角色）。地形全部炸不壞。招式：
+  //   瘴氣（第 1 輪就出、每 fogEvery 輪一次；全畫面的毒霧，玩家回合開始在毒霧裡 +fogPoison 層中毒，同巨蟒的中毒）。
+  //     同時兩側斜坡開出自然之花（flowers 照活著的人數），碰到就變成光球飛進祭壇；收滿了祭壇淨化：瘴氣散去、蓋亞暈一回合。
+  //     重放瘴氣時舊的花消失、祭壇的光球不保留。
+  //   巨掌・捏碎（中間那一整欄，每人 10 × 開場人數的傷害、往離開祭壇的方向擊退 500）、神掌・天罰（左或右整邊）、
+  //   巨拳・同罰（11-04 使用者加的：拳頭鎖定一名玩家的頭上，要有聚攏提示，讓大家一起分擔傷害：stackRadius 裡的人平分）、
+  //   自然・淨化（11-04 使用者改：只淨化蓋亞自己的負面狀態並回血 cleanseHealPct% 最大血量，不再碰玩家）；權重 weights。
+  //   預兆：一般難度畫紅色警示帶 / 同罰的集合圈，菁英之路只看得到巨掌的架勢（同罰的拳頭照樣跟著目標）。
+  //   血量 ragePct% 以下暴走：瘴氣永久不散、每回合 +ragePoison 層（方案 A）、祭壇不再淨化 / 暈眩她；
+  //     暴走後每 lightEvery 輪放「最後之光」（全員傳送到祭壇那一層、開 lightFlowers 朵花，收花 lightCollectRounds 輪，收齊 = 祭壇張開護盾，
+  //     沒收齊就「因為自然的力量枯萎了」），再一輪「誅滅」：不在護盾裡的人直接死亡，在裡面的中毒層數歸零（方案 A）。最後之光那幾回合不放捏碎。
+  // 我提、使用者說可以的：hp 500、祭壇淨化回 purifyHealPct% 最大血量、淨化時中毒層數歸零但被鎖住的上限不回來
+  // 我補的（使用者沒給）：天罰的傷害與擊退、1 ~ 3 人的花數、暈眩的那一回合先暈完下一回合才暴走、花開在斜坡的哪一段、
+  //   中間那一欄 / 護盾的範圍（關卡的 mechanic）、臉的判定大小、各招的預兆秒數
+  GAIA: {
+    hp: 500,                // 我提、使用者說可以的（11-04）。再 × Boss 倍率：第 11 關 ×1.9、每多一人 +50%
+    hw: 90,                 // 我抓的：臉的判定（腳底 = 下巴，位置在關卡的 mechanic.face）；背景正上方、一直打得到
+    h: 190,
+    weights: { crush: 30, smite: 30, stack: 25, cleanse: 15 },   // 我補的（11-04 加了同罰之後重分；原本使用者定的是捏碎 40 / 天罰 40 / 淨化 20）
+    stackRadius: 80,        // 我補的：巨拳・同罰結算時，身體中心離目標的身體中心這麼近（px）的活著的玩家一起分擔（目標一定算）
+    fogEvery: 3,            // 使用者定的：瘴氣每 3 輪一次
+    fogPoison: 3,           // 使用者定的：回合開始在毒霧裡 +3 層中毒
+    ragePoison: 1,          // 使用者定的（方案 A）：暴走後每回合 +1 層
+    flowers: { 1: 2, 2: 2, 3: 2, 4: 3 },           // 平常瘴氣開幾朵花 = 祭壇要收的光球數（照活著的人數）：4 人 3 朵是使用者定的，1 ~ 3 人 2 朵是我補的
+    lightFlowers: { 1: 2, 2: 4, 3: 4, 4: 6 },      // 使用者定的：最後之光開幾朵花（照活著的人數）
+    purifyHealPct: 10,      // 我提、使用者說可以的：祭壇淨化時活著的玩家回 10% 最大血量
+    cleanseHealPct: 5,      // 我補的：自然・淨化（11-04 使用者改成只淨化她自己 + 回血）固定回 5% 最大血量（原本每移除一種 3%）
+    ragePct: 50,            // 使用者定的：血量 50% 以下暴走（血量先停在 50%、輪到她才宣告暴走：同蜘蛛女王的門檻，這是我補的做法）
+    lightEvery: 5,          // 使用者定的：暴走後 5 輪放最後之光；誅滅之後再數 5 輪
+    lightCollectRounds: 2,  // 使用者定的：收花兩輪，第 2 輪她的回合還沒收齊就枯萎
+    // 我抓的：每一步的預兆秒數（裁判照招式帶的 cast 算這回合要播多久）
+    cast: { fog: 1.4, stunned: 1.0, rage: 1.6, light: 2.0, wither: 1.4, judgement: 2.4, crush: 1.2, smite: 1.0, stack: 1.3, cleanse: 1.1, idle: 0.6 },
+  },
 
   // 樹妖：古樹之口召喚出來，每回合慢慢走一段（2026-10-08 起，原本站著不動），投擲長矛
   TREANT: {
@@ -909,6 +1047,110 @@ export const CONFIG = {
       color: '#a7f3d0',
     },
 
+    // ---- 大樹遊俠的招式（enemyOnly；規則見 shared/maps/ranger.js）。damage 是每一名開場玩家多少（× 開場人數，見 rangerDamage），再吃敵人傷害倍率 ----
+    rangerArrow: {        // 貫穿箭：直線、穿過地形與玩家；pierceFalloff = 每多穿一人傷害再 ×0.5、maxPierce = 最多打到幾人（第幾人就停在他身上）
+      id: 'rangerArrow', name: '貫穿箭', enemyOnly: true,
+      damage: 12,           // 使用者看過的：12 × 人數（1 ~ 4 人 12 / 24 / 36 / 48）
+      pierceFalloff: 0.5,   // 同 RANGER.pierceFalloff
+      maxPierce: 4,         // 同 RANGER.maxPierce
+      knockback: 0,
+      radius: 0,
+      gravity: 0,
+      speed: 1800,
+      hitRadius: 8,
+      pierce: true, passTerrain: true, passAllies: true,
+      shellRadius: 6,
+      color: '#a3e635',
+    },
+    rangerRain: {         // 箭雨：一根根從天上直直落下（一人只中一次），碰到地面就停
+      id: 'rangerRain', name: '箭雨', enemyOnly: true,
+      damage: 8,            // 使用者看過的：8 × 人數
+      bleed: 4,             // 使用者看過的：流血 4 層
+      knockback: 0,
+      radius: 0,
+      gravity: 0,
+      speed: 1300,
+      hitRadius: 5,
+      passAllies: true,
+      shareHits: true,      // 同一陣箭雨共用「打過誰」：打過的人其他箭穿過去
+      shellRadius: 4,
+      color: '#d9f99d',
+    },
+    rangerTrap: {         // 藤蔓陷阱：踩到的那一下（不是飛行物，結算用這把的數字）
+      id: 'rangerTrap', name: '藤蔓陷阱', enemyOnly: true,
+      damage: 5,            // 使用者看過的：5 × 人數
+      knockback: 0,
+      radius: 0,
+      gravity: 0,
+      speed: 0,
+      hitRadius: 0,
+      shellRadius: 0,
+      color: '#65a30d',
+    },
+
+    // ---- 調皮妖精的招式（enemyOnly；規則見 shared/maps/fairy.js）。damage 是每一名開場玩家多少（× 開場人數，見 fairyDamage），再吃敵人傷害倍率 ----
+    fairyStar: {          // 星屑彈：從本尊直直飛向一名玩家（穿過地形，一定打得到他；路上擋著的隊友先中）
+      id: 'fairyStar', name: '星屑彈', enemyOnly: true,
+      damage: 10,           // 我提、使用者說可以的：10 × 人數
+      knockback: 60,
+      radius: 26,
+      gravity: 0,
+      speed: 900,
+      hitRadius: 7,
+      passTerrain: true, passAllies: true, noCarve: true,
+      shellRadius: 6,
+      color: '#f5d0fe',
+    },
+    fairySwap: {          // 調包：互換位置的兩個人各受的傷害（不是飛行物，結算用這把的數字）
+      id: 'fairySwap', name: '調包', enemyOnly: true,
+      damage: 5,            // 我抓的（使用者說「小傷害」可以）：5 × 人數
+      knockback: 0,
+      radius: 0,
+      gravity: 0,
+      speed: 0,
+      hitRadius: 0,
+      shellRadius: 0,
+      color: '#c4b5fd',
+    },
+    fairyBlast: {         // 分身爆炸：玩家打到分身時在分身的位置炸開（不是飛行物，結算用這把的數字；照爆炸距離遞減）
+      id: 'fairyBlast', name: '分身爆炸', enemyOnly: true,
+      damage: 15,           // 我提、使用者說可以的：15 × 人數
+      knockback: 160,
+      radius: 80,           // 我提、使用者說可以的
+      gravity: 0,
+      speed: 0,
+      hitRadius: 0,
+      shellRadius: 0,
+      color: '#f0abfc',
+    },
+
+    // ---- 頑皮猴王的招式（enemyOnly；規則見 shared/maps/monkey.js）。再吃敵人傷害倍率 ----
+    monkeyCoconut: {      // 椰子砸：拋物線砸向一名玩家。damage 是每一名開場玩家多少（× 開場人數，同調皮妖精）
+      id: 'monkeyCoconut', name: '椰子砸', enemyOnly: true, passOwner: true,
+      damage: 12,           // 我提的：12 × 人數
+      knockback: 90,
+      radius: 24,
+      gravity: 600,
+      minSpeed: 250,
+      speedPerPower: 6.5,
+      hitRadius: 8,
+      noCarve: true,
+      shellRadius: 9,
+      color: '#7c4a1e',
+    },
+    monkeyThrow: {        // 丟回去：接住的砲彈丟回給開槍的人。傷害、爆炸範圍、擊退、挖不挖地照原本的武器（monkey.js 換掉這幾個欄位），這裡只是拋物線
+      id: 'monkeyThrow', name: '丟回去', enemyOnly: true, passOwner: true,
+      damage: 30,
+      knockback: 180,
+      radius: 42,
+      gravity: 600,
+      minSpeed: 250,
+      speedPerPower: 6.5,
+      hitRadius: 6,
+      shellRadius: 6,
+      color: '#2b2b2b',
+    },
+
     // ---- 巨蠍巢穴：洞穴巨蠍的招式（enemyOnly；規則見 shared/maps/scorpion.js）。數字都是我先抓的（使用者沒指定），再吃敵人傷害倍率 ----
     scorpionBurst: {      // 震擊周圍（暈眩醒來）：從洞口中間往兩邊衝到洞口邊，打站在那個洞口前面地上的人（往外推）
       id: 'scorpionBurst', name: '震擊周圍', enemyOnly: true,
@@ -1102,6 +1344,49 @@ export const CONFIG = {
       passTerrain: true, passAllies: true,
       shellRadius: 16,
       color: '#4a2a3a',
+    },
+
+    // ---- 大地祭壇：大地之母・蓋亞的招式（enemyOnly；規則見 shared/maps/gaia.js）。捏碎的數字是使用者定的（2026-11-04），天罰的是我提的；再吃敵人傷害倍率 ----
+    // 兩招都是每個被打到的人各一道震波（同獨眼巨人的震盪獅吼）：從他靠祭壇（中間）的那一側、他身體中心的高度出發，水平往外衝向他
+    // （穿過地形、只撞得到他），撞擊點跟身體中心一樣高 → 擊退水平往外（離開祭壇的方向）再往上彈一點（Entity.knockBack）。客戶端照事件重播飛出去
+    gaiaCrush: {          // 巨掌・捏碎：兩隻手在中間那一整欄合起來（站在中間三層的人都會被打到）
+      id: 'gaiaCrush', name: '巨掌・捏碎', enemyOnly: true,
+      damage: 10,           // 每一名開場玩家多少（× 開場人數，見 gaiaDamage；使用者 11-04：照人數、不寫死）。1 ~ 4 人 10 / 20 / 30 / 40（原本寫死 40）
+      knockback: 500,       // 使用者定的：往離開祭壇的方向（祭壇左邊的往左、右邊的往右）：站在中間的人會被甩出去
+      radius: 0,
+      gravity: 0,
+      speed: 1500,
+      hitRadius: 6,
+      passTerrain: true, passAllies: true,
+      noFire: true,         // 震波穿過火源不會著火（見 shared/physics/fire.js）
+      shellRadius: 0,
+      color: '#a3a380',
+    },
+    gaiaSmite: {          // 神掌・天罰：一隻手掌拍下左邊或右邊整片斜坡（那一邊三層的人都會被打到）
+      id: 'gaiaSmite', name: '神掌・天罰', enemyOnly: true,
+      damage: 9,            // 每一名開場玩家多少（× 開場人數，見 gaiaDamage）。1 ~ 4 人 9 / 18 / 27 / 36（原本寫死 35）
+      knockback: 100,       // 我提的：小小推一下，方向同捏碎（往外、離開祭壇的方向 = 往牆那邊，不會被推下斜坡的內側）
+      radius: 0,
+      gravity: 0,
+      speed: 1500,
+      hitRadius: 6,
+      passTerrain: true, passAllies: true,
+      noFire: true,
+      shellRadius: 0,
+      color: '#fde68a',
+    },
+    gaiaStack: {          // 巨拳・同罰（11-04 使用者加的）：拳頭鎖定一名玩家，結算時他身邊 stackRadius 裡的人平分總傷害；每個分擔的人頭上各落下一記拳（垂直往下、只撞得到他）
+      id: 'gaiaStack', name: '巨拳・同罰', enemyOnly: true,
+      damage: 20,           // 我補的：總傷害 = 每一名開場玩家 20（× 開場人數，見 gaiaDamage；1 ~ 4 人 20 / 40 / 60 / 80），分擔的人平分
+      knockback: 0,         // 我補的：不擊退（砸在頭上）
+      radius: 0,
+      gravity: 0,
+      speed: 1400,
+      hitRadius: 6,
+      passTerrain: true, passAllies: true,
+      noFire: true,
+      shellRadius: 0,
+      color: '#a8a29e',
     },
   },
 

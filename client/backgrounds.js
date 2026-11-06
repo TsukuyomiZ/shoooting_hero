@@ -1,11 +1,12 @@
 // 地圖主題（level.theme）的靜態背景：每個主題只畫一次（Renderer.background 第一次用到才畫）。
-// 主題跟地圖機制無關：森林（forest）是樹影重重、小心擊發、古樹之庭共用的；沒寫主題 = 黃昏（dusk）
+// 主題跟地圖機制無關：森林（forest）是樹影重重、小心擊發、古樹之庭共用的；大地祭壇（gaia）是主題王 大地之母・蓋亞那一關的；沒寫主題 = 黃昏（dusk）
 export const BACKGROUNDS = {
   dusk: buildDuskBackground,
   forest: buildForestBackground,
   jungle: buildJungleBackground,
   cave: buildCaveBackground,
   prison: buildPrisonBackground,
+  gaia: buildGaiaBackground,
 };
 
 const canvasOf = (W, H) => {
@@ -229,5 +230,73 @@ function buildJungleBackground(W, H) {
     ctx.fillStyle = `rgba(217,249,157,${0.12 + (i % 5) * 0.07})`;
     ctx.beginPath(); ctx.arc(x, y, 1.4 + (i % 3), 0, Math.PI * 2); ctx.fill();
   }
+  return c;
+}
+
+// 大地祭壇：入夜的深紫色天空、背後一圈淡金色的古老光環（蓋亞的臉在它前面，見 client/map-views/gaia.js）、
+// 兩側高聳的土崖與垂下來的樹根、遠方的森林剪影、飄浮的孢子，水面（毒水）上一層紫綠色的霧
+function buildGaiaBackground(W, H) {
+  const c = canvasOf(W, H);
+  const ctx = c.getContext('2d');
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#120c22');
+  sky.addColorStop(0.45, '#22203a');
+  sky.addColorStop(0.75, '#22382e');
+  sky.addColorStop(1, '#1a2a22');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+  // 背後的光環（刻著一圈符文）
+  const cx = W / 2, cy = 232;
+  const halo = ctx.createRadialGradient(cx, cy, 120, cx, cy, 240);
+  halo.addColorStop(0, 'rgba(253,230,138,0.12)');
+  halo.addColorStop(1, 'rgba(253,230,138,0)');
+  ctx.fillStyle = halo;
+  ctx.beginPath(); ctx.arc(cx, cy, 240, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(253,230,138,0.22)';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(cx, cy, 182, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(cx, cy, 168, 0, Math.PI * 2); ctx.stroke();
+  for (let k = 0; k < 24; k++) {
+    const a = k * Math.PI / 12, r0 = 170, r1 = k % 2 ? 180 : 176;
+    ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0); ctx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); ctx.stroke();
+  }
+  // 遠方的森林剪影（兩層）
+  for (const [color, base, seed] of [['rgba(28,40,36,0.7)', 470, 3], ['rgba(16,26,22,0.85)', 540, 7]]) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 12) ctx.lineTo(x, base - Math.abs(Math.sin(x * 0.021 * seed)) * 60 - Math.abs(Math.sin(x * 0.07 + seed)) * 18);
+    ctx.lineTo(W, H);
+    ctx.closePath(); ctx.fill();
+  }
+  // 兩側的土崖與垂下來的樹根
+  for (const s of [-1, 1]) {
+    const x0 = s < 0 ? 0 : W;
+    ctx.fillStyle = '#20160f';
+    ctx.beginPath();
+    ctx.moveTo(x0, 0);
+    for (let y = 0; y <= H; y += 24) ctx.lineTo(x0 - s * (70 + Math.sin(y * 0.05) * 14 + (y < 300 ? (300 - y) * 0.25 : 0)), y);
+    ctx.lineTo(x0, H);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(74,53,36,0.8)';
+    ctx.lineWidth = 3;
+    for (let k = 0; k < 7; k++) {
+      const x = x0 - s * (40 + k * 22), len = 80 + (k * 53) % 140;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.quadraticCurveTo(x - s * 14, len / 2, x + s * 6, len); ctx.stroke();
+    }
+  }
+  // 飄浮的孢子
+  for (let i = 0; i < 46; i++) {
+    const x = (i * 229) % W, y = 60 + (i * 151) % (H - 220);
+    ctx.fillStyle = i % 3 ? `rgba(190,242,100,${0.12 + (i % 5) * 0.06})` : `rgba(216,180,254,${0.12 + (i % 4) * 0.06})`;
+    ctx.beginPath(); ctx.arc(x, y, 1.3 + (i % 3), 0, Math.PI * 2); ctx.fill();
+  }
+  // 毒水上的霧
+  const mist = ctx.createLinearGradient(0, 560, 0, 660);
+  mist.addColorStop(0, 'rgba(147,51,234,0)');
+  mist.addColorStop(1, 'rgba(147,51,234,0.18)');
+  ctx.fillStyle = mist;
+  ctx.fillRect(0, 560, W, 100);
   return c;
 }

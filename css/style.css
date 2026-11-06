@@ -126,13 +126,17 @@ button.big { width: 100%; padding: 13px; font-size: 17px; margin-top: 8px; }
 .mode-pick button, .difficulty-pick button { flex: 1; padding: 8px 10px; font-size: 15px; background: #15131c; border: 1px solid #3a3550; color: #cbd5e1; }
 .mode-pick button[aria-checked="true"], .difficulty-pick button[aria-checked="true"] { background: #2a2140; border-color: #a855f7; color: #fff; font-weight: bold; }
 .mode-pick button[data-id="versus"][aria-checked="true"] { background: linear-gradient(90deg, #1e3a8a, #7f1d1d); border-color: #a5b4fc; }
+.mode-pick button[data-id="theme"][aria-checked="true"] { background: #14532d; border-color: #4ade80; }
 .difficulty-pick button[data-id="elite"][aria-checked="true"] { background: #3b1d5e; border-color: #c084fc; color: #f3e8ff; }
 .mode-desc, .difficulty-desc { margin: 0 0 4px; font-size: 12px; color: #8a84a3; min-height: 16px; }
 .difficulty-tag { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: #3a3550; color: #e5e7eb; }
 .difficulty-tag.elite { background: #6b21a8; color: #f3e8ff; }
 .difficulty-tag.versus { background: linear-gradient(90deg, #1d4ed8, #b91c1c); color: #fff; }
+.difficulty-tag.theme { background: #166534; color: #dcfce7; }
+.difficulty-tag.theme.elite { background: linear-gradient(90deg, #166534, #6b21a8); }
 .room-row .rdiff { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: #6b21a8; color: #f3e8ff; white-space: nowrap; }
 .room-row .rmode { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: linear-gradient(90deg, #1d4ed8, #b91c1c); color: #fff; white-space: nowrap; }
+.room-row .rmode.theme { background: #166534; color: #dcfce7; }
 /* 大廳的公開房間列表（點一列就加入） */
 .room-browser { margin-top: 14px; padding-top: 10px; border-top: 1px solid #3a3550; }
 .room-browser-bar { display: flex; align-items: baseline; gap: 8px; }

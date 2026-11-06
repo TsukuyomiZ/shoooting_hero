@@ -1,5 +1,6 @@
 import { CONFIG } from '../shared/core/config.js';
-import { difficultyOf, difficultyDesc } from '../shared/game/stage-rules.js';
+import { difficultyOf, difficultyDesc, themeDesc } from '../shared/game/stage-rules.js';
+import { openThemes } from '../shared/game/themes.js';
 import { difficultyName } from './stage-look.js';
 
 const DIFFICULTY_KEY = 'sh_difficulty';   // 上次選的難度（只是方便，讀不到就用一般）
@@ -8,10 +9,13 @@ const MODE_KEY = 'sh_mode';               // 上次選的模式（同上，讀�
 // （瀏覽器「重新啟動」還原的分頁會帶著這個值，所以那一頁不一定會再提醒）
 const GPU_HINT_KEY = 'sh_gpu_hint_closed';
 
-// 模式：coop = 冒險（PVE 共鬥）、versus = 勝者為王（兩隊對戰）；不認得的都當冒險（同伺服器的 modeOf）
+// 模式：coop = 冒險（PVE 共鬥）、theme = 主題副本、versus = 勝者為王（兩隊對戰）；不認得的都當冒險（同伺服器的 modeOf）。
+// 主題副本要有開放中的主題才出現（shared/game/themes.js 的 openThemes）；現在只有一個主題，選了就是它（主題多了再加一排選主題）
 const V = CONFIG.VERSUS;
-const MODES = { coop: '冒險', versus: `${V.name} ${V.teamSize}v${V.teamSize}` };
-const modeOf = (id) => (id === 'versus' ? 'versus' : 'coop');
+const THEME = openThemes()[0] || null;
+const MODES = { coop: '冒險', ...(THEME ? { theme: '主題副本' } : {}), versus: `${V.name} ${V.teamSize}v${V.teamSize}` };
+const modeOf = (id) => (id === 'versus' ? 'versus' : id === 'theme' && THEME ? 'theme' : 'coop');
+const THEMES = CONFIG.THEMES;
 // 勝者為王的一行說明（選單上、房間裡模式標籤的提示）：數字照 CONFIG.VERSUS
 const VERSUS_DESC = `${V.teamSize} 對 ${V.teamSize} 對戰：每人 ${V.hp} 血，${V.pickEvery > 1 ? `每 ${V.pickEvery} 輪` : '每輪'}結束選一張牌，`
   + `第 ${V.feverEvery + 1} 輪起狂熱；人不夠可以加電腦玩家`;
@@ -74,15 +78,15 @@ export class Lobby {
       const btn = ev.target.closest('button[data-id]');
       if (btn) this.setMode(btn.dataset.id, true);
     });
-    this.$('#mode-desc').textContent = VERSUS_DESC;
     let savedMode = null;
     try { savedMode = localStorage.getItem(MODE_KEY); } catch { /* 讀不到：用冒險 */ }
     this.setMode(savedMode, false);
 
-    // 對戰沒有難度：一律送一般（伺服器也只認一般），冒險照選的
+    // 對戰沒有難度：一律送一般（伺服器也只認一般），冒險、主題副本照選的
     const difficulty = () => (this.mode === 'versus' ? 'normal' : this.difficulty);
-    this.$('#btn-solo').addEventListener('click', () => this.guard(() => this.h.onSolo(this.name(), difficulty(), this.mode)));
-    this.$('#btn-create').addEventListener('click', () => this.guard(() => this.h.onCreate(this.name(), this.$('#create-private').checked, difficulty(), this.mode)));
+    const theme = () => (this.mode === 'theme' ? THEME : null);
+    this.$('#btn-solo').addEventListener('click', () => this.guard(() => this.h.onSolo(this.name(), difficulty(), this.mode, theme())));
+    this.$('#btn-create').addEventListener('click', () => this.guard(() => this.h.onCreate(this.name(), this.$('#create-private').checked, difficulty(), this.mode, theme())));
     this.$('#btn-join').addEventListener('click', () => {
       const code = this.codeInput.value.trim().toUpperCase();
       if (code.length < 4) return this.showError('請輸入 4 碼房號');
@@ -156,18 +160,22 @@ export class Lobby {
   setDifficulty(id, remember) {
     this.difficulty = difficultyOf(id);
     for (const btn of this.difficultyPick.querySelectorAll('button[data-id]')) btn.setAttribute('aria-checked', String(btn.dataset.id === this.difficulty));
-    this.$('#difficulty-desc').textContent = difficultyDesc(this.difficulty);
+    // 主題副本：菁英關的位置照主題的
+    this.$('#difficulty-desc').textContent = difficultyDesc(this.difficulty, CONFIG, this.mode === 'theme' ? THEME : null);
     if (remember) try { localStorage.setItem(DIFFICULTY_KEY, this.difficulty); } catch { /* 存不了就算了 */ }
   }
 
-  // 選模式：勝者為王沒有難度，藏起難度那排與說明、換上模式說明，單人練習改叫「對電腦」；remember 同 setDifficulty
+  // 選模式：勝者為王沒有難度，藏起難度那排與說明、換上模式說明，單人練習改叫「對電腦」；
+  // 主題副本有難度，模式說明（主題）與難度說明（照主題的菁英關）都顯示；remember 同 setDifficulty
   setMode(id, remember) {
     this.mode = modeOf(id);
     const versus = this.mode === 'versus';
     for (const btn of this.modePick.querySelectorAll('button[data-id]')) btn.setAttribute('aria-checked', String(btn.dataset.id === this.mode));
     this.$('.difficulty-row').hidden = versus;
     this.$('#difficulty-desc').hidden = versus;
-    this.$('#mode-desc').hidden = !versus;
+    this.$('#mode-desc').hidden = this.mode === 'coop';
+    this.$('#mode-desc').textContent = versus ? VERSUS_DESC : this.mode === 'theme' ? themeDesc(THEME) : '';
+    this.setDifficulty(this.difficulty, false);
     this.$('#btn-solo').textContent = versus ? '單人練習（對電腦）' : '單人練習';
     if (remember) try { localStorage.setItem(MODE_KEY, this.mode); } catch { /* 存不了就算了 */ }
   }
@@ -231,13 +239,14 @@ export class Lobby {
       btn.disabled = r.started || full || this.busy;
       if (!btn.disabled) btn.dataset.code = r.code;
       btn.title = btn.disabled ? `房間${state}` : `加入房號 ${r.code}`;
-      // 勝者為王的房間標模式（沒有難度）；冒險的房間不是一般難度才標難度
+      // 勝者為王的房間標模式（沒有難度）、主題副本的房間標主題；冒險（含主題副本）的房間不是一般難度才標難度
       const versus = r.mode === 'versus';
+      const theme = r.mode === 'theme' && THEMES[r.theme];
       const hard = !versus && difficultyOf(r.difficulty) !== 'normal';
-      btn.innerHTML = `<span class="rcode"></span><span class="rhost"></span>${versus ? '<span class="rmode"></span>' : ''}${hard ? '<span class="rdiff"></span>' : ''}<span class="rcount"></span><span class="rstate${btn.disabled ? ' busy' : ''}"></span>`;
+      btn.innerHTML = `<span class="rcode"></span><span class="rhost"></span>${versus || theme ? `<span class="rmode${theme ? ' theme' : ''}"></span>` : ''}${hard ? '<span class="rdiff"></span>' : ''}<span class="rcount"></span><span class="rstate${btn.disabled ? ' busy' : ''}"></span>`;
       btn.querySelector('.rcode').textContent = r.code;
       btn.querySelector('.rhost').textContent = `${r.host} 的房間`;
-      if (versus) btn.querySelector('.rmode').textContent = V.name;
+      if (versus || theme) btn.querySelector('.rmode').textContent = versus ? V.name : theme.name;
       if (hard) btn.querySelector('.rdiff').textContent = difficultyName(r.difficulty);
       btn.querySelector('.rcount').textContent = `${r.players} / ${r.max}`;
       btn.querySelector('.rstate').textContent = state;
@@ -255,12 +264,14 @@ export class Lobby {
     this.$('#room-code').textContent = msg.code;
     const isHostNow = msg.hostId === myId;
     const versus = msg.mode === 'versus';
-    // 勝者為王沒有難度：標籤改寫模式
+    const theme = msg.mode === 'theme' && THEMES[msg.theme] ? msg.theme : null;
+    // 勝者為王沒有難度：標籤改寫模式；主題副本前面加主題的名字
     const diff = this.$('#difficulty-label');
-    diff.textContent = versus ? `模式：${V.name}` : `難度：${difficultyName(msg.difficulty)}`;
+    diff.textContent = versus ? `模式：${V.name}` : `${theme ? `${THEMES[theme].name}　` : ''}難度：${difficultyName(msg.difficulty)}`;
     diff.classList.toggle('elite', !versus && difficultyOf(msg.difficulty) === 'elite');
     diff.classList.toggle('versus', versus);
-    diff.title = versus ? VERSUS_DESC : difficultyDesc(msg.difficulty);
+    diff.classList.toggle('theme', !!theme);
+    diff.title = versus ? VERSUS_DESC : `${theme ? `${themeDesc(theme)}\n` : ''}${difficultyDesc(msg.difficulty, CONFIG, theme)}`;
     const label = this.$('#privacy-label');
     label.textContent = msg.private ? '私人房間' : '公開房間';
     label.classList.toggle('private', !!msg.private);

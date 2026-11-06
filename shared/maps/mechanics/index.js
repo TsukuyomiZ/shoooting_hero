@@ -10,14 +10,18 @@ import { prison } from './prison.js';
 import { swordsman } from './swordsman.js';
 import { tengu } from './tengu.js';
 import { spider } from './spider.js';
+import { ranger } from './ranger.js';
+import { fairy } from './fairy.js';
+import { monkey } from './monkey.js';
+import { gaia } from './gaia.js';
 
 // 地圖機制（見 GLOSSARY.md）：某一張地圖特有的規則（Boss 的招式與受擊反應、只在這張圖發生的回合效果與場上道具）。
 // 關卡用 mechanic: { type, ...這個機制的資料 } 宣告（見 level.js），沒寫就是一般小關（plain）。
-// Match 只在下面這些時間點呼叫掛勾，不知道有哪些地圖；規則本身在 tree-boss.js / snake-boss.js / hive.js / cave.js / cyclops.js / guardian.js / scorpion.js / prison.js / swordsman.js / tengu.js / spider.js，
+// Match 只在下面這些時間點呼叫掛勾，不知道有哪些地圖；規則本身在 tree-boss.js / snake-boss.js / hive.js / cave.js / cyclops.js / guardian.js / scorpion.js / prison.js / swordsman.js / tengu.js / spider.js / ranger.js / fairy.js / monkey.js / gaia.js，
 // mechanics/ 底下每個檔案只決定「什麼時候、照什麼順序」呼叫它們（common.js 例外：規則模組共用的出招小工具）。
 // 機制本身沒有狀態（同一個物件給所有對戰共用）。每一場的狀態（Boss 預定的下一招、召喚 / 放出來的角色、流水號、場上的道具…）
 // 是一個物件 match.mechState：由機制的 build 建好回傳、Match 存著不碰，之後的掛勾與規則模組都讀寫它（客戶端的地圖畫面直接讀寫）。
-// 一般小關沒有狀態 = null。哪張地圖有哪些欄位，見各規則模組的 buildTree / buildSnake / buildHive / buildCave / buildCyclops / buildGuardian / buildScorpion / buildSwordsman / buildSpider
+// 一般小關沒有狀態 = null。哪張地圖有哪些欄位，見各規則模組的 buildTree / buildSnake / buildHive / buildCave / buildCyclops / buildGuardian / buildScorpion / buildSwordsman / buildSpider / buildRanger / buildFairy / buildMonkey / buildGaia
 //
 // 每個掛勾都可以不寫（不寫 = 下面的預設：什麼都不做）：
 //   build(match, { hpScale, bossScale }) → state  建構：關卡的敵人之後，加上這個機制的角色（開場落地之前）；
@@ -37,6 +41,13 @@ import { spider } from './spider.js';
 //                                         回傳 { damages（這一次打到的）, done（這回合沒有還在動 / 等著的了）, notify（有要告訴客戶端的事）, ...給畫面的欄位 }；沒有 = null
 //   hazardFinish(match) → (() → shot) | null   回合收尾（hazardStep flush 之後、回合結束的效果之前）：還在動的（例如劍氣）回傳一口氣結算剩下那一段的函式
 //                                         （回傳跟開火同樣格式的結果）
+//   struggle(match, e, dir, now) → { ok, reason, count, need, freed } | null   行動玩家掙扎一下（客戶端的 struggle：連打 A / D 的其中一下，dir = ±1；
+//                                         裁判呼叫，now = 裁判的時鐘 ms）：例如大樹遊俠的藤蔓陷阱。沒被困住 = null；
+//                                         ok false 帶 reason（例如 'sameDir' 同一邊連按、'noStamina' 體力流光了）；freed = 這一下掙脫了
+//   takeover(match, e) → { reason, label } | null   玩家 e 的回合開始（回合開始的效果之後，裁判問）：這回合由遊戲接手（照 AI 回合跑，aiShot 決定這一發），
+//                                         例如調皮妖精的魅惑。reason = 紀錄用的代號、label = 畫面上的說明（「被魅惑了」）；null = 照平常（人在操作就是他自己打）
+//   aiShot(match, actor, weapons) → { plan, info } | null   AI 回合規劃開火時（Match.planAiTurn：走動之前）：這一發由機制決定就回傳
+//                                         plan（格式同 planShot；null = 這回合不開火，也不走動）與紀錄要帶的 info（null = 不記）；null = 照一般 AI（走動、planShot）
 //   turnStart(match, e, fx)               自己的回合開始：中毒結算之後、回血之前，要飄字的推進 fx
 //   turnEnd(match, e, fx)                 每個角色的回合結束：燃燒之後、神佑之石之前。在自己的回合倒下的角色也會叫（e.alive = false，只有這個、沒有燃燒等等）
 //   roundStart(match, fx)                 新的一輪開始（Match.beginRound：輪數加過之後、這一輪第一位的回合之前）：
@@ -54,6 +65,8 @@ import { spider } from './spider.js';
 //                                         回傳要附在事件上的欄位（例如洞穴的 falls / lights，與要接著飛的 adds，見 shared/physics/volley.js），沒有 = null
 //   passed(match, owner, seg) → object|null  一顆飛行物這一幀沒撞到東西，從 (seg.x0, seg.y0) 飛到 (seg.x1, seg.y1)（seg.r = 判定半徑、seg.weapon = 武器 id）：
 //                                         回傳要寫成 pass 事件的欄位（例如洞穴的 lights：從火把旁邊飛過去就點燃），沒有 = null。
+//                                         回傳的欄位帶 stop: true = 飛行物在這裡被攔下（事件 type 改成 'snatch'，飛行物到此為止、不爆炸，例如頑皮猴王接住砲彈）。
+//                                         seg.ignore = 這顆已經穿過 / 不會再撞到的角色（唯讀）；seg.ahead() = 這顆照現在的樣子飛下去第一個撞到的東西（advanceProjectile 的撞擊，飛完都沒撞到 = null；要試飛，很貴，真的要攔才問）。
 //                                         每顆飛行物每一幀都會呼叫，要很便宜
 //   fireSources(match, owner) → FireSource[]  場上會讓 owner 射出的飛行物著火的火源（著火是共同設定，規則在 shared/physics/fire.js）：
 //                                         { x0, y0, x1, y1, r, burn } = 一段線段往外 r px、穿過它著火之後打中的人附加 burn 層燃燒。
@@ -80,6 +93,9 @@ const HOOKS = {
   hazardStart: () => null,
   hazardStep: () => null,
   hazardFinish: () => null,
+  struggle: () => null,
+  takeover: () => null,
+  aiShot: () => null,
   turnStart: NOOP,
   turnEnd: NOOP,
   roundStart: NOOP,
@@ -113,7 +129,7 @@ function wrap(adapter) {
 }
 
 const PLAIN = wrap(plain);
-const TYPES = { tree: wrap(tree), snake: wrap(snake), hive: wrap(hive), cave: wrap(cave), cyclops: wrap(cyclops), guardian: wrap(guardian), scorpion: wrap(scorpion), prison: wrap(prison), swordsman: wrap(swordsman), tengu: wrap(tengu), spider: wrap(spider) };
+const TYPES = { tree: wrap(tree), snake: wrap(snake), hive: wrap(hive), cave: wrap(cave), cyclops: wrap(cyclops), guardian: wrap(guardian), scorpion: wrap(scorpion), prison: wrap(prison), swordsman: wrap(swordsman), tengu: wrap(tengu), spider: wrap(spider), ranger: wrap(ranger), fairy: wrap(fairy), monkey: wrap(monkey), gaia: wrap(gaia) };
 // 舊格式：機制的資料直接掛在關卡上（tree: {...} / snake: {...} / hive: {...}）
 const LEGACY_KEYS = ['tree', 'snake', 'hive'];
 
@@ -136,7 +152,11 @@ export function mechanicFor(level, levelId = '?') {
 // 巨蠍巢穴再多 scorpionHole、scorpionFacing（見 mechanics/scorpion.js）；處刑監獄帶 prison（見 mechanics/prison.js）；
 // 流浪劍士帶 swordsmanNext（一閃帶預警線）、swordsmanQi、swordsmanParry、swordsmanFlying（見 mechanics/swordsman.js）；
 // 天狗帶 tenguNext、tenguHover（浮著幾根羽毛）、tenguFlying（還在飛的羽毛，見 mechanics/tengu.js）；
-// 蜘蛛巢穴帶洞穴的 torches、fallen 再加 spider（女王的狀態、蛛卵、被黏住的人、下的蛋 / 放的網 / 孵出來的小蜘蛛，見 mechanics/spider.js）
+// 蜘蛛巢穴帶洞穴的 torches、fallen 再加 spider（女王的狀態、蛛卵、被黏住的人、下的蛋 / 放的網 / 孵出來的小蜘蛛，見 mechanics/spider.js）；
+// 大樹遊俠帶 rangerNext、ranger（站在哪根樹枝、被困住的人、放過的陷阱，見 mechanics/ranger.js）；
+// 調皮妖精帶 fairy（咬耳朵的人、生氣了沒、本尊現形了沒、被魅惑的人，見 mechanics/fairy.js）；
+// 頑皮猴王帶 monkey（待在哪根樹枝、手上的砲彈、場上的香蕉皮、生氣了沒，見 mechanics/monkey.js）；
+// 大地祭壇帶 gaia（蓋亞預定的下一招、瘴氣、自然之花、祭壇的光球、暈眩、暴走、最後之光，見 mechanics/gaia.js）
 export function snapshotOf(match) {
   return {
     minions: [],

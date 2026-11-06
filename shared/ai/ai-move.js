@@ -61,7 +61,7 @@ export function planWalk(match, actor) {
   const A = CONFIG.AI_MOVE;
   const rng = match.rng;
   if (!rng.chance(actor.ai ? actor.ai.moveChance : A.takeoverChance)) return null;
-  if (actor.fixed || !(actor.moveSpeed > 0) || actor.onVine >= 0 || !actor.onGround) return null;
+  if (actor.fixed || actor.held || !(actor.moveSpeed > 0) || actor.onVine >= 0 || !actor.onGround) return null;   // held = 被關住 / 困住：走不動
   const want = rng.range(A.dist[0], A.dist[1]);
   const frames = Math.max(1, Math.min(A.maxFrames, Math.round(want / actor.moveSpeed * 60)));
   const last = actor.aiWalkDir || 0;

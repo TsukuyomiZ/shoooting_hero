@@ -33,7 +33,7 @@ async function test(name, fn) {
 const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
 const J = JSON.stringify;
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
-const HOOKS = ['create', 'musicTrack', 'turnScript', 'abortScript', 'update', 'showEvent', 'showDamage', 'turnFx', 'statusFx', 'onPickup', 'predictMove', 'onDeath',
+const HOOKS = ['create', 'musicTrack', 'turnScript', 'abortScript', 'update', 'showEvent', 'showDamage', 'turnFx', 'statusFx', 'onPickup', 'predictMove', 'struggle', 'onStruggle', 'onDeath',
   'drawScene', 'shaded', 'drawShade', 'drawEntityFirst', 'drawEntityBare', 'drawEntity', 'drawFigure', 'hpBar', 'drawProjectile', 'hud'];
 // 只給畫面用、不該出現在 Entity / 場上的道具（地圖機制的狀態 match.mechState.items）上的欄位（以前放在角色、道具身上的那些）
 const VIEW_ONLY = ['viewOpen', 'viewDx', 'viewDy', 'viewT', 'windup', 'windDir', 'charging', 'floatedClosed', 'splashShown',
@@ -71,7 +71,7 @@ await test('每張地圖拿到對的地圖畫面（照 match.mechanic.type）：
     const s1 = v.create(m), s2 = v.create(m);
     assert(s1 && typeof s1 === 'object' && s1 !== s2, `${id}: create builds a fresh state every time`);
   }
-  assert(Object.values(got).filter(t => t !== 'plain').sort().join() === 'cave,cyclops,guardian,hive,prison,scorpion,snake,spider,swordsman,tengu,tree', 'one map each: ' + J(got));
+  assert(Object.values(got).filter(t => t !== 'plain').sort().join() === 'cave,cyclops,fairy,gaia,guardian,hive,monkey,prison,ranger,scorpion,snake,spider,swordsman,tengu,tree', 'one map each: ' + J(got));
   return got;
 });
 
@@ -124,7 +124,7 @@ const clientFiles = () => fs.readdirSync(path.join(ROOT, 'client'), { recursive:
 await test('render.js / game-view.js 不認得任何一張地圖：程式碼（註解除外）不提地圖的名字，只透過 map-views/index.js', () => {
   // 地圖的名字：英文的（camelCase 的開頭或中間，例如 treeSpear、snakeBlood、drawTreeScene；全大寫的，例如 SNAKE_BOSS）與畫面上的中文。
   // 不能用 /i：(?![a-z]) 會連大寫字母一起擋掉，treeSpear 就漏掉了
-  const MAP_NAMES = /\b(tree|snake|hive|bees?|eye|mouth|treant|minion|cave|torch(?:es)?|stalactites?|cyclops|boulder|scorpion|prison|executioner|guillotine|chandeliers?|swordsman|tengu)(?![a-z])|(Tree|Snake|Hive|Bees?|Eye|Mouth|Treant|Minion|Cave|Torch(?:es)?|Stalactites?|Cyclops|Boulder|Scorpion|Prison|Executioner|Guillotine|Chandeliers?|Swordsman|Tengu)(?![a-z])|\b(TREE|SNAKE|HIVE|BEES?|EYE|MOUTH|TREANT|MINION|CAVE|CYCLOPS|SCORPION|EXECUTIONER|SWORDSMAN|TENGU)(?![A-Z])|closeOnHit|\.part\b|古樹|巨蟒|蜂巢|蜜蜂|樹妖|蛇血|洞穴|岩穴|鐘乳石|火把|獨眼巨人|地心探險|巨蠍|處刑|囚籠|斷頭台|吊燈|監獄|流浪劍士|劍氣|天狗|羽刃|風彈/;
+  const MAP_NAMES = /\b(tree|snake|hive|bees?|eye|mouth|treant|minion|cave|torch(?:es)?|stalactites?|cyclops|boulder|scorpion|prison|executioner|guillotine|chandeliers?|swordsman|tengu|ranger|fairy|fairies|clones?|monkeys?|peels?|coconuts?|bananas?|gaia)(?![a-z])|(Tree|Snake|Hive|Bees?|Eye|Mouth|Treant|Minion|Cave|Torch(?:es)?|Stalactites?|Cyclops|Boulder|Scorpion|Prison|Executioner|Guillotine|Chandeliers?|Swordsman|Tengu|Ranger|Fairy|Fairies|Clones?|Monkeys?|Peels?|Coconuts?|Bananas?|Gaia)(?![a-z])|\b(TREE|SNAKE|HIVE|BEES?|EYE|MOUTH|TREANT|MINION|CAVE|CYCLOPS|SCORPION|EXECUTIONER|SWORDSMAN|TENGU|RANGER|FAIRY|MONKEY|GAIA)(?![A-Z])|closeOnHit|\.part\b|古樹|巨蟒|蜂巢|蜜蜂|樹妖|蛇血|洞穴|岩穴|鐘乳石|火把|獨眼巨人|地心探險|巨蠍|處刑|囚籠|斷頭台|吊燈|監獄|流浪劍士|劍氣|天狗|羽刃|風彈|遊俠|貫穿箭|箭雨|藤蔓陷阱|妖精|分身|咬耳朵|星屑彈|調包|猴王|香蕉|椰子|丟回去|蓋亞|大地之母|祭壇|瘴氣|自然之花|最後之光|誅滅/;
   const caught = ['treeSpear', 'snakeBlood', 'drawTreeScene', 'beeTurnScript', 'CONFIG.SNAKE_BOSS', "e.kind === 'hive'", 'e.minion', 'drawEye(ctx)', 'drawTorches', "id === 'stalactite'"];
   assert(caught.every(s => MAP_NAMES.test(s)), 'the scan misses: ' + caught.filter(s => !MAP_NAMES.test(s)));
   assert(!['street', 'eyes', 'keyEvent', 'archive'].some(s => MAP_NAMES.test(s)), 'the scan flags ordinary words');
@@ -146,8 +146,8 @@ await test('render.js / game-view.js 不認得任何一張地圖：程式碼（�
 await test('地圖畫面不碰 GameView 本身：不 import 音效 / 畫面模組（只 import shared/ 與通用的繪圖小工具），不寫 view.particles / shake / treeFx…（特效走 c.fx）', () => {
   const dir = 'client/map-views/';
   const files = fs.readdirSync(path.join(ROOT, dir)).filter(f => f.endsWith('.js'));
-  assert(['index.js', 'plain.js', 'tree.js', 'snake.js', 'hive.js', 'cave.js', 'cyclops.js', 'guardian.js', 'scorpion.js', 'prison.js', 'swordsman.js', 'tengu.js', 'spider.js'].every(f => files.includes(f)), 'map-views/: ' + files);
-  const ALLOWED = /^(\.\.\/\.\.\/shared\/(?:[\w-]+\/)+[\w-]+\.js|\.\.\/(draw|weapon-art)\.js|\.\/(plain|tree|snake|hive|cave|cyclops|guardian|scorpion|prison|swordsman|tengu|spider)\.js)$/;
+  assert(['index.js', 'plain.js', 'tree.js', 'snake.js', 'hive.js', 'cave.js', 'cyclops.js', 'guardian.js', 'scorpion.js', 'prison.js', 'swordsman.js', 'tengu.js', 'spider.js', 'ranger.js', 'fairy.js', 'monkey.js', 'gaia.js'].every(f => files.includes(f)), 'map-views/: ' + files);
+  const ALLOWED = /^(\.\.\/\.\.\/shared\/(?:[\w-]+\/)+[\w-]+\.js|\.\.\/(draw|weapon-art)\.js|\.\/(plain|tree|snake|hive|cave|cyclops|guardian|scorpion|prison|swordsman|tengu|spider|ranger|fairy|monkey|gaia)\.js)$/;
   const GAMEVIEW = /\bview\s*\.|\bsfx\b|\baudio\b|\bdocument\b|\bwindow\b|\.(particles|flashes|linkFlashes|floatTexts|treeFx|snakeFx|painter|banner|shake)\s*(=(?!=)|\.push\b|\[)/;
   for (const f of files) {
     const src = read(dir + f);
@@ -232,7 +232,7 @@ const fakeIo = () => ({ t: 0, timers: [], log: [], seq: 0,
 
 await test('真的 GameView：每種地圖（一般 / 古樹之庭 / 叢林巨蟒 / 小心擊發）從開場播一段（全員 AI 代打、小心擊發先打蜂巢一槍；每幀 update + render），有地圖畫面的都播到王 / 蜜蜂的回合：setup 換成那張地圖的畫面與新的狀態，角色 / 道具身上沒有畫面用的欄位', () => {
   const out = {};
-  for (const levelId of ['level1', 'treeGarden', 'jungleSerpent', 'beehive', 'depths']) {
+  for (const levelId of ['level1', 'treeGarden', 'jungleSerpent', 'beehive', 'depths', 'gaiaSanctum']) {
     const players = mkPlayers(2);
     const m = new Match({ levelId, players, seed: 7, stage: LEVELS[levelId].pool === 'boss' ? 5 : 1 });
     for (const p of m.players) { p.hp = p.maxHp = 2000; }
@@ -670,7 +670,7 @@ await test('背景音樂（GameView.musicTrack）：地圖畫面指定的曲子�
   const out = {};
   const cases = [
     ['level1', 'normal', 'fever'], ['cave', 'cave', 'caveFever'], ['depths', 'cave', 'caveFever'],
-    ['treeGarden', 'tree', 'tree'], ['jungleSerpent', 'snake', 'snake'], ['scorpionDen', 'scorpion', 'scorpion'],
+    ['treeGarden', 'tree', 'tree'], ['jungleSerpent', 'snake', 'snake'], ['scorpionDen', 'scorpion', 'scorpion'], ['gaiaSanctum', 'tree', 'tree'],
   ];
   for (const [levelId, calmWant, hotWant] of cases) {
     const players = mkPlayers(1);
@@ -820,6 +820,238 @@ await test('血條旁的燃燒 / 中毒 / 流血標記不超出畫面：大樹�
     out[tag] = `${right ? 'right' : 'left'} ${spans.map(([l, r]) => `${Math.round(l)}~${Math.round(r)}`).join(' ')}`;
   }
   return out;
+});
+
+// ---- 大地之母・蓋亞（主題王，2026-11-04）----
+// 播一段腳本（generator）：{ frames } 照步數、{ until, max } 等到成立；每一步 update、時間往前，每 6 步畫一次（畫不出錯）
+function runGaiaScript(v, c, gen, draw) {
+  let n = 0;
+  const step = () => { v.update(c, STEP); c.time += STEP; if (++n % 6 === 0) draw(); };
+  for (let r = gen.next(); !r.done; r = gen.next()) {
+    const y = r.value || {};
+    if (y.until) { for (let k = 0; k < (y.max ?? 600) && !y.until(); k++) step(); } else for (let k = 0; k < (y.frames || 1); k++) step();
+  }
+  return n;
+}
+const gaiaPick = (m) => J({ ...m.mechState, def: undefined });
+
+await test('大地之母・蓋亞：手的姿勢照預定的下一招（捏碎 = 兩手平舉到中間、天罰 = 那一邊的手舉高、同罰 = 目標那一邊的手握拳停在他頭上（跟著他走）、淨化 = 兩手捧在下巴底下）；一般難度畫警示帶（範圍 = zoneOf）/ 同罰的集合圈（半徑 stackRadius、寫圈裡幾個人），菁英之路（rangeHints false）只有手的姿勢（同罰的拳頭照樣畫）；畫圖不改狀態', async () => {
+  const { gaiaState, gaiaOf, zoneOf, stackSharers } = await import('../shared/maps/gaia.js');
+  const m = matchOf('gaiaSanctum', 4);
+  const v = mapViewFor(m);
+  assert(v.type === 'gaia' && v.musicTrack({}) === 'tree' && v.shaded({}) === true, 'gaia view');
+  const S = gaiaState(m);
+  const out = {};
+  for (const plan of [{ action: 'crush' }, { action: 'smite', side: -1 }, { action: 'smite', side: 1 }, { action: 'stack', targetId: 'p3' }, { action: 'cleanse' }]) {
+    for (const hints of [true, false]) {
+      S.next = { ...plan };
+      const { c } = sinkCtx(m, v.create(m));
+      c.rangeHints = hints;
+      for (let k = 0; k < 120; k++) v.update(c, STEP);
+      const { L, R } = c.state.hands;
+      const tag = `${plan.action}${plan.side ? plan.side : ''} hints=${hints}`;
+      if (plan.action === 'crush') assert(L.x > 200 && R.x < CONFIG.WORLD_W - 200 && Math.abs(L.y - R.y) < 1 && L.curl > 0.4, `${tag}: both hands level at the centre ` + J({ L, R }));
+      if (plan.action === 'smite') {
+        const [up, down] = plan.side < 0 ? [L, R] : [R, L];
+        assert(up.y < down.y - 30 && up.rot > 1.4, `${tag}: that side's palm is raised flat ` + J({ L, R }));
+      }
+      if (plan.action === 'cleanse') assert(L.x > 380 && R.x < CONFIG.WORLD_W - 380 && L.y > 360, `${tag}: hands cupped under the chin ` + J({ L, R }));
+      let fist = null;
+      if (plan.action === 'stack') {
+        const t = m.byId('p3');
+        const [mine, other] = t.cx < CONFIG.WORLD_W / 2 ? [L, R] : [R, L];
+        assert(mine.fist && !other.fist && Math.abs(mine.x - t.cx) < 2 && mine.y < t.y - t.h - 30 && mine.y > t.y - t.h - 50, `${tag}: a fist over the target's head ` + J({ mine, t: [t.cx, t.y - t.h] }));
+        fist = mine;
+      }
+      const before = J([...c.state.orbs, c.state.fog, c.state.dome, L, R]) + gaiaPick(m);
+      const r = recordingCtx();
+      v.drawScene(r.ctx, c);
+      v.drawShade(r.ctx, c);
+      const g = gaiaOf(m);
+      assert(v.drawEntity(r.ctx, c, g, false) === 'body' && v.drawEntityFirst(c, g) && v.hpBar(c, g).w > 90, 'face drawn as the body, behind everyone');
+      assert(J([...c.state.orbs, c.state.fog, c.state.dome, L, R]) + gaiaPick(m) === before, `${tag}: drawing does not change the state`);
+      const z = zoneOf(S.def, plan);
+      const band = r.calls.some(x => x.fn === 'fillRect' && z && x.args[0] === z.x0 && Math.abs(x.args[2] - (z.x1 - z.x0)) < 1e-9);
+      const ring = r.calls.some(x => x.fn === 'setLineDash' && J(x.args[0]) === '[10,6]');
+      const label = r.calls.find(x => x.fn === 'fillText' && /^集合分擔/.test(x.args[0]));
+      assert(band === (hints && !!z), `${tag}: warning band ${band}`);
+      assert(ring === (hints && plan.action === 'stack') && !!label === ring, `${tag}: stack gather ring ${ring}`);
+      if (label) assert(label.args[0] === `集合分擔（${stackSharers(m, m.byId('p3')).length} 人）`, 'ring label counts who is inside ' + label.args[0]);
+      // 拳頭畫在角色之後（drawShade）：四個指節（橢圓）——菁英之路也畫
+      const knuckles = r.calls.filter(x => x.fn === 'ellipse' && x.args[2] === 11 && x.args[3] === 12).length;
+      assert((knuckles >= 4) === !!fist, `${tag}: fist drawn ${knuckles}`);
+      const hud = v.hud(c, ['敵人剩餘 1 / 1', '#fca5a5']).map(l => l[0]);
+      const side = plan.side < 0 ? '左側' : '右側';
+      assert(hud[1].startsWith('蓋亞 ') && hud[2].startsWith('下一招：') && (plan.action !== 'smite' || hud[2].includes(side) === hints), `${tag}: hud ` + J(hud));
+      assert(plan.action !== 'stack' || hud[2].includes('巨拳・同罰 → P3') === hints, `${tag}: stack hud names the target ` + J(hud));
+      assert(plan.action !== 'cleanse' || !hints || hud[2] === '下一招：自然・淨化', `${tag}: cleanse has no target ` + J(hud));
+      // 菁英之路（U：只看得到手的姿勢）：HUD 不寫是哪一招
+      assert(hints || hud[2] === '下一招：看她的手勢', `${tag}: elite hud names no move ` + J(hud));
+      out[tag] = { band, ring, fist: !!fist };
+    }
+  }
+  {
+    S.next = { action: 'stack', targetId: 'p3' };
+    const { c } = sinkCtx(m, v.create(m));
+    for (let k = 0; k < 60; k++) v.update(c, STEP);
+    const t = m.byId('p3');
+    const key = () => (t.cx < CONFIG.WORLD_W / 2 ? 'L' : 'R');
+    const x0 = t.x;
+    for (let k = 0; k < 60; k++) { t.x = x0 + k; v.update(c, STEP); }
+    const h = c.state.hands[key()];
+    assert(h.fist && Math.abs(h.x - t.cx) < 6, 'the fist follows the target ' + J([h.x, t.cx]));
+    t.x = x0;
+    // 11-05：目標在玩家回合裡倒下了 → 拳頭、集合圈不畫，HUD 也不再寫他的名字（她的回合換人，見 moveStep）
+    t.alive = false;
+    for (let k = 0; k < 60; k++) v.update(c, STEP);
+    const hud = v.hud(c, ['敵人剩餘 1 / 1', '#fca5a5']).map(l => l[0]);
+    const r = recordingCtx();
+    v.drawScene(r.ctx, c);
+    v.drawShade(r.ctx, c);
+    assert(!c.state.hands.L.fist && !c.state.hands.R.fist && !r.calls.some(x => x.fn === 'setLineDash' && J(x.args[0]) === '[10,6]'), 'no fist / ring for the fallen target');
+    assert(hud[2] === '下一招：巨拳・同罰（目標倒下，換人）' && !hud[2].includes('P3'), 'hud drops the fallen target ' + J(hud));
+    t.alive = true;
+  }
+  const g = gaiaOf(m);
+  g.alive = false;
+  const { c } = sinkCtx(m, v.create(m));
+  const r = recordingCtx();
+  assert(v.drawEntityBare(r.ctx, c, g) === true && r.calls.length > 0, 'the fallen face stays on screen');
+  return out;
+});
+
+await test('大地之母・蓋亞：伺服器的每一種招式（瘴氣 / 暈眩 / 暴走 / 最後之光 / 枯萎 / 誅滅 / 捏碎 / 天罰 / 同罰 / 淨化 / 沉睡）客戶端的腳本都播得完（每幀 update、每幾幀畫一次），橫幅照招式（枯萎照抄使用者的那句），誅滅讓 killed 倒下；播完的狀態跟伺服器一樣', async () => {
+  const { gaiaState, gaiaOf, gaiaSnapshot, restoreGaia, slopeY, judgeRound, WITHER_TEXT } = await import('../shared/maps/gaia.js');
+  const srv = matchOf('gaiaSanctum', 2), cli = matchOf('gaiaSanctum', 2);
+  for (const m of [srv, cli]) for (const p of m.players) { p.hp = p.maxHp = 5000; }
+  const g = gaiaOf(srv);
+  const S = gaiaState(srv);
+  const v = mapViewFor(cli);
+  const { c, calls } = sinkCtx(cli, v.create(cli));
+  const draw = () => { const r = recordingCtx(); v.drawScene(r.ctx, c); v.drawShade(r.ctx, c); for (const e of cli.entities) { if (!v.drawEntityBare(r.ctx, c, e)) v.drawEntity(r.ctx, c, e, false); } v.hud(c, ['x', '#fff']); };
+  const seen = new Set();
+  const banners = [];
+  const turn = (round, setup) => {
+    srv.round = round;
+    if (setup) setup();
+    cli.round = round;
+    cli.applyEntities(srv.entities.map(e => e.toState()));
+    restoreGaia(cli, gaiaSnapshot(srv));
+    const msg = { actorId: 'gaia', boss: JSON.parse(J(srv.mechanic.aiTurn(srv, g))) };
+    calls.length = 0;
+    runGaiaScript(v, c, v.turnScript(c, msg), draw);
+    for (const st of msg.boss.steps) seen.add(st.action);
+    banners.push(...calls.filter(([k]) => k === 'banner').map(([, a]) => a[0]));
+    assert(c.state.fx === null, `round ${round}: fx cleared`);
+    assert(gaiaPick(cli) === gaiaPick(srv), `round ${round}: mechState synced\n${gaiaPick(cli)}\n${gaiaPick(srv)}`);
+    return msg.boss.steps;
+  };
+  const [p1, p2] = srv.players;
+  const onSlope = (p, k, x) => { const s = S.def.slopes[k]; Object.assign(p, { x, y: slopeY(s, x), vx: 0, vy: 0 }); };
+  let st = turn(1, () => { S.next = { action: 'crush' }; });
+  assert(st[0].action === 'fog' && st[1].action === 'crush' && cli.mechState.flowers.length === st[0].flowers.length, 'fog + crush');
+  st = turn(2, () => { S.stunned = true; });
+  assert(st.length === 1 && st[0].action === 'stunned', 'stunned');
+  st = turn(3, () => { onSlope(p2, 1, 150); S.next = { action: 'smite', side: -1 }; });
+  assert(st.at(-1).action === 'smite' && st.at(-1).targetIds.includes('p2'), 'smite hits the left side ' + J(st.at(-1).targetIds));
+  st = turn(4, () => { g.poison = 3; g.burn = 2; g.hp -= 100; p1.poison = 3; S.next = { action: 'cleanse' }; });
+  assert(st.at(-1).action === 'cleanse' && st.at(-1).cleared.length === 2 && st.at(-1).heal > 0, 'cleanse ' + J(st.at(-1)));
+  assert(gaiaOf(cli).poison === 0 && gaiaOf(cli).burn === 0 && gaiaOf(cli).hp === g.hp && cli.byId('p1').poison === 3, 'client: she is cleansed and healed, players untouched');
+  // 同罰：p2 站到 p1 旁邊一起分擔（同一輪再一次，瘴氣已經放過）
+  st = turn(4, () => { Object.assign(p2, { x: p1.x + 30, y: p1.y, vx: 0, vy: 0 }); S.next = { action: 'stack', targetId: 'p1' }; });
+  assert(st.length === 1 && st[0].action === 'stack' && J(st[0].targetIds) === '["p1","p2"]', 'stack shared ' + J(st.map(x => x.action)));
+  st = turn(5, () => { g.hp = g.hpFloor; S.next = { action: 'smite', side: 1 }; });
+  assert(st[0].action === 'rage' && cli.mechState.rage && gaiaOf(cli).hpFloor === 0, 'rage');
+  st = turn(S.lightAt, () => { S.next = { action: 'smite', side: 1 }; });
+  assert(st[0].action === 'light' && cli.mechState.light && cli.mechState.flowers.length === st[0].flowers.length, 'final light');
+  for (const sp of st[0].spots) { const e = cli.byId(sp.id); assert(Math.abs(e.x - sp.x) < 1e-6, `${sp.id} teleported to the altar`); }
+  st = turn(S.light.at + 2, () => { S.next = { action: 'smite', side: -1 }; });
+  assert(st[0].action === 'wither' && cli.mechState.light.withered && !cli.mechState.flowers.length, 'wither');
+  st = turn(judgeRound(S.light.at), () => { S.next = { action: 'smite', side: -1 }; });
+  assert(st[0].action === 'judgement' && st[0].killed.length === 2 && cli.players.every(p => !p.alive && p.deathCause === 'judged'), 'judgement kills everyone without a shield');
+  st = turn(srv.round + 1);
+  assert(st.length === 1 && st[0].action === 'idle', 'idle when nobody is left ' + J(st.map(x => x.action)));
+  for (const a of ['fog', 'stunned', 'rage', 'light', 'wither', 'judgement', 'crush', 'smite', 'stack', 'cleanse', 'idle']) assert(seen.has(a), 'played ' + a + ': ' + [...seen]);
+  for (const want of ['瘴氣瀰漫！', '大地之母暈眩了！', '大地之母暴走！', '最後之光！', WITHER_TEXT, '誅滅！']) assert(banners.includes(want), `banner ${want}: ` + J(banners));
+  assert(banners.some(b => b.startsWith('沒有護盾')), 'judgement result banner ' + J(banners));
+  v.abortScript(c);
+  return { seen: [...seen].sort(), banners: banners.length };
+});
+
+await test('大地之母・蓋亞：撿花（別人的 pickup：花變成光球飛向祭壇、祭壇的光球數照伺服器）；自己先在本地撿（predictMove：花馬上不見、光球只飛一次）；收滿祭壇淨化（瘴氣淡出、大家中毒歸零、血量照 heals，自己的照本地加上回的血）；回合開始的瘴氣 fx 飄字', async () => {
+  const { gaiaState, gaiaOf, gaiaSnapshot, restoreGaia, flowerCenter } = await import('../shared/maps/gaia.js');
+  const srv = matchOf('gaiaSanctum', 2), cli = matchOf('gaiaSanctum', 2);
+  for (const m of [srv, cli]) for (const p of m.players) { p.hp = 50; p.maxHp = 1000; p.poison = 4; }
+  srv.round = 1;
+  gaiaState(srv).next = { action: 'cleanse' };   // 這一招不碰玩家（血量才照得準）
+  srv.mechanic.aiTurn(srv, gaiaOf(srv));   // 第 1 輪：瘴氣、開花
+  cli.round = 1;
+  cli.applyEntities(srv.entities.map(e => e.toState()));
+  restoreGaia(cli, gaiaSnapshot(srv));
+  const v = mapViewFor(cli);
+  const { c, calls } = sinkCtx(cli, v.create(cli));
+  c.myId = 'p1';
+  for (let k = 0; k < 240; k++) { v.update(c, STEP); c.time += STEP; }
+  assert(c.state.fog > 0.5, 'fog faded in ' + c.state.fog);
+  const [f1, f2] = gaiaState(srv).flowers;
+  assert(f1 && f2, 'two flowers');
+  // 別人（p2）撿到第一朵：伺服器的 pickup
+  const walk = (m, id, f) => { const p = m.byId(id), q = flowerCenter(f); const x0 = q.x - 40, y0 = q.y + 10; Object.assign(p, { x: q.x, y: q.y + 10 }); return m.mechanic.moved(m, p, x0, y0, p.x, p.y); };
+  const fx1 = walk(srv, 'p2', f1);
+  assert(fx1 && J(fx1.flowers) === J([f1.id]) && !fx1.purify, 'server picked one ' + J(fx1));
+  const msg1 = { t: 'pickup', ...JSON.parse(J(fx1)), hp: srv.byId('p2').hp, mhp: srv.byId('p2').maxHp, lk: 0 };
+  v.onPickup(c, cli.byId('p2'), msg1, false);
+  assert(!gaiaState(cli).flowers.some(f => f.id === f1.id) && gaiaState(cli).orbs === 1 && c.state.orbs.length === 1, 'flower → orb, altar 1');
+  // 自己（p1）在本地先碰到第二朵
+  const me = cli.byId('p1'), q2 = flowerCenter(f2);
+  Object.assign(me, { x: q2.x, y: q2.y + 10 });
+  assert(v.predictMove(c, me, q2.x - 40, q2.y + 10) === true, 'predicted pickup → send the move now');
+  assert(!gaiaState(cli).flowers.some(f => f.id === f2.id) && c.state.orbs.length === 2, 'picked locally, orb flying');
+  assert(v.predictMove(c, me, me.x - 1, me.y) === false, 'nothing left to pick');
+  const fx2 = walk(srv, 'p1', f2);
+  assert(fx2 && fx2.purify && fx2.heals.length === 2, 'server purifies ' + J(fx2));
+  const heal = fx2.heals.find(h => h.id === 'p1').heal, other = fx2.heals.find(h => h.id === 'p2');
+  // 這一下收滿祭壇：自己先在本地淨化（中毒歸零、回血跟伺服器一樣）——之後在本地掉水照淨化之後的血量算
+  assert(c.state.predictedPurify && me.poison === 0 && me.hp === 50 + heal && me.hp === fx2.heals.find(h => h.id === 'p1').hp, `predicted purify: me ${me.hp} (50 + ${heal}), poison ${me.poison}`);
+  assert(cli.byId('p2').poison === 4, 'only my own purify is predicted');
+  me.hp = 40;   // 本地之後掉過水之類：自己的血量照本地的（已經回過血了，伺服器的 pickup 不再加一次）
+  calls.length = 0;
+  v.onPickup(c, me, { t: 'pickup', ...JSON.parse(J(fx2)), hp: srv.byId('p1').hp, mhp: 1000, lk: 0 }, true);
+  const S = gaiaState(cli);
+  assert(c.state.orbs.length === 2, 'the predicted flower does not fly twice');
+  assert(!S.fog && S.stunned && !S.flowers.length && cli.players.every(p => p.poison === 0), 'purified');
+  assert(me.hp === 40 && !c.state.predictedPurify && cli.byId('p2').hp === other.hp, `heals: me ${me.hp} (40, healed locally already), p2 ${cli.byId('p2').hp} vs ${other.hp}`);
+  // 沒預測到的（伺服器的直線判到、自己的路線沒碰到）：自己的血量照本地的加上回的血
+  {
+    const s2 = matchOf('gaiaSanctum', 2), c2m = matchOf('gaiaSanctum', 2);
+    for (const m of [s2, c2m]) for (const p of m.players) { p.hp = 50; p.maxHp = 1000; p.poison = 4; }
+    s2.round = 1;
+    gaiaState(s2).next = { action: 'cleanse' };
+    s2.mechanic.aiTurn(s2, gaiaOf(s2));
+    c2m.round = 1;
+    c2m.applyEntities(s2.entities.map(e => e.toState()));
+    restoreGaia(c2m, gaiaSnapshot(s2));
+    const { c: cc } = sinkCtx(c2m, v.create(c2m));
+    cc.myId = 'p1';
+    const [g1, g2] = gaiaState(s2).flowers;
+    walk(s2, 'p1', g1);
+    const fx = walk(s2, 'p1', g2);
+    const mine = c2m.byId('p1');
+    mine.hp = 40;
+    v.onPickup(cc, mine, { t: 'pickup', ...JSON.parse(J(fx)), hp: s2.byId('p1').hp, mhp: 1000, lk: 0 }, true);
+    const h = fx.heals.find(x => x.id === 'p1').heal;
+    assert(fx.purify && mine.hp === 40 + h, `not predicted: me ${mine.hp} (40 + ${h})`);
+  }
+  assert(calls.some(([k, a]) => k === 'banner' && /祭壇淨化/.test(a[0])), 'purify banner');
+  for (let k = 0; k < 240; k++) { v.update(c, STEP); c.time += STEP; }
+  assert(c.state.fog < 0.05 && c.state.orbs.length === 0, 'fog faded out, orbs landed');
+  // 回合開始的瘴氣
+  calls.length = 0;
+  v.statusFx(c, me, { type: 'gaiaFog', id: 'p1', stacks: 3, total: 3 });
+  v.statusFx(c, me, { type: 'gaiaFog', id: 'p1', immune: true });
+  const floats = calls.filter(([k]) => k === 'float').map(([, a]) => a[1]);
+  assert(me.poison === 3 && floats.includes('瘴氣 中毒 +3') && floats.includes('瘴氣：免疫'), 'fog fx ' + J(floats));
+  return { heal, floats };
 });
 
 const failed = results.filter(r => !r.ok);

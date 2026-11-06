@@ -158,8 +158,9 @@ export class Renderer {
     const W = CONFIG.WORLD_W, H = CONFIG.WORLD_H, y0 = CONFIG.WATER_LEVEL;
     const wave = (x) => y0 + Math.sin(x * 0.04 + view.time * 2.5) * 2.5;
     const g = ctx.createLinearGradient(0, y0, 0, H);
-    g.addColorStop(0, '#4aa3ff');
-    g.addColorStop(1, '#0b3d91');
+    const tint = view.match && view.match.level.waterColors;   // 關卡指定的水色（例如頑皮猴王的泥水坑），沒寫 = 一般的藍色
+    g.addColorStop(0, tint ? tint[0] : '#4aa3ff');
+    g.addColorStop(1, tint ? tint[1] : '#0b3d91');
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.moveTo(0, H);

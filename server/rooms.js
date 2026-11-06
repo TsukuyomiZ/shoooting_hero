@@ -6,6 +6,7 @@ import { CONFIG } from '../shared/core/config.js';
 import { Run } from '../shared/game/run.js';
 import { Versus } from '../shared/game/versus.js';
 import { difficultyOf } from '../shared/game/stage-rules.js';
+import { openTheme } from '../shared/game/themes.js';
 import { validateCards } from '../shared/cards/cards.js';
 import { isSticker, allowSticker } from '../shared/social/stickers.js';
 import { CHAT_MAX, cleanChat, allowChat } from '../shared/social/chat.js';
@@ -22,8 +23,9 @@ const CARDS_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const makeId = () => randomBytes(9).toString('base64url');
 // 客戶端送來的字串欄位：物件 / 陣列一律當成空字串（亂送 {"toString":0} 的話 String() 會丟錯），其他照 String()
 const textOf = (v) => (v !== null && typeof v === 'object' ? '' : String(v ?? ''));
-// 房間的模式：'versus' = 勝者為王（3v3 對戰），其他（沒給、不認得、亂送的）都是冒險 'coop'
-const modeOf = (v) => (v === 'versus' ? 'versus' : 'coop');
+// 房間的模式：'versus' = 勝者為王（3v3 對戰）、'theme' = 主題副本（theme = 開放中的主題，見 openTheme），
+// 其他（沒給、不認得、亂送的、主題沒開放的）都是冒險 'coop'
+const modeOf = (v, theme) => (v === 'versus' ? 'versus' : v === 'theme' && openTheme(theme) ? 'theme' : 'coop');
 // 勝者為王的隊伍 id（亂送的 → null）
 const teamOf = (v) => (typeof v === 'string' && CONFIG.VERSUS.teams.includes(v) ? v : null);
 const sanitizeName = (s) => textOf(s).replace(/[\r\n\t]/g, '').trim().slice(0, 12) || '玩家';
@@ -69,7 +71,7 @@ export class RoomManager {
   roomsPayload() {
     const rooms = [...this.rooms.values()].filter(r => !r.isPrivate && r.hostId && !r.over).map(r => ({
       code: r.code, host: r.members.get(r.hostId).name, players: r.headcount, max: r.max, started: r.started, difficulty: r.difficulty,
-      ...(r.versus ? { mode: 'versus' } : {}),
+      ...(r.versus ? { mode: 'versus' } : {}), ...(r.theme ? { mode: 'theme', theme: r.theme } : {}),
     }));
     rooms.sort((x, y) => x.started - y.started);
     return { t: 'rooms', rooms };
@@ -179,12 +181,15 @@ export class RoomManager {
         if (!client.id) return ignored('noHello');
         if (client.room) return ignored('alreadyInRoom');
         if (msg.name !== undefined) client.name = sanitizeName(msg.name);   // 連上大廳後才改的暱稱
-        // difficulty：建房時選的難度（不認得的當一般，見 difficultyOf）；mode：'versus' = 勝者為王（對戰沒有難度，一律一般）
-        const mode = modeOf(msg.mode);
-        const room = new Room(this, this.makeCode(), !!msg.private, mode === 'versus' ? 'normal' : difficultyOf(msg.difficulty), mode);
+        // difficulty：建房時選的難度（不認得的當一般，見 difficultyOf）；mode：'versus' = 勝者為王（對戰沒有難度，一律一般）、
+        // 'theme' = 主題副本（theme = 哪個主題；沒開放的當一般冒險）
+        const mode = modeOf(msg.mode, msg.theme);
+        const room = new Room(this, this.makeCode(), !!msg.private, mode === 'versus' ? 'normal' : difficultyOf(msg.difficulty), mode,
+          mode === 'theme' ? openTheme(msg.theme) : null);
         this.rooms.set(room.code, room);
         this.record('room.create', {
-          pid: client.id, name: client.name, private: room.isPrivate, difficulty: room.difficulty, ...(room.versus ? { mode: room.mode } : {}),
+          pid: client.id, name: client.name, private: room.isPrivate, difficulty: room.difficulty,
+          ...(room.mode !== 'coop' ? { mode: room.mode } : {}), ...(room.theme ? { theme: room.theme } : {}),
         }, room);
         this.browsers.delete(client);
         room.add(client);
@@ -240,12 +245,14 @@ class Room {
   // isPrivate：私人房間不會出現在大廳列表，只能輸入房號加入（房主在房間裡可以切換）
   // difficulty：這間房間的冒險用哪個難度（建房時選，config.DIFFICULTY 的 key）
   // mode：'coop' = 冒險（最多 MAX_PLAYERS 人）| 'versus' = 勝者為王（兩隊各 VERSUS.teamSize 人，人不夠房主可以加電腦玩家）
-  constructor(manager, code, isPrivate = false, difficulty = 'normal', mode = 'coop') {
+  //       | 'theme' = 主題副本（冒險換成 theme 那個主題；人數、難度同冒險）
+  constructor(manager, code, isPrivate = false, difficulty = 'normal', mode = 'coop', theme = null) {
     this.manager = manager;
     this.code = code;
     this.isPrivate = isPrivate;
     this.difficulty = difficulty;
     this.mode = mode;
+    this.theme = mode === 'theme' ? theme : null;
     this.members = new Map();   // playerId → { id, name, ready, client|null, team（勝者為王） }
     // 勝者為王的電腦玩家 [{ id, name, team }]：不是成員（沒有連線、不算準備、不會當房主），開始時跟成員一起交給 Versus
     this.bots = [];
@@ -317,7 +324,7 @@ class Room {
     if (this.versus) for (const b of this.bots) players.push({ id: b.id, name: b.name, ready: true, connected: true, team: b.team, bot: true });
     return {
       t: 'lobby', code: this.code, hostId: this.hostId, max: this.max, private: this.isPrivate, difficulty: this.difficulty,
-      ...(this.versus ? { mode: 'versus', teamSize: CONFIG.VERSUS.teamSize } : {}),
+      ...(this.versus ? { mode: 'versus', teamSize: CONFIG.VERSUS.teamSize } : {}), ...(this.theme ? { mode: 'theme', theme: this.theme } : {}),
       players,
     };
   }
@@ -484,10 +491,10 @@ class Room {
     }
     this.record('room.start', {
       pid: this.hostId, name: this.members.get(this.hostId).name, seed, cards: cards.length, difficulty: this.difficulty,
-      ...(this.versus ? { mode: this.mode } : {}),
+      ...(this.mode !== 'coop' ? { mode: this.mode } : {}), ...(this.theme ? { theme: this.theme } : {}),
       players: players.map(p => ({ pid: p.id, name: p.name, ...(this.versus ? { team: p.team } : {}), ...(p.bot ? { bot: true } : {}) })),
     });
-    this.run = this.versus ? new Versus({ players, seed, io, cards }) : new Run({ players, seed, io, cards, difficulty: this.difficulty });
+    this.run = this.versus ? new Versus({ players, seed, io, cards }) : new Run({ players, seed, io, cards, difficulty: this.difficulty, theme: this.theme });
     this.run.start();
     this.manager.notifyBrowsers();   // 列表上改標「遊戲中」
   }

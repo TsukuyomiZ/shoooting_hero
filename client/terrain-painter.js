@@ -2,7 +2,7 @@ import { SOIL, HARD, PLATFORM, STALACTITE, BOULDER } from '../shared/physics/ter
 
 // 把地形遮罩畫成圖：草皮、土壤、坑洞焦黑邊、樹皮（古樹）、平台、鐘乳石、巨石。只在地形改變時重繪（爆炸時只重繪局部）。
 export class TerrainPainter {
-  // opts.platformStyle：平台的畫法（預設 = 長青苔的石頭；'wood' = 樹枝、'vine' = 藤蔓橋、'rock' = 岩台、'plank' = 木板（處刑台））
+  // opts.platformStyle：平台的畫法（預設 = 長青苔的石頭；'wood' = 樹枝、'vine' = 藤蔓橋、'rock' = 岩台、'plank' = 木板（處刑台）、'mushroom' = 蘑菇傘）
   // opts.style：土與實心地形的畫法（預設 = 草皮 + 土、樹皮；'cave' = 洞穴的岩土、岩石天花板；'prison' = 監獄的石板地、石頭天花板，吊燈不畫）
   // opts.hardLook：不可破壞的地形的畫法（預設 = 樹皮 / 岩石；'ground' = 跟土一樣畫草皮與土，只是不會有焦痕：炸不出坑）
   constructor(terrain, opts = {}) {
@@ -101,6 +101,7 @@ export class TerrainPainter {
     if (this.platformStyle === 'vine') { this.paintVineBridge(d, o, px, py, i, n); return; }
     if (this.platformStyle === 'rock') { this.paintLedge(d, o, px, py, i, n); return; }
     if (this.platformStyle === 'plank') { this.paintPlank(d, o, px, py, i, n); return; }
+    if (this.platformStyle === 'mushroom') { this.paintMushroomCap(d, o, px, py, i, n); return; }
     const { w, h, mask } = this.terrain;
     let top = 0;
     while (top < 6 && py - top - 1 >= 0 && mask[i - (top + 1) * w] === PLATFORM) top++;
@@ -128,6 +129,23 @@ export class TerrainPainter {
     if (top < 2) k = 1.3 + 0.1 * n;              // 頂面被踩亮的那層
     else if (bottom) k *= 0.55;
     d[o] = 118 * k; d[o + 1] = 80 * k; d[o + 2] = 48 * k; d[o + 3] = 255;
+  }
+
+  // 蘑菇傘（platformStyle: 'mushroom'）：紅色的菇傘、一顆顆白斑點，頂面被踩亮，下緣一圈米色的菇褶（菇柄由 decor.mushrooms 畫）
+  paintMushroomCap(d, o, px, py, i, n) {
+    const { w, h, mask } = this.terrain;
+    let top = 0;
+    while (top < 3 && py - top - 1 >= 0 && mask[i - (top + 1) * w] === PLATFORM) top++;
+    let below = 0;
+    while (below < 4 && py + below + 1 < h && mask[i + (below + 1) * w] === PLATFORM) below++;
+    let r = 196, g = 58, b = 48;
+    const cx = (px >> 4) * 16 + 8 + Math.round((hash(px >> 4, py >> 4) - 0.5) * 6);
+    const cy = (py >> 4) * 16 + 8;
+    if (hash((px >> 4) + 7, py >> 4) > 0.45 && (px - cx) * (px - cx) + (py - cy) * (py - cy) < 12) { r = 246; g = 236; b = 222; }   // 白斑點
+    let k = 0.9 + 0.16 * n;
+    if (below < 3) { r = 232; g = 214; b = 180; k = 0.8 + 0.1 * n; }   // 菇褶
+    else if (top < 2) k = 1.22 + 0.08 * n;
+    d[o] = Math.min(255, r * k); d[o + 1] = Math.min(255, g * k); d[o + 2] = Math.min(255, b * k); d[o + 3] = 255;
   }
 
   // 藤蔓橋（platformStyle: 'vine'）：好幾股藤蔓斜斜地絞在一起，頂面一層被踩亮的綠，下緣加深，偶爾冒出一片葉子

@@ -61,6 +61,8 @@ const TEMPLATE = {
   team: () => ({ team: 'red' }),
   addBot: () => ({ team: 'red' }),
   removeBot: (c) => ({ id: c.botId || 'bot1' }),
+  // 被困住時連打 A / D 的其中一下（大樹遊俠的藤蔓陷阱；沒被困住的照樣記 action.ignored）
+  struggle: () => ({ dir: 1 }),
 };
 const messageOf = (t, c) => ({ t, ...(TEMPLATE[t] ? TEMPLATE[t](c) : {}) });
 
@@ -232,8 +234,8 @@ function sendToVersus(phase, make) {
   return s.io.records.slice();
 }
 
-await test('客戶端會送的訊息種類從原始碼抓得到（含已知的 15 種），每一種都有範本或只帶 t', () => {
-  const KNOWN = ['hello', 'browse', 'create', 'join', 'ready', 'privacy', 'start', 'leave', 'sticker', 'chat', 'pick', 'move', 'slow', 'weapon', 'fire'];
+await test('客戶端會送的訊息種類從原始碼抓得到（含已知的 16 種），每一種都有範本或只帶 t', () => {
+  const KNOWN = ['hello', 'browse', 'create', 'join', 'ready', 'privacy', 'start', 'leave', 'sticker', 'chat', 'pick', 'move', 'slow', 'weapon', 'fire', 'struggle'];
   assert(KNOWN.every(t => TYPES.includes(t)), 'missing from the scan: ' + KNOWN.filter(t => !TYPES.includes(t)));
   return { types: TYPES };
 });

@@ -3,6 +3,7 @@
 //   3 = 平台（不可破壞；子彈與身體都穿得過，只有從上面落下來時站得住——可以從下面跳上去）、
 //   4 = 鐘乳石（洞穴天花板垂下來的；跟樹皮一樣擋子彈與身體、炸不壞，只會整根掉下來，見 dropStalactite 與 shared/maps/cave.js）
 //   5 = 巨石（對戰中才放上去的大石頭，例如獨眼巨人的超巨石；跟樹皮一樣擋子彈與身體、炸不壞，只會整塊拿掉，見 addBoulder / removeBoulder）
+// 炸不壞的多邊形可以標成「子彈從下面打得穿」（passFromBelow，見 shotPasses；大地祭壇的斜坡）：遮罩照樣是樹皮，另外記在 underPass。
 // 自己做多邊形掃描填色與圓形挖洞，不依賴 canvas 反鋸齒，所以伺服器（Node）與每個瀏覽器算出來的結果完全一樣。
 export const SOIL = 1;
 export const HARD = 2;
@@ -12,12 +13,18 @@ export const BOULDER = 5;
 
 const SOLID = (v) => v === SOIL || v === HARD || v === STALACTITE || v === BOULDER;
 
+// shotPasses「從底面進來」看上一個子步那一行往上幾 px（我抓的：子步最多 2 px、斜坡斜率 0.25，底面離上一個子步最多約 3 px；
+// 從上面 / 旁邊進來的那一行往上是空的，上下兩道斜坡之間隔得比這遠很多）
+const UNDER_REACH = 4;
+
 export class Terrain {
   // opts.hard = 不可破壞的多邊形；opts.platforms = 可穿透的平台（頂面要是水平的）；
   // opts.maxX = 角色能走到的最右邊（古樹之庭：玩家碰不到樹幹）；
   // opts.vines = 可以攀爬的藤蔓 [{ x, top, bottom }]（不是遮罩的一部分，子彈與身體都穿得過，見 Entity.updateVine）；
   // opts.platformCover = 平台是這一隊的掩體（例如 'enemies'）：別隊的飛行物打不穿平台（撞到就爆炸），這一隊的照樣穿過（見 blocksShot）；
   // opts.stalactites = 鐘乳石的多邊形（尖端朝下，每根的 x 範圍不重疊）；掉下來的記在 fallen（第幾根）
+  // opts.hard 裡帶 passFromBelow: true 的多邊形（陣列上的屬性，見 level.js 的 passFromBelow）= 子彈從下面打得穿：
+  //   往上飛的飛行物穿過去、從上面落下來的照樣撞到（見 shotPasses）；角色照樣站得住、走得過、炸不壞（遮罩就是樹皮）
   constructor(w, h, polygons, opts = {}) {
     this.w = w;
     this.h = h;
@@ -38,6 +45,13 @@ export class Terrain {
     });
     this.fallen = new Set();
     this.mask = new Uint8Array(w * h);
+    // 子彈從下面打得穿的格子（1 = 是）：沒有這種多邊形 = null（其他地圖完全不碰）。樹皮挖不掉、不會變，建一次就好
+    this.underPass = null;
+    const under = this.hardPolygons.filter(poly => poly.passFromBelow);
+    if (under.length) {
+      this.underPass = new Uint8Array(w * h);
+      for (const poly of under) this.fillPolygon(poly, 1, null, this.underPass);
+    }
     this.holes = [];          // 已挖過的洞 {x, y, r}，用來同步 / 重建
     this.version = 0;         // 每次改變 +1，讓畫面知道要重繪
     this.fillPolygons();
@@ -54,8 +68,10 @@ export class Terrain {
   }
 
   // from 不是 null 時只改原本是 from 的像素（拿掉鐘乳石用：被天花板蓋住的那段還是天花板）
-  fillPolygon(poly, value, from = null) {
-    const { w, h, mask } = this;
+  // target = 填進哪一張遮罩（沒給 = 地形遮罩；underPass 用）
+  fillPolygon(poly, value, from = null, target = this.mask) {
+    const { w, h } = this;
+    const mask = target;
     const xs = [];
     let minY = Infinity, maxY = -Infinity;
     for (const [, y] of poly) { if (y < minY) minY = y; if (y > maxY) maxY = y; }
@@ -97,6 +113,27 @@ export class Terrain {
     const v = this.at(x, y);
     if (SOLID(v)) return true;
     return v === PLATFORM && this.platformCover !== null && team !== this.platformCover;
+  }
+
+  // 子彈從下面打得穿的地形（passFromBelow 的多邊形）：擋得住（blocksShot）的 (x, y) 這一格這一下放不放過去。
+  // 從外面進來時往上飛（vy < 0）、而且是從底面進來的（上一個子步 (px, py) 在它底下：那一行往上 UNDER_REACH px 以內就是它）才放過去；
+  // 上一個子步已經在裡面了也放過去（從下面穿進來、在裡面開始往下掉的，直到穿出去為止）；
+  // 從上面落下來（從外面進來時 vy ≥ 0）、還在往上飛卻是從上表面 / 端面鑽進去的（往牆那邊、往上的角度比斜坡平的，11-05 我抓的）照樣撞到。
+  // 只看位置與速度、不在飛行物上記狀態：伺服器、預覽、AI 試射算的都一樣
+  shotPasses(x, y, px, py, vy) {
+    if (!this.underPassAt(x, y)) return false;
+    if (this.underPassAt(px, py)) return true;
+    if (!(vy < 0)) return false;
+    for (let k = 1; k <= UNDER_REACH; k++) if (this.underPassAt(px, py - k)) return true;
+    return false;
+  }
+
+  underPassAt(x, y) {
+    const u = this.underPass;
+    if (u === null) return false;
+    const px = Math.floor(x), py = Math.floor(y);
+    if (px < 0 || px >= this.w || py < 0 || py >= this.h) return false;
+    return u[py * this.w + px] === 1;
   }
 
   isHard(x, y) { return this.at(x, y) === HARD; }

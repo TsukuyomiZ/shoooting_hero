@@ -1,6 +1,7 @@
 import { CONFIG } from '../shared/core/config.js';
 import { Run } from '../shared/game/run.js';
 import { Versus } from '../shared/game/versus.js';
+import { openTheme } from '../shared/game/themes.js';
 import { validateCards } from '../shared/cards/cards.js';
 import { SoloLog } from './solo-log.js';
 import { VERSION, versionLabel } from '../shared/core/version.js';
@@ -102,8 +103,9 @@ export class LocalTransport {
   }
 
   // 單人也是一場完整冒險：讀牌庫 → 在瀏覽器裡跑 Run。difficulty = 大廳選的難度（config.DIFFICULTY 的 key）；
-  // mode 'versus' = 勝者為王的單人練習：自己在藍隊，其他位子都是電腦玩家（隊友 teamSize - 1 個、對手 teamSize 個），在瀏覽器裡跑 Versus
-  async start(name, difficulty = 'normal', mode = 'coop') {
+  // mode 'versus' = 勝者為王的單人練習：自己在藍隊，其他位子都是電腦玩家（隊友 teamSize - 1 個、對手 teamSize 個），在瀏覽器裡跑 Versus；
+  // mode 'theme' = 主題副本：theme 那個主題的冒險（沒開放的當一般冒險，同伺服器）
+  async start(name, difficulty = 'normal', mode = 'coop', theme = null) {
     let cards = [];
     try {
       const res = await fetch('shared/cards/cards.json', { cache: 'no-cache' });
@@ -137,8 +139,10 @@ export class LocalTransport {
         players: players.map(p => ({ pid: p.id, name: p.name, team: p.team, ...(p.bot ? { bot: true } : {}) })),
       });
     } else {
-      this.run = new Run({ players, seed, io, cards, difficulty });
-      this.log.record('solo.start', { version: versionLabel(VERSION), name, seed, cards: cards.length, difficulty: this.run.difficulty });
+      this.run = new Run({ players, seed, io, cards, difficulty, theme: mode === 'theme' ? openTheme(theme) : null });
+      this.log.record('solo.start', {
+        version: versionLabel(VERSION), name, seed, cards: cards.length, difficulty: this.run.difficulty, ...(this.run.theme ? { mode, theme: this.run.theme } : {}),
+      });
     }
     this.emit({ t: 'welcome', id: 'me', token: null });
     this.run.start();
