@@ -1030,7 +1030,7 @@ test('等離子飛彈：同一條彈道連射兩發（2026-10-14 從三發改成
   return { plasmaEnds: ends.map(e => e.type), boomerang: evs(hs), rangeRise: rises };
 });
 
-test('燃燒：燃燒子彈 / 反裝甲子彈附加層數；回合結束依移動距離甩掉（每回合最多 10 層），剩下每層扣最大血量 0.1%', () => {
+test('燃燒：燃燒子彈 / 反裝甲子彈附加層數（上限 100）；回合結束依移動距離甩掉（每 5px 一層、每回合最多 20 層），剩下每層扣最大血量 0.1%，扣完減半', () => {
   const w = CONFIG.WEAPONS;
   const B = CONFIG.EQUIP.burn;
   const m = matchWith({ burnStacks: 30, cannonBurnStacks: 20 }, { players: 2, hp: 10000 });
@@ -1040,16 +1040,28 @@ test('燃燒：燃燒子彈 / 反裝甲子彈附加層數；回合結束依移�
   assert(e1.burn === 50 && e1.burnSource === 'p1' && d1.find(d => d.id === 'e1').burn === 50, 'cannon hit adds 30 + 20 stacks');
   m.applyExplosion(p2.cx, p2.cy, w.cannon, p1, p2, { burn: 50 });
   assert(p2.burn === 0, 'teammates do not burn');
-  // 走了 55px → 甩掉 5 層，剩 45 層 × 每層 0.1% × 最大血量 10000 = 450 傷害
-  e1.movedThisTurn = 55;
+  // 2026-11-09：每 5px 甩一層、每回合最多 20 層，扣完血再減半（無條件捨去）
+  assert(B.pxPerStack === 5 && B.maxReducePerTurn === 20 && B.fadePct === 50, 'burn config ' + JSON.stringify(B));
+  // 走了 57px → 甩掉 11 層，剩 39 層 × 每層 0.1% × 最大血量 10000 = 390 傷害，扣完減半 → 19 層
+  e1.movedThisTurn = 57;
   const hp0 = e1.hp;
   const fx = m.endTurn(e1);
-  const tick = Math.floor(45 * B.pctPerStack / 100 * e1.maxHp);
-  assert(e1.burn === 45 && hp0 - e1.hp === tick, 'burn tick: stacks=' + e1.burn + ' dmg=' + (hp0 - e1.hp));
-  assert(fx[0].type === 'burn' && fx[0].shaken === 5 && fx[0].dmg === tick, 'fx ' + JSON.stringify(fx));
+  const tick = Math.floor(39 * B.pctPerStack / 100 * e1.maxHp);
+  assert(e1.burn === 19 && hp0 - e1.hp === tick, 'burn tick: stacks=' + e1.burn + ' dmg=' + (hp0 - e1.hp));
+  assert(fx[0].type === 'burn' && fx[0].shaken === 11 && fx[0].faded === 20 && fx[0].stacks === 19 && fx[0].dmg === tick, 'fx ' + JSON.stringify(fx));
+  // 每回合最多甩 20 層：100 層走很遠 → 甩 20、扣 80 層的血、剩 40
+  e1.burn = 100;
   e1.movedThisTurn = 5000;
+  const hp1 = e1.hp;
   m.endTurn(e1);
-  assert(e1.burn === 45 - B.maxReducePerTurn, 'at most 10 stacks shaken per turn');
+  assert(e1.burn === 40 && hp1 - e1.hp === Math.floor(80 * B.pctPerStack / 100 * e1.maxHp), 'at most 20 stacks shaken per turn: ' + e1.burn);
+  // 不會動的（movedThisTurn 0）也會自然減半燒完：100 → 50 → 25 → 12 → 6 → 3 → 1 → 0，總共扣 197 層的血（≈ 19.7% 最大血量）
+  e1.burn = 100;
+  e1.burnFrac = 0;
+  const hp2 = e1.hp;
+  const seq = [];
+  while (e1.burn > 0) { e1.movedThisTurn = 0; m.endTurn(e1); seq.push(e1.burn); }
+  assert(seq.join() === '50,25,12,6,3,1,0' && hp2 - e1.hp === Math.round(197 * B.pctPerStack / 100 * e1.maxHp),'stationary burn fades out: ' + seq + ' dmg ' + (hp2 - e1.hp));
   // 實際開火：燃燒子彈讓每個被炸到的敵人都燒起來
   const s = matchWith({ burnStacks: 30 }, { weapons: ['plasma'], hp: 10000 });
   placeAt(s, s.enemies[0], 200);
@@ -1063,6 +1075,15 @@ test('燃燒：燃燒子彈 / 反裝甲子彈附加層數；回合結束依移�
   assert(!ke.alive && k.players[0].soulPct === 5 && kfx.some(f => f.type === 'soul'), 'burn kill credited to the burner');
   e2.burn = 0;
   assert(m.endTurn(e2).length === 0, 'no fx when not burning');
+  // 層數上限 100（2026-11-09）：疊到上限只加到 100、飄的是實際多的層數；已經滿了再打中不飄「燃燒 +N」，點火的人換成這一下的
+  const c = matchWith({}, { players: 2, hp: 10000 });
+  const [c1, c2] = c.players;
+  const ce = c.enemies[0];
+  ce.burn = 80;
+  const cd1 = c.applyExplosion(ce.cx, ce.cy, w.cannon, c1, ce, { burn: 50 });
+  assert(ce.burn === B.maxStacks && B.maxStacks === 100 && cd1.find(d => d.id === ce.id).burn === 20, 'capped at 100: ' + ce.burn);
+  const cd2 = c.applyExplosion(ce.cx, ce.cy, w.cannon, c2, ce, { burn: 30 });
+  assert(ce.burn === 100 && !cd2.find(d => d.id === ce.id).burn && ce.burnSource === c2.id, 'already full: ' + JSON.stringify(cd2));
 });
 
 test('恩賜之杖每回合回血 1%；祈願之杖全隊回血 50%；胖老爹全家桶回血、移速 -1%、體型 +1%；體型會改變碰撞框', () => {

@@ -430,7 +430,7 @@ test('走完還在半空中（走下小台階、前面不安全或體力用完�
   return out;
 }));
 
-test('燃燒：蝙蝠在空中飄、獨眼巨人沿著岩柱走的距離也算這回合的移動（跟走路一樣），回合結束照距離甩掉層數', () => base(() => withConfig({ EQUIP: { burn: { pctPerStack: 0.1, pxPerStack: 10, maxReducePerTurn: 3 } } }, () => {
+test('燃燒：蝙蝠在空中飄、獨眼巨人沿著岩柱走的距離也算這回合的移動（跟走路一樣），回合結束照距離甩掉層數', () => base(() => withConfig({ EQUIP: { burn: { pctPerStack: 0.1, pxPerStack: 10, maxReducePerTurn: 3, fadePct: 0 } } }, () => {   // 只測移動甩掉的（自然減半關掉）
   const out = {};
   for (const [levelId, pick] of [['cave', m => m.enemies.find(e => e.kind === 'bat')], ['depths', m => m.byId('cyclops')]]) {
     let shed = 0;

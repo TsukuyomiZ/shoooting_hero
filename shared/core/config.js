@@ -1395,9 +1395,12 @@ export const CONFIG = {
     maxWeapons: 3,                        // 一個角色最多裝備幾把武器（滿了還拿武器牌就要丟一把）
     startWeapons: ['cannon', 'sniper'],   // 冒險開始時的武器
     burn: {                               // 「燃燒」狀態
-      pctPerStack: 0.1,                   // 自己的回合結束時，每層扣最大血量的 N%
-      pxPerStack: 10,                     // 自己的回合每移動 N px 甩掉一層
-      maxReducePerTurn: 10,               // 每回合最多甩掉幾層
+      // 2026-11-09 使用者：疊高了傷害太高、減少又太慢、不會動的王一直燒 → 上限 100、扣完血自然減半、移動甩層放寬（原本每 10px 一層、最多 10 層）
+      pctPerStack: 0.1,                   // 自己的回合結束時，每層扣最大血量的 N%（100 層 = 10%）
+      pxPerStack: 5,                      // 自己的回合每移動 N px 甩掉一層（在扣血之前甩）
+      maxReducePerTurn: 20,               // 每回合最多甩掉幾層
+      fadePct: 50,                        // 扣完血之後，層數自然減少 N%（無條件捨去：100 → 50 → 25 → 12 → 6 → 3 → 1 → 0）
+      maxStacks: 100,                     // 層數上限：疊到上限再被打中，多的不算
     },
     shieldEveryTurns: 3,                  // 神佑之石：持有者每過 N 個回合，全隊無敵一次
     extraTurnCooldown: 3,                 // 時間扭曲：拿到額外回合後，要再過 N 個（普通）回合才會再給

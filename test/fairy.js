@@ -321,7 +321,8 @@ await test('燃燒：本尊的燃燒在閃現之前（舊的位置）結算一�
   const r = fairyTurn(m);
   assert(r.blink && r.blink.burn && r.blink.burn.dmg > 0 && g.hp === hp0 - r.blink.burn.dmg && g.burn === 0, 'burnt before the blink ' + J(r.blink && r.blink.burn));
   const fx = m.endTurn(g);
-  assert(!fx.some(f => f.type === 'burn') && g.burn === 4 && g.hp === hp0 - r.blink.burn.dmg, 'no second tick, stacks back ' + J(fx));
+  // 放回去的是閃現前結算完（減半，2026-11-09）剩下的層數：4 → 2
+  assert(!fx.some(f => f.type === 'burn') && g.burn === 2 && g.hp === hp0 - r.blink.burn.dmg, 'no second tick, stacks back ' + J(fx) + ' burn ' + g.burn);
   assert(m.byId('p1').dealt === r.blink.burn.dmg, 'credited to the igniter');
   return { dmg: r.blink.burn.dmg };
 }));

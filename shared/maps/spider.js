@@ -149,9 +149,8 @@ export function hitEgg(match, e, { attacker, friendly, damages, later, burn = 0 
   later.push(() => {
     entry.dmg = e.takeDamage(CONFIG.SPIDER_EGG.hitDamage);
     if (burn > 0 && e.alive) {
-      e.burn += burn;
-      e.burnSource = attacker.id;
-      entry.burn = burn;
+      const added = match.addBurn(e, burn, attacker);
+      if (added > 0) entry.burn = added;
     }
   });
   return true;

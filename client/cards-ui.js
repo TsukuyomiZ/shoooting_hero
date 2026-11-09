@@ -196,7 +196,7 @@ export class CardsUi {
       notes.push(`＊菁英關獎勵：這次抽牌比較容易出稀有牌（${bonus.map(([r, n]) => `${CONFIG.RARITY[r].name} +${n}%`).join('、')}）`);
     }
     if (offers.some(appliesBurn)) {
-      notes.push(`＊燃燒：自己的回合結束時，每層扣最大血量 ${B.pctPerStack}%；在自己的回合移動可以甩掉層數（每 ${B.pxPerStack}px 一層，每回合最多 ${B.maxReducePerTurn} 層）`);
+      notes.push(`＊燃燒：最多 ${B.maxStacks} 層；自己的回合結束時，每層扣最大血量 ${B.pctPerStack}%，扣完層數減少 ${B.fadePct}%；在自己的回合移動可以先甩掉層數（每 ${B.pxPerStack}px 一層，每回合最多 ${B.maxReducePerTurn} 層）`);
     }
     if (offers.some(appliesBleed)) {
       notes.push(`＊流血：流血的角色自己移動時，每移動 1px、每層扣最大血量 ${CONFIG.BLEED.pctPerPx}%；層數會一直疊，到他自己的回合結束時止血（全部清掉）`);

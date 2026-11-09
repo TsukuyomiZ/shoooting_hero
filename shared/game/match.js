@@ -356,8 +356,9 @@ export class Match {
     return fx;
   }
 
-  // 燃燒結算（回合結束時）：先用這回合移動的距離甩掉層數，剩下的每層扣最大血量 pctPerStack%；燒死算點火的人的擊殺
-  // （擊殺的效果另外記進 fx，例如噬魂者）
+  // 燃燒結算（回合結束時）：先用這回合移動的距離甩掉層數，剩下的每層扣最大血量 pctPerStack%，扣完再自然減少 fadePct%（無條件捨去；
+  // 2026-11-09 使用者：每回合減半，不會動的王也會燒完）；燒死算點火的人的擊殺（擊殺的效果另外記進 fx，例如噬魂者）。
+  // 有在燒就一定記一筆 fx（層數一定變了，裁判才會廣播新的狀態給客戶端）：shaken = 移動甩掉的、faded = 自然減少的、stacks = 剩下的
   burnTick(e, fx) {
     if (!(e.burn > 0)) return;
     const B = CONFIG.EQUIP.burn;
@@ -367,11 +368,23 @@ export class Match {
     const whole = Math.floor(e.burnFrac);
     e.burnFrac -= whole;
     const dmg = whole > 0 ? e.takeDamage(whole) : 0;
-    if (dmg > 0 || shaken > 0) fx.push({ type: 'burn', id: e.id, dmg, shaken, stacks: e.burn });
+    const faded = e.burn - Math.floor(e.burn * (100 - B.fadePct) / 100);
+    e.burn -= faded;
+    if (e.burn === 0) e.burnFrac = 0;   // 燒完了：不足 1 點的小數不留到下次著火
+    fx.push({ type: 'burn', id: e.id, dmg, shaken, faded, stacks: e.burn });
     const igniter = this.byId(e.burnSource);
     if (igniter && igniter.team !== e.team) igniter.dealt += dmg;   // 燒掉的血算點火的人造成的傷害
     const src = !e.alive && igniter;
     if (src) this.creditKills(src, [e], fx);
+  }
+
+  // 附加燃燒層數（武器擊中、著火的子彈、蛛卵…所有上燃燒的地方都走這裡）：最多疊到 EQUIP.burn.maxStacks，多的不算。
+  // 點火的人一律換成這一下的攻擊者（已經到上限也換：燒掉的血、燒死算最後點火的人）。回傳實際多了幾層（給客戶端飄「燃燒 +N」）
+  addBurn(e, stacks, attacker) {
+    const added = Math.max(0, Math.min(stacks, CONFIG.EQUIP.burn.maxStacks - e.burn));
+    e.burn += added;
+    if (attacker) e.burnSource = attacker.id;
+    return added;
   }
 
   // 流血在自己的回合結束時止血（層數全部清掉）：還活著才記一筆 fx 給客戶端飄字（stacks = 止住了幾層、dmg = 這回合流血扣了幾點）
@@ -580,9 +593,8 @@ export class Match {
       const immune = (burn > 0 || poison > 0 || bleed > 0) && !!attacker && !entry.friendly && e.alive && this.immuneTo(e);
       if (immune) entry.immune = true;
       if (burn > 0 && attacker && !entry.friendly && e.alive && !immune) {
-        e.burn += burn;
-        e.burnSource = attacker.id;
-        entry.burn = burn;
+        const added = this.addBurn(e, burn, attacker);
+        if (added > 0) entry.burn = added;
       }
       if (poison > 0 && attacker && !entry.friendly && e.alive && !immune) {   // 有毒的攻擊（巨蟒、蜜蜂）：傷害 0 也照樣上毒
         e.poison += poison;

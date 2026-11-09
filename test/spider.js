@@ -372,9 +372,12 @@ await test('被燒到就掉下來：著火的子彈打中懸吊的女王 → 那
   const r = turn(m, q);
   assert(J(steps(r)) === J(['bite']) && r.steps[0].targetId === victim.id && hp0 - victim.hp === want && victim.poison - ps0 === 10, `bite ${hp0 - victim.hp} (want ${want}) ${J(steps(r))}`);
   assert(Math.abs(q.y - 580) <= 3 && q.movedThisTurn > 50, `on the ground at ${q.x}, ${q.y}, moved ${q.movedThisTurn}`);
-  // 回合結束：甩掉燃燒（最多 10 層），還有就留在地上；燒完了爬回天上
+  // 回合結束：甩掉燃燒（照移動距離，見 EQUIP.burn）、扣完血減半，還有就留在地上；燒完了爬回天上
   let fx = m.endTurn(q);
-  assert(q.burn === 10 && !fx.some(f => f.type === 'queen') && m.mechState.mode === 'ground', 'still burning: ' + q.burn);
+  const B = CONFIG.EQUIP.burn;
+  const left = 20 - Math.min(20, B.maxReducePerTurn, Math.floor(q.movedThisTurn / B.pxPerStack));
+  const want1 = Math.floor(left * (100 - B.fadePct) / 100);
+  assert(want1 > 0 && q.burn === want1 && !fx.some(f => f.type === 'queen') && m.mechState.mode === 'ground', `still burning: ${q.burn} (want ${want1})`);
   let up = null, turns = 1;
   for (; turns < 12 && !up; turns++) {   // 撲過去的距離短的回合甩得少：直到燒完的那一回合才爬回去
     m.beginTurn(q);
