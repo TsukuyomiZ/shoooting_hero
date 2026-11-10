@@ -1,13 +1,20 @@
 import { CONFIG } from '../../shared/core/config.js';
-import { spawnTreant, leafOrigin, trunkLane, TREE_ACTION_NAMES } from '../../shared/maps/tree-boss.js';
+import { spawnTreant, leafOrigin, trunkLane, TREE_ACTION_NAMES, TREE_MARK_NAMES, TREE_MARKS, syncBound } from '../../shared/maps/tree-boss.js';
 import { clamp } from '../../shared/core/utils.js';
 import { roundRect } from '../draw.js';
+import { clockOf, marksHazard, pruneZones, marksStruggleKey, marksOnStruggle, drawMarkSigils, drawEscapeHint, boundHudLine } from './marks-draw.js';
 import { drawSpearHeld } from '../weapon-art.js';
 
 // 古樹之庭的地圖畫面：古樹回合的動畫腳本（照伺服器廣播的招式播）、古樹倒下的特效、嘴巴被打閉上 / 又張開的飄字，
 // 與古樹 / 樹妖 / 招式的繪圖。掛勾的說明見 index.js
+// 指名（2026-11-09，規則見 shared/maps/tree-boss.js）：被指名的人腳下一圈淡淡的根紋（尖刺 = 褐色帶刺、藤蔓 = 紫綠色捲鬚；菁英之路不畫，c.rangeHints）；
+// 輪到他時腳下那一塊開始冒（尖刺尖端 / 藤蔓捲鬚慢慢長出來，TREE_BOSS.marks.delay 秒），伺服器說冒出來了就刺上去 / 甩上去；被綁著的人腳上纏著帶紫刺的藤蔓，
+// 自己被綁著時畫面中間提示「連點 A/D 可逃脫！」
 const FPS = 60;
 const BARK = '#5b3d27';
+const SPIKE = '#7c4a1e', SPIKE_HI = '#c08a54', SPIKE_TIP = '#f5deb3';
+const VINE = '#3f6212', VINE_DARK = '#1f3d0c', THORN = '#c084fc', TOXIC = '#a855f7';
+const ERUPT = 0.09, HOLD = 0.35, RETRACT = 0.3;   // 冒出來：刺上去、停住、縮回去（秒）
 
 export const tree = {
   type: 'tree',
@@ -18,8 +25,10 @@ export const tree = {
   //   mouthOpen  嘴巴畫面上張開的程度（id → 數字，update 每一步往目標靠近一點）
   //   shut       畫面看到是閉著的嘴巴 id（closedTurns > 0；update 每一步照嘴巴的狀態更新）：
   //              被打到時原本不在這裡 = 這一下把張開的嘴打閉上，才飄「閉上了！」
+  //   zones      被指名的人腳下正在冒的那一塊 [{ id, kind, x, y, w, h, at（開始冒的時刻，clockOf(c)）, delay, fired: null | { at, hit } }]
+  //   lastDir    自己被綁著時上一下按的是哪一邊（-1 / 1；0 = 這回合還沒按：左右交替才算一下）
   create: (match) => ({
-    fx: null, withered: false, mouthOpen: new Map(),
+    fx: null, withered: false, mouthOpen: new Map(), zones: [], lastDir: 0,
     shut: new Set(match.entities.filter(e => e.part === 'mouth' && e.closedTurns > 0).map(e => e.id)),   // 重連時已經閉著的
   }),
 
@@ -28,10 +37,12 @@ export const tree = {
   abortScript(c) { c.state.fx = null; },   // 播到一半丟掉：預兆（閉眼、快閃、種子）不要一直留著
   onDeath: onTreeDeath,
 
-  // 每一步：預兆的計時、嘴巴張開的程度、嘴巴是開是閉（畫圖只讀這些）
+  // 每一步：預兆的計時、嘴巴張開的程度、嘴巴是開是閉（畫圖只讀這些）；被綁著的人跟場面對齊、冒完的那一塊收掉
   update(c, dt) {
     const s = c.state;
     if (s.fx) s.fx.t += dt;
+    syncBound(c.match);
+    pruneZones(c, ERUPT + HOLD + RETRACT + 0.1);
     for (const e of c.match.entities) {
       if (e.part !== 'mouth') continue;
       if (e.closedTurns > 0) s.shut.add(e.id);
@@ -52,6 +63,24 @@ export const tree = {
     c.fx.particles(e.cx, e.cy, 10, { speed: 120, life: 0.5, size: 3, color: '#8b5a2b', gravity: 300 });
     return true;
   },
+
+  // 回合裡的事（流程見 marks-draw.js）：被指名的人腳下開始冒（噴一點土）、冒出來了（刺上去 / 甩上去）、綁著的人扣血（冒紫色的毒）
+  hazard(c, msg, early = false) {
+    marksHazard(c, TREE_MARKS, msg, early, {
+      zone: (z) => c.fx.particles(z.x, z.y, 6, { speed: 50, life: 0.5, size: 2, color: z.kind === 'vine' ? VINE : SPIKE, gravity: 200 }),
+      fired: (f) => showFired(c, f),
+      ticks: (ids) => {
+        for (const id of ids) {
+          const e = c.match.byId(id);
+          if (e) c.fx.particles(e.x, e.y - 8, 5, { speed: 70, life: 0.45, size: 2.2, color: TOXIC, gravity: -40 });
+        }
+      },
+    });
+  },
+
+  // 自己被綁著時按了一下 A / D：左右交替才算；伺服器的 struggle：連打數照伺服器的，掙脫了就放開、飄字
+  struggle: (c, me, dir) => marksStruggleKey(c, TREE_MARKS, me, dir, VINE),
+  onStruggle: (c, e, msg) => marksOnStruggle(c, TREE_MARKS, e, msg, { main: VINE, bit: THORN }),
 
   // 古樹之口撐過一回合，又張開了
   turnFx(c, e, fx) {
@@ -92,7 +121,10 @@ export const tree = {
   hud(c) {
     const eye = c.match.byId('eye');
     const minions = c.match.enemies.filter(e => e.minion && e.alive).length;
-    return [[`古樹之眼 ${eye.hp} / ${eye.maxHp}`, '#fca5a5'], [`樹妖 ×${minions}`, '#fdba74']];
+    const lines = [[`古樹之眼 ${eye.hp} / ${eye.maxHp}`, '#fca5a5'], [`樹妖 ×${minions}`, '#fdba74']];
+    const bound = boundHudLine(c, c.match.mechState, CONFIG.TREE_BOSS.marks.need);   // 現在輪到的人被藤蔓綁著：他要連打幾下
+    if (bound) lines.push(bound);
+    return lines;
   },
 };
 
@@ -113,8 +145,9 @@ function* treeTurnScript(c, msg) {
 function* treeStepScript(c, eye, b) {
   const match = c.match;
   const T = CONFIG.TIMING;
-  const fx = c.state.fx = { action: b.action, t: 0, plane: b.plane ?? null, targetId: b.targetId ?? null, seeds: [] };
-  const cast = Math.round(T.bossCast * FPS);
+  const fx = c.state.fx = { action: b.action, t: 0, plane: b.plane ?? null, targetId: b.targetId ?? null, seeds: [], roots: [], cast: 0 };
+  const cast = Math.round((b.cast ?? T.bossCast) * FPS);   // 招式自己帶 cast（指名）就照它，跟伺服器等的一樣久
+  fx.cast = cast / FPS;
   const planes = match.mechState ? match.mechState.def.planes : [];
   const name = TREE_ACTION_NAMES[b.action] || '';
   switch (b.action) {
@@ -172,6 +205,24 @@ function* treeStepScript(c, eye, b) {
         c.fx.particles(eye.x, eye.cy, 16, { speed: 90, life: 0.8, size: 3, color: '#86efac', gravity: -80 });
       }
       yield { frames: cast - Math.round(cast * 0.6) };
+      break;
+    }
+    case 'mark': {   // 指名：地面一震，根從樹幹沿著地面爬向被指名的人（菁英之路不畫是誰），播完腳下才出現根紋
+      c.fx.banner(`古樹：${name}`, '#bef264');
+      c.fx.sound('quake', { vol: 0.35 });
+      const ids = b.targetIds || [];
+      const kinds = b.kinds || [];
+      fx.roots = c.rangeHints === false ? [] : ids.map((id, i) => {
+        const p = match.byId(id);
+        return p && p.alive ? { kind: kinds[i], x: p.x, y: p.y, from: match.terrain.hardEdgeX(p.y - 6) } : null;
+      }).filter(Boolean);
+      for (let i = 0; i < cast; i++) {
+        if (i % 9 === 0) c.fx.shake(2);
+        yield { frames: 1 };
+      }
+      const S = match.mechState;
+      if (S && S.marks) ids.forEach((id, i) => { S.marks[id] = kinds[i] || 'spike'; });
+      fx.roots = [];
       break;
     }
     default:
@@ -235,6 +286,12 @@ function drawTreeScene(ctx, c) {
   }
 
   const fx = c.state.fx;
+  // 指名：被指名的人腳下的根紋、正在冒的那一塊、被綁著的人腳上的藤蔓、指名時爬過去的根、自己被綁著時的提示
+  drawMarkSigils(ctx, c, match.mechState, (kind) => (kind === 'vine' ? { ring: TOXIC, dot: VINE, spiky: false } : { ring: SPIKE_HI, dot: SPIKE, spiky: true }));
+  drawZones(ctx, c);
+  drawBound(ctx, c);
+  if (fx && fx.action === 'mark') drawRoots(ctx, c, fx);
+  drawEscapeHint(ctx, c, match.mechState, CONFIG.TREE_BOSS.marks.need, '#d8b4fe');
   // 預定的古樹撞擊：玩家 / 樹妖的回合一直標著那條橫掃範圍（慢慢呼吸），讓玩家有機會躲開。
   // 古樹自己出撞擊的時候改由下面的快閃接手（撞完、播完才換成下一個預告）
   const next = match.mechState.next;
@@ -268,6 +325,174 @@ function drawTrunkBand(ctx, match, planeIdx, alpha, lineAlpha) {
   ctx.beginPath(); ctx.moveTo(lane.x0, lane.top); ctx.lineTo(edge(lane.top), lane.top); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(lane.x0, lane.bottom); ctx.lineTo(edge(lane.bottom), lane.bottom); ctx.stroke();
   ctx.setLineDash([]);
+}
+
+// ---------- 指名的尖刺 / 藤蔓 ----------
+
+// 伺服器說冒出來了（hazard 的 fired；範圍的記帳、藤蔓綁住在 marks-draw.js）：音效、震動、碎屑、飄字
+function showFired(c, f) {
+  if (f.kind === 'spike') {
+    c.fx.sound('crack', { x: f.x, vol: 0.8 });
+    c.fx.shake(f.hit ? 6 : 3);
+    c.fx.particles(f.x, f.y - 4, 10, { speed: 140, life: 0.5, size: 3, color: SPIKE, gravity: 500 });
+    return;
+  }
+  c.fx.sound('snare', { x: f.x, vol: 0.8 });
+  c.fx.particles(f.x, f.y - 6, 10, { speed: 110, life: 0.5, size: 2.5, color: VINE, gravity: 300 });
+  const e = f.hit ? c.match.byId(f.id) : null;
+  if (e) c.fx.float(e, `被${TREE_MARK_NAMES.vine}綁住了！`, '#d8b4fe', 15);
+}
+
+// 被指名的人輪到了：腳下那一塊。還沒冒出來 = 地面裂開、尖端 / 捲鬚慢慢長出來（照 delay 秒長滿）；冒出來 = 刺上去 / 甩上去再縮回去
+function drawZones(ctx, c) {
+  const now = clockOf(c);
+  for (const z of c.state.zones) {
+    if (!z.fired) {
+      drawSprout(ctx, z, clamp((now - z.at) / Math.max(0.05, z.delay || 1), 0, 1), now);
+      continue;
+    }
+    const t = now - z.fired.at;
+    const h = t < ERUPT ? t / ERUPT : t < ERUPT + HOLD ? 1 : 1 - clamp((t - ERUPT - HOLD) / RETRACT, 0, 1);
+    if (z.kind === 'spike') drawSpikes(ctx, z, h);
+    else if (!z.fired.hit) drawLash(ctx, z, h, now);              // 甩空：揮一下縮回去
+    else if (t < ERUPT + 0.15) drawLash(ctx, z, Math.min(1, t / ERUPT), now);   // 綁住了：甩上去之後交給 drawBound
+  }
+}
+
+// 快要冒出來：一道裂縫 + 地面泛紅（尖刺）/ 泛紫（藤蔓），尖端越長越高、越抖越快
+function drawSprout(ctx, z, k, now) {
+  ctx.save();
+  ctx.translate(z.x, z.y);
+  const pulse = 0.5 + 0.5 * Math.sin(now * (10 + k * 14));
+  ctx.fillStyle = z.kind === 'vine' ? `rgba(126,34,206,${0.18 + 0.2 * k * pulse})` : `rgba(185,28,28,${0.18 + 0.22 * k * pulse})`;
+  ctx.beginPath(); ctx.ellipse(0, -1, z.w / 2, 5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(30,18,10,0.8)';
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(-z.w / 2 + 4, 0); ctx.lineTo(-z.w / 4, -2); ctx.lineTo(0, 0.5); ctx.lineTo(z.w / 4, -2); ctx.lineTo(z.w / 2 - 4, 0);
+  ctx.stroke();
+  const n = 5;
+  for (let i = 0; i < n; i++) {
+    const x = (i - (n - 1) / 2) * (z.w / n);
+    const jit = Math.sin(now * 30 + i * 2) * k * 1.2;
+    if (z.kind === 'spike') {
+      const hh = 2 + 9 * k;
+      ctx.fillStyle = SPIKE;
+      ctx.beginPath(); ctx.moveTo(x - 3 + jit, 0); ctx.lineTo(x + 3 + jit, 0); ctx.lineTo(x + jit, -hh); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = SPIKE_TIP;
+      ctx.beginPath(); ctx.moveTo(x - 1 + jit, -hh + 3); ctx.lineTo(x + 1 + jit, -hh + 3); ctx.lineTo(x + jit, -hh); ctx.closePath(); ctx.fill();
+    } else {
+      const hh = 3 + 11 * k;
+      ctx.strokeStyle = i % 2 ? VINE_DARK : VINE;
+      ctx.lineWidth = 2.2;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.quadraticCurveTo(x + 5 * Math.sin(now * 6 + i), -hh * 0.6, x + jit, -hh); ctx.stroke();
+      ctx.fillStyle = THORN;
+      ctx.beginPath(); ctx.arc(x + jit, -hh, 1.4, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// 尖刺刺上去：五根高高低低的木刺（h = 0 ~ 1 伸出來的比例）
+function drawSpikes(ctx, z, h) {
+  if (h <= 0) return;
+  ctx.save();
+  ctx.translate(z.x, z.y);
+  const tall = [0.7, 1, 0.82, 0.95, 0.68];
+  const n = tall.length, bw = z.w / n;
+  for (let i = 0; i < n; i++) {
+    const x = (i - (n - 1) / 2) * bw;
+    const hh = z.h * tall[i] * h;
+    const g = ctx.createLinearGradient(0, 0, 0, -hh);
+    g.addColorStop(0, SPIKE);
+    g.addColorStop(0.7, SPIKE_HI);
+    g.addColorStop(1, SPIKE_TIP);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(x - bw * 0.55, 1); ctx.lineTo(x + bw * 0.55, 1); ctx.lineTo(x + (i - 2) * 1.5, -hh); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(40,24,12,0.7)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// 藤蔓甩上去：幾條帶紫刺的捲鬚往上甩（h = 0 ~ 1）
+function drawLash(ctx, z, h, now) {
+  if (h <= 0) return;
+  ctx.save();
+  ctx.translate(z.x, z.y);
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 4; i++) {
+    const x = (i - 1.5) * (z.w / 4);
+    const top = -z.h * (0.6 + 0.12 * (i % 2)) * h;
+    const sway = Math.sin(now * 9 + i * 1.7) * 6 * h;
+    ctx.strokeStyle = i % 2 ? VINE_DARK : VINE;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.bezierCurveTo(x - 8, top * 0.4, x + 8 + sway, top * 0.7, x + sway, top); ctx.stroke();
+    ctx.fillStyle = THORN;
+    for (let k = 1; k <= 3; k++) {
+      const yy = top * k / 4;
+      ctx.beginPath(); ctx.moveTo(x + sway * k / 4 - 3, yy); ctx.lineTo(x + sway * k / 4, yy - 3); ctx.lineTo(x + sway * k / 4 + 1, yy + 1); ctx.closePath(); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// 被藤蔓綁著的人：腳邊盤著帶紫刺的藤蔓、往上纏到小腿（一直輕輕扭動）
+function drawBound(ctx, c) {
+  const S = c.match.mechState;
+  if (!S.bound) return;
+  for (const pid of Object.keys(S.bound)) {
+    const p = c.match.byId(pid);
+    if (!p || !p.alive) continue;
+    const t = c.time;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = VINE;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(0, -1, p.hw + 7, 4, 0, 0, Math.PI * 2); ctx.stroke();
+    for (let k = 0; k < 4; k++) {
+      const side = k % 2 ? 1 : -1;
+      const wob = Math.sin(t * 4 + k) * 2;
+      ctx.strokeStyle = k % 2 ? VINE_DARK : VINE;
+      ctx.beginPath();
+      ctx.moveTo(side * (p.hw + 5), -1);
+      ctx.quadraticCurveTo(side * (p.hw - 2) + wob, -9 - k * 3, -side * 3, -13 - k * 4);
+      ctx.stroke();
+    }
+    ctx.fillStyle = THORN;
+    for (let k = 0; k < 6; k++) {
+      const a = k * Math.PI / 3 + t * 0.5;
+      const x = Math.cos(a) * (p.hw + 7), y = -1 + Math.sin(a) * 4;
+      ctx.beginPath(); ctx.moveTo(x - 1.5, y); ctx.lineTo(x + 1.5, y); ctx.lineTo(x, y - 4); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+// 指名的時候：根從樹幹表面沿著被指名的人站的那一層爬過去（fx.t / fx.cast = 爬到哪；菁英之路的 fx.roots 是空的）
+function drawRoots(ctx, c, fx) {
+  const k = clamp(fx.t / Math.max(0.1, fx.cast * 0.8), 0, 1);
+  for (const r of fx.roots) {
+    const x1 = r.from + (r.x - r.from) * k;
+    ctx.save();
+    ctx.strokeStyle = r.kind === 'vine' ? VINE : SPIKE;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    const n = Math.max(2, Math.ceil(Math.abs(x1 - r.from) / 12));
+    for (let i = 0; i <= n; i++) {
+      const x = r.from + (x1 - r.from) * i / n;
+      const y = r.y - 2 + Math.sin(i * 1.3 + c.time * 6) * 2;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.fillStyle = r.kind === 'vine' ? THORN : SPIKE_TIP;
+    ctx.beginPath(); ctx.arc(x1, r.y - 2, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
 }
 
 // 古樹身上的眼睛 / 嘴巴

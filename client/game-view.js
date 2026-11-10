@@ -581,7 +581,8 @@ export class GameView {
       if (fx.type === 'heal') this.floatText(e, `+${fx.amount}`, '#4ade80');
       else this.statusFx(e, fx);
     }
-    const kind = msg.extra ? '額外回合' : '回合';   // 時間扭曲給的額外回合
+    // 時間扭曲給的額外回合；王插進來的插話行動（不算他的回合，見 Referee.runInterject）
+    const kind = msg.interject ? '追加行動' : msg.extra ? '額外回合' : '回合';
     const fever = this.feverNotice();
     if (mine) {
       this.cueTurn(msg);
@@ -901,8 +902,21 @@ export class GameView {
       if (!e) continue;
       e.hp = s.hp;
       if (s.shield !== undefined) e.shield = s.shield;   // 被無敵擋下也算用掉一次
+      if (Number.isFinite(s.poison)) e.poison = s.poison;   // 中毒 / 流血層數（例如古樹的藤蔓、尖刺；流血馬上照新的層數算走路扣的血）
+      if (Number.isFinite(s.bleed)) e.bleed = s.bleed;
       readState(e, s);   // 效果自己的狀態（例如被虐體質的層數）
       if (!s.alive && e.alive) e.die(s.cause || 'hit');
+    }
+    // 危險物把人移走了（Match.relocate，例如被抓起來丟到別的地方）：直接放過去、停下來（自己的話下一次位置回報就從那裡送；
+    // 伺服器在那之前擋掉舊位置的回報），別人不要再滑回他最後回報的位置
+    for (const m of msg.moved || []) {
+      const e = this.match.byId(m.id);
+      if (!e || !e.alive || !Number.isFinite(m.x) || !Number.isFinite(m.y)) continue;
+      Object.assign(e, { x: m.x, y: m.y, vx: 0, vy: 0, slide: 0, moveDir: 0, wantJump: false });
+      e.letGoVine();
+      e.safeX = m.x;
+      e.safeY = m.y;
+      this.look(e).netTarget = null;
     }
     this.showDamages(msg.damages);
     if (msg.recvAt === undefined) msg.recvAt = this.clock();

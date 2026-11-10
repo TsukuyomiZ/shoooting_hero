@@ -118,6 +118,9 @@ export class Entity {
     // 落水重生：最後站穩的地方（腳底），掉進水裡就回到這裡（見 fallInWater）
     this.safeX = o.x;
     this.safeY = o.y;
+    // 伺服器在他自己的回合裡把他移走了（Match.relocate，例如蓋亞的大地之手把他丟到別的斜坡）：{ x, y } = 移到哪裡。
+    // 他的畫面還沒收到之前送來的位置回報（舊的那一帶）不收，回報回到這附近才解除；他下一個回合開始也解除。只有伺服器在用
+    this.fence = null;
     this.waterFalls = 0;         // 這一關掉進水裡幾次
     // 最近一次落水 { n, x, y, dmg, died, sx, sy, hp }：給畫面播水花 / 飄字，玩家回報給伺服器（hp = 落水扣血之前的血量，見 fallInWater）
     this.splash = null;

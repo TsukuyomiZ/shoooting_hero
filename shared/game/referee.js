@@ -85,6 +85,24 @@ const nextOf = (next) => ({
   ...(next && typeof next.targetId === 'string' ? { nextTarget: next.targetId } : {}),
   ...(next && Array.isArray(next.targetIds) ? { nextTargets: next.targetIds.slice() } : {}),
 });
+// Boss 的招式（AI 回合 / 插話行動的 boss.steps）給紀錄的樣子：每一招只記純量欄位（招式、平面、目標、回血…）與純量的陣列
+// （例如獨眼巨人巨石投擲的 targetIds = 每個人各一顆、照出手的順序；超巨石壓死的 killed、壓碎的鐘乳石 rocks；震盪獅吼擊碎的 shattered；
+// 古樹指名的 targetIds + kinds），召喚的樹妖記 id；這一招改到的場景（例如獨眼巨人猛捶震下來的鐘乳石 falls、點燃的火把 lights）
+function bossStepsLog(boss) {
+  return boss.steps.map(st => {
+    const o = {};
+    for (const [k, v] of Object.entries(st)) {
+      if (v === null || typeof v !== 'object') o[k] = v;
+      else if (Array.isArray(v) && v.every(x => x === null || typeof x !== 'object')) o[k] = v.slice();
+    }
+    if (Array.isArray(st.spawns)) o.spawns = st.spawns.map(s => s.id);
+    if (st.shot) Object.assign(o, sceneChanges(st.shot));
+    return o;
+  });
+}
+// Boss 的招式播完要多久：每一招的預兆動畫（招式自己帶 cast 秒就照它，例如洞穴巨蠍一回合好幾招、每招短一點；不然 bossCast）+ 重播 / 落地
+const bossSeconds = (boss) => boss.steps.reduce((s, st) => s + (st.cast ?? CONFIG.TIMING.bossCast)
+  + (st.shot ? st.shot.flightFrames + st.shot.settleFrames : st.still.settleFrames) / 60, 0);
 // 開場就抽好的第一招：地圖機制的快照裡預定的下一招（名字以 Next 結尾、帶 action 的欄位，例如 guardianNext、cyclopsNext）；沒有 = null
 function openingPlan(snapshot) {
   for (const [k, v] of Object.entries(snapshot)) if (/Next$/.test(k) && v && typeof v.action === 'string') return v;
@@ -109,7 +127,8 @@ const SLOW_WHY = ['fire', 'land', 'stamina', 'release', 'reconnect'];
 //
 // 一個回合：nextTurn（回合開始：效果的一波攻擊，例如無差別轟炸）→ startTurn（中毒結算、站在蛇血上就喝、效果（恩賜之杖回血）、
 //          開始計時 / AI 行動；被毒倒就直接換人）→ 開火 / 超時 / AI 播完 → finishTurn（回合結束：燃燒、地圖機制、效果（神佑之石、時間扭曲））
-//          → 下一位的 nextTurn（效果給了額外回合的話，nextTurn 會讓同一位再來一次，不算新的一輪）。
+//          → 下一位的 nextTurn（效果給了額外回合的話，nextTurn 會讓同一位再來一次，不算新的一輪；
+//          王要插話的話（Match.interjectBefore，例如古樹之眼在 3 人以上時）先跑 runInterject，播完再回到 nextTurn 輪到下一位）。
 // 牌的效果（shared/cards/effects/）裁判一個都不認得：回合秒數、回合開始的攻擊、額外回合、開火紀錄的欄位都問效果的登記表
 export class Referee {
   // humans[i].connected 可省略（預設 true）；humans[i].bot = 電腦玩家（勝者為王：一直由 AI 操作，跟斷線代打一樣，只是不算斷線）；
@@ -134,6 +153,9 @@ export class Referee {
     this.timer = null;
     this.deadline = null;
     this.hazardTimer = null;   // 回合中的危險物下一次推進的計時（見 hazardTick）
+    // 插話行動（見 runInterject）：interjected = 這一次換人已經插過話了（播完回到 nextTurn 不再問一次）；interjectId = 正在插話的王
+    this.interjected = false;
+    this.interjectId = null;
     this.turnSeq = 0;          // 第幾個回合（回合開始就加一；危險物的 turn / hazard 訊息帶著，客戶端用來對上是哪一個回合的）
   }
 
@@ -223,7 +245,11 @@ export class Referee {
         const bledOut = !actor.alive && !report.water;   // 流血扣到倒下（淹死的另外走 actorFellInWater）
         if (!report.ok) {
           // 位置不合理（瞬移、出界、卡進地形）被擋下（血量照收：流血扣到倒下一樣結束這回合）
-          this.record('move.reject', { pid: actor.id, name: actor.name, x: logValue(msg.x), y: logValue(msg.y), from: [r1(actor.x), r1(actor.y)], ...bled });
+          // fenced = 伺服器剛把他移走（Match.relocate），這是他的畫面還沒收到之前送的舊位置
+          this.record('move.reject', {
+            pid: actor.id, name: actor.name, x: logValue(msg.x), y: logValue(msg.y), from: [r1(actor.x), r1(actor.y)], ...bled,
+            ...(report.fenced ? { fenced: true } : {}),
+          });
           if (bledOut) this.skipTurn('bleed', [], before, report.kill);
           break;
         }
@@ -416,7 +442,7 @@ export class Referee {
   statePayload() {
     return {
       ...this.startPayload(),
-      currentId: this.currentId,
+      currentId: this.interjectId || this.currentId,   // 王正在插話：畫面上現在是他在行動
       extraTurn: this.extraTurn,
       round: this.round,
       phase: this.phase,
@@ -481,6 +507,12 @@ export class Referee {
     const prev = this.match.entities.findIndex(e => e.id === this.currentId);
     const actor = extra ? again : this.match.nextActor(this.currentId);
     if (!actor) return this.gameOver('lose');
+    // 插話行動（見 Match.interjectBefore）：王先插進來行動一次，播完再回到這裡輪到 actor（currentId 不動：回合順序、輪數照舊）
+    if (!extra && !this.interjected) {
+      const boss = this.match.interjectBefore(actor);
+      if (boss && this.runInterject(boss)) return;
+    }
+    this.interjected = false;
 
     // 回合順序繞回陣列前面（或第一個回合）= 新的一輪。不用「輪到第一位活著的玩家」判斷：
     // 他在自己的回合開始被毒倒、或在自己的回合掉水淹死時，下一位不該又算成新的一輪。
@@ -527,7 +559,7 @@ export class Referee {
     this.hazardTimer = null;
     if (this.phase === 'over') return;
     const before = hpOf(this.match);
-    const step = this.match.hazardStep(this.io.now(), flush);
+    const step = this.match.hazardStep(this.io.now(), flush, this.phase === 'turn');   // active = 行動的人還在操作（還沒開火）
     if (!step) return;
     const { damages = [], done = false, notify = false, ...info } = step;
     if (damages.length || done || notify) {
@@ -536,9 +568,12 @@ export class Referee {
         ...plainFields(info), turn: this.currentId, ...(done ? { done: true } : {}),
         ...(damages.length ? { changes: hpChanges(this.match, before) } : {}),
       });
-      // hp = 被打到的人（含分到傷害的連結對象）扣完的狀態：血量、無敵、效果自己的狀態（例如被虐體質的層數）；
+      // hp = 被打到的人（含分到傷害的連結對象）扣完的狀態：血量、無敵、中毒 / 流血層數（例如古樹的藤蔓、尖刺：行動玩家走路扣的流血
+      // 是他自己的畫面算的，要馬上知道層數）、效果自己的狀態（例如被虐體質的層數）；
       // 不帶位置（行動玩家的位置在他自己的畫面上）。seq = 這是第幾個回合的危險物（客戶端判斷能不能收到就先演）
-      const hp = this.match.entities.filter(e => ids.has(e.id)).map(e => ({ id: e.id, hp: e.hp, alive: e.alive, cause: e.deathCause, shield: e.shield, ...writeState(e, {}) }));
+      const hp = this.match.entities.filter(e => ids.has(e.id)).map(e => ({
+        id: e.id, hp: e.hp, alive: e.alive, cause: e.deathCause, shield: e.shield, poison: e.poison, bleed: e.bleed, ...writeState(e, {}),
+      }));
       this.io.broadcast({ t: 'hazard', ...info, seq: this.turnSeq, damages, done, hp });
     }
     // 勝負不在這裡判：開火結算、AI 代打播放的時候也在推進，分出勝負交給已經排好的 finishTurn → closeTurn → nextTurn（跟其他地圖一樣等動畫播完）。
@@ -679,26 +714,11 @@ export class Referee {
     const glideSecs = glide ? glide.frames / 60 : 0;
     let secs;
     if (boss) {
-      // Boss 的招式：每一招只記純量欄位（招式、平面、目標、回血…）與純量的陣列（例如獨眼巨人巨石投擲的 targetIds = 每個人各一顆、照出手的順序；
-      // 超巨石壓死的 killed、壓碎的鐘乳石 rocks；震盪獅吼擊碎的 shattered），召喚的樹妖記 id；next = 預定的下一招
-      const steps = boss.steps.map(st => {
-        const o = {};
-        for (const [k, v] of Object.entries(st)) {
-          if (v === null || typeof v !== 'object') o[k] = v;
-          else if (Array.isArray(v) && v.every(x => x === null || typeof x !== 'object')) o[k] = v.slice();
-        }
-        if (Array.isArray(st.spawns)) o.spawns = st.spawns.map(s => s.id);
-        if (st.shot) Object.assign(o, sceneChanges(st.shot));   // 這一招改到的場景（例如獨眼巨人猛捶震下來的鐘乳石 falls、點燃的火把 lights）
-        return o;
-      });
       // 預定的下一招（nextOf）：獨眼巨人的猛捶帶 nextLedge（預定打哪個平台）、下一回合要丟超巨石的帶 nextSeal（要封哪個平台）、鎖定了某個人的（大樹守衛的衝鋒標記、躍擊鎖定）帶 nextTarget、
       // 鎖定了好幾個人的（流浪劍士一閃的預警線，每一道對準誰）帶 nextTargets
-      this.record('ai.turn', { ...who, ...moved, boss: steps, ...nextOf(boss.next), changes: hpChanges(this.match, before) });
+      this.record('ai.turn', { ...who, ...moved, boss: bossStepsLog(boss), ...nextOf(boss.next), changes: hpChanges(this.match, before) });
       this.io.broadcast({ t: 'aiTurn', actorId: actor.id, entities, walk: null, ...moved, shot: null, boss });
-      // 每一招的預兆動畫：招式自己帶 cast（秒，例如洞穴巨蠍一回合好幾招、每招短一點）就照它，不然 bossCast
-      const stepSecs = boss.steps.reduce((s, st) => s + (st.cast ?? T.bossCast)
-        + (st.shot ? st.shot.flightFrames + st.shot.settleFrames : st.still.settleFrames) / 60, 0);
-      secs = T.aiThink + glideSecs + stepSecs + T.afterShotPad;
+      secs = T.aiThink + glideSecs + bossSeconds(boss) + T.afterShotPad;
     } else {
       // 走路（見 ai-move.js）：客戶端照 { dir, frames, fall } 重播（fall = 走完還在半空中、放開方向鍵落到站穩的幀數）。
       // 斷線代打的玩家路上撿到的道具（點燃火把、喝到蛇血）跟著 aiTurn 的 pickups（f = 走到第幾幀撿到的，客戶端播到那一幀才套），
@@ -722,6 +742,33 @@ export class Referee {
         + T.afterShotPad;
     }
     this.schedule(() => this.finishTurn(), secs);
+  }
+
+  // 插話行動（見 Match.interjectBefore）：王插進來行動一次。跟 AI 回合一樣廣播 turn（帶 interject）+ aiTurn（boss.steps），客戶端照樣播；
+  // 不算他的回合：沒有回合開始 / 結束的效果（燃燒、中毒、地圖機制的回合計數都不動）、不推進回合順序（currentId 還是剛結束回合的玩家，
+  // 播完回到 nextTurn 輪到下一位）。紀錄照 turn.start / ai.turn / turn.end 記，都帶 interject。回傳 false = 這次沒事做，直接換下一位
+  runInterject(boss) {
+    const afterId = this.currentId;
+    const before = hpOf(this.match);
+    const { entities, items } = this.match.snapshot();   // 出招前的狀態，客戶端從這裡開始播
+    const plan = this.match.resolveInterject(boss, afterId);
+    if (!plan) return false;
+    this.phase = 'resolving';
+    this.deadline = null;
+    this.interjected = true;
+    this.interjectId = boss.id;
+    const windy = this.match.windMax ? { wind: this.match.wind } : {};
+    this.record('turn.start', { ...actorOf(boss), team: boss.team, ai: true, interject: true, hp: r1(boss.hp), ...windy });
+    this.record('ai.turn', { ...actorOf(boss), interject: true, boss: bossStepsLog(plan), ...nextOf(plan.next), changes: hpChanges(this.match, before) });
+    this.io.broadcast({ t: 'turn', actorId: boss.id, round: this.round, ai: true, interject: true, turnTime: null, entities, items, fx: [], extra: false, ...windy });
+    this.io.broadcast({ t: 'aiTurn', actorId: boss.id, interject: true, entities, walk: null, shot: null, boss: plan });
+    const T = CONFIG.TIMING;
+    this.schedule(() => {
+      this.interjectId = null;
+      this.record('turn.end', { ...actorOf(boss), interject: true, hp: r1(boss.hp), alive: boss.alive });
+      this.nextTurn();
+    }, T.aiThink + bossSeconds(plan) + T.afterShotPad);
+    return true;
   }
 
   // 跳過這回合（timeout / disconnected / water = 自己掉進水裡淹死 / bleed = 自己走路流血扣到倒下）。客戶端只套最後的狀態、不重播落地過程，

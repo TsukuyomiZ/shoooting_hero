@@ -78,8 +78,13 @@ const BASE = {
     hp: 500, hw: 90, h: 190, weights: { crush: 30, smite: 30, stack: 25, cleanse: 15 }, stackRadius: 80, fogEvery: 3, fogPoison: 3, ragePoison: 1,
     flowers: { 1: 2, 2: 2, 3: 2, 4: 3 }, lightFlowers: { 1: 2, 2: 4, 3: 4, 4: 6 }, purifyHealPct: 10, cleanseHealPct: 5,
     ragePct: 50, lightEvery: 5, lightCollectRounds: 2,
+    // 指名 / 插話（2026-11-10）在檔案最後面另外測（withMarks 打開）；前面測原本招式的測試先關掉（權重全 0 = 不指名、不插話）
+    marks: { weights: { quake: 0, grab: 0 }, delay: 1.5, grace: 0.2, zoneW: 56, grabH: 60, footTol: 6, bounce: 520, cast: 1.0 },
   },
-  WEAPONS: { gaiaCrush: { damage: 10, knockback: 500 }, gaiaSmite: { damage: 9, knockback: 100 }, gaiaStack: { damage: 20, knockback: 0 } },
+  WEAPONS: {
+    gaiaCrush: { damage: 10, knockback: 500 }, gaiaSmite: { damage: 9, knockback: 100 }, gaiaStack: { damage: 20, knockback: 0 },
+    gaiaQuake: { damage: 6, knockback: 0 }, gaiaGrab: { damage: 5, knockback: 0 },
+  },
 };
 delete BASE.GRAVITY;
 const base = (fn) => withConfig(BASE, fn);
@@ -958,6 +963,230 @@ await test('真的 GameView：全員 AI 代打打一整場（每幀 update + ren
   for (const a of ['fog', 'stunned', 'rage', 'light', 'wither', 'judgement', 'stack']) assert(seen.has(a), 'played ' + a + ': ' + [...seen]);
   assert(['crush', 'smite', 'cleanse'].filter(a => seen.has(a)).length >= 2, 'moves ' + [...seen]);
   return { ...out, seen: [...seen].sort() };
+}));
+
+// ---------------- 指名 / 插話（2026-11-10 使用者選的：大地・脈動、大地之手・攫取）----------------
+
+const G = await import('../shared/maps/gaia.js');
+// 打開指名（前面的測試關著）：weights 沒給 = 各半；插話的門檻釘 2
+const withMarks = (fn, weights = { quake: 50, grab: 50 }) =>
+  withConfig({ ...BASE, INTERJECT: { after: 2 }, GAIA: { ...BASE.GAIA, marks: { ...BASE.GAIA.marks, weights } } }, fn);
+const MK = BASE.GAIA.marks;
+const FIRE_MS = (MK.delay + MK.grace) * 1000;
+// 真的物理：從 refY 上面一點掉下來站好（跟玩家的畫面一樣跑 update，不是直接算站得住的高度）
+const settle = (m, p, x, refY) => {
+  Object.assign(p, { x, y: refY - 14, vx: 0, vy: 0, onGround: false, moveDir: 0, onVine: -1 });
+  for (let k = 0; k < 90; k++) p.update(CONFIG.FIXED_DT, m.world);
+  assert(p.onGround, `settled at ${x}: ${J({ x: p.x, y: p.y })}`);
+};
+
+await test('指名：她的回合最後指名 P1、P2（重抽下一招之後才抽，暈眩那一回合不指名）；權重全 0 什麼都不做；插話指名剩下還沒輪到的人、暈眩還沒暈完不插話', () => {
+  const m0 = base(() => { const m = make(4); tough(m); return { off: steps(turnAt(m, 1)), it: G.resolveGaiaInterject(m, gaiaOf(m), 'p2') }; });
+  assert(!m0.off.includes('mark') && m0.it === null, 'weights 0: ' + J(m0));
+  return withMarks(() => {
+    const m = make(4);
+    tough(m);
+    const r = turnAt(m, 1);
+    const last = r.steps.at(-1);
+    assert(last.action === 'mark' && J(last.targetIds) === '["p1","p2"]' && last.kinds.every(k => k === 'quake' || k === 'grab') && last.cast === MK.cast, 'main turn marks P1 P2 ' + J(last));
+    assert(J(r.state.marks) === J(m.mechState.marks) && Object.keys(m.mechState.marks).join() === 'p1,p2', 'state rides along ' + J(r.state));
+    const it = G.resolveGaiaInterject(m, gaiaOf(m), 'p2');
+    assert(it && it.steps.length === 1 && it.steps[0].action === 'mark' && J(it.steps[0].targetIds) === '["p3","p4"]' && it.next.action === m.mechState.next.action, 'interject ' + J(it));
+    // 祭壇淨化讓她暈眩：不插話；暈眩的那一回合只有暈眩、不指名
+    m.mechState.stunned = true;
+    m.mechState.marks = {};
+    assert(G.resolveGaiaInterject(m, gaiaOf(m), 'p2') === null, 'no interjection while stunned');
+    const st = turnAt(m, 2);
+    assert(J(steps(st)) === '["stunned"]' && !Object.keys(m.mechState.marks).length, 'stunned turn ' + J(steps(st)));
+    // 她倒下了不插話
+    gaiaOf(m).alive = false;
+    assert(m.mechanic.interjector(m) === null && G.resolveGaiaInterject(m, gaiaOf(m), 'p2') === null, 'dead');
+    const kinds = new Set();
+    for (let k = 0; k < 30; k++) for (const kd of (G.gaiaMarkStep(m, 'gaia') || { kinds: [] }).kinds) kinds.add(kd);
+    return { kinds: [...kinds], interject: it.steps[0].kinds };
+  });
+});
+
+await test('大地・脈動：範圍 = 回合開始時踩的那一片（六道斜坡、三層平台，真的物理站好都認得）；發動時還踩在那片上 → 6 × 開場人數（× 敵人倍率）；跳起來（腳離表面超過 footTol）/ 換到別片 → 沒事；fired.active 照有沒有在操作、收尾', () => withMarks(() => {
+  const D = def();
+  const surfs = G.surfacesOf(D);
+  assert(surfs.length === 9 && surfs.slice(6).every(s => s.y0 === s.y1), 'surfaces');
+  const seen = [];
+  for (const s of surfs) {
+    for (const t of [0.25, 0.5, 0.75]) {
+      const m = make(2);
+      tough(m);
+      const p1 = m.byId('p1');
+      const x = Math.round(s.x0 + (s.x1 - s.x0) * t);
+      settle(m, p1, x, slopeY(s, x));
+      m.mechState.marks.p1 = 'quake';
+      const st = m.hazardStart(p1, 0);
+      assert(st.zone.kind === 'quake' && st.zone.surf === s.surf, `surface ${s.surf} @${t}: ${J(st.zone)} at ${J({ x: p1.x, y: p1.y })}`);
+      seen.push(Math.round(Math.abs(p1.y - slopeY(s, p1.x)) * 10) / 10);
+    }
+  }
+  const run = (move, { active = true, flush = false } = {}) => {
+    const m = make(2);
+    tough(m);
+    const p1 = m.byId('p1');
+    const s = D.slopes[4];
+    settle(m, p1, 900, slopeY(s, 900));
+    m.mechState.marks.p1 = 'quake';
+    m.hazardStart(p1, 0);
+    assert(m.hazardStep(FIRE_MS - 50, false, true).fired === undefined, 'not yet');
+    const hp0 = p1.hp;
+    move(m, p1);
+    const r = m.hazardStep(flush ? 100 : FIRE_MS, flush, active);
+    return { r, dmg: hp0 - p1.hp };
+  };
+  const want = Math.round(CONFIG.WEAPONS.gaiaQuake.damage * 2 * 0.7);
+  const stay = run(() => {});
+  assert(stay.r.fired.hit && stay.r.fired.active === true && Math.abs(stay.dmg - want) <= 1 && stay.r.done && !stay.r.moved, 'stayed ' + J({ ...stay, want }));
+  const walked = run((m, p) => { p.x -= 40; p.y = slopeY(D.slopes[4], p.x); });
+  assert(walked.r.fired.hit, 'walking along the same slope still gets hit');
+  const jumped = run((m, p) => { p.y -= MK.footTol + 4; p.onGround = false; });
+  assert(!jumped.r.fired.hit && jumped.dmg === 0, 'airborne dodges ' + J(jumped.r.fired));
+  const other = run((m, p) => { const t = D.tiers[2]; settle(m, p, t.x1 - 30, t.y); });
+  assert(!other.r.fired.hit, 'another surface dodges');
+  const resolving = run(() => {}, { active: false });
+  assert(resolving.r.fired.hit && resolving.r.fired.active === false, 'after firing: not active');
+  const flushed = run(() => {}, { flush: true });
+  assert(flushed.r.fired.hit && flushed.r.fired.active === false, 'turn end: not active');
+  return { footGap: Math.max(...seen), dmg: stay.dmg };
+}));
+
+await test('大地之手・攫取：中了扣 5 × 開場人數、被丟到另一道斜坡（回合開始就抽好、站得住、不是原本那道）、重生點改那裡；fence 擋掉他的畫面還沒收到之前送的舊位置、新位置附近的回報才收（之後照常）；走開 / 跳得比手高 → 沒事', () => withMarks(() => {
+  const D = def();
+  const run = (move, slope = 1) => {
+    const m = make(2);
+    tough(m);
+    const p1 = m.byId('p1');
+    const s = D.slopes[slope];
+    const x = Math.round((s.x0 + s.x1) / 2);
+    settle(m, p1, x, slopeY(s, x));
+    m.mechState.marks.p1 = 'grab';
+    const st = m.hazardStart(p1, 0);
+    const z = st.zone;
+    assert(z.kind === 'grab' && z.w === MK.zoneW && z.h === MK.grabH && z.ts !== slope && Number.isFinite(z.tx) && Number.isFinite(z.ty), 'zone ' + J(z));
+    const hp0 = p1.hp;
+    const at = { x: p1.x, y: p1.y };
+    move(m, p1);
+    const r = m.hazardStep(FIRE_MS, false, true);
+    return { m, p1, r, z, at, dmg: hp0 - p1.hp };
+  };
+  const want = Math.round(CONFIG.WEAPONS.gaiaGrab.damage * 2 * 0.7);
+  const got = run(() => {});
+  const { m, p1, r, z, at } = got;
+  const to = D.slopes[z.ts];
+  assert(r.fired.hit && Math.abs(got.dmg - want) <= 1 && J(r.moved) === J([{ id: 'p1', x: z.tx, y: z.ty }]), 'thrown ' + J({ r, want }));
+  assert(p1.x === z.tx && p1.y === z.ty && G.footOn({ ...to }, p1) && p1.canStandAt(m.terrain, p1.x, p1.y) && p1.safeX === p1.x && p1.safeY === p1.y && p1.fence, 'landed on slope ' + z.ts + ' ' + J({ x: p1.x, y: p1.y }));
+  // 他的畫面還不知道：從舊位置附近送來的回報被擋（fenced），不會把他拉回去
+  const stale = m.applyPositionReport(p1, { x: at.x + 3, y: at.y, facing: 1, stamina: 100, vy: 0 });
+  assert(!stale.ok && stale.fenced && p1.x === z.tx, 'stale report rejected ' + J(stale));
+  const fresh = m.applyPositionReport(p1, { x: z.tx + 6, y: slopeY(to, z.tx + 6), facing: 1, stamina: 100, vy: 0 });
+  assert(fresh.ok && !p1.fence && Math.abs(p1.x - (z.tx + 6)) < 0.01, 'fresh report accepted ' + J(fresh));
+  // 下一個回合開始也會解除
+  p1.fence = { x: 1, y: 1 };
+  m.beginTurn(p1);
+  assert(p1.fence === null, 'cleared on turn start');
+  // 從平台上抓走：六道斜坡都可以
+  const slopesHit = new Set();
+  for (let seed = 1; seed <= 12; seed++) {
+    const mm = new Match({ levelId: 'gaiaSanctum', players: mkPlayers(2), seed, stage: 5 });
+    const p = mm.byId('p1');
+    settle(mm, p, 500, D.tiers[1].y);
+    mm.mechState.marks.p1 = 'grab';
+    slopesHit.add(mm.hazardStart(p, 0).zone.ts);
+  }
+  assert(slopesHit.size >= 4, 'from a tier any slope ' + [...slopesHit]);
+  const away = run((mm, p) => { p.x += MK.zoneW / 2 + p.hw + 2; });
+  assert(!away.r.fired.hit && away.dmg === 0 && !away.r.moved && away.p1.fence === null, 'walked away ' + J(away.r.fired));
+  const high = run((mm, p) => { p.y -= MK.grabH + 2; });
+  assert(!high.r.fired.hit, 'jumped higher than the hand');
+  return { thrownTo: z.ts, dmg: got.dmg, fromTier: [...slopesHit].sort() };
+}));
+
+await test('祭壇淨化：還沒輪到的指名一起取消（正在冒的那一招照樣發動）；客戶端照 pickup 套出一樣的狀態；快照帶指名、只帶 items 的不動', () => withMarks(() => {
+  const m = make(4);
+  tough(m);
+  const S = m.mechState;
+  S.marks = { p2: 'quake', p3: 'grab' };
+  S.fog = true;
+  S.need = 1;
+  const sl = S.def.slopes[0];
+  const fx = Math.round(sl.x0 + (sl.x1 - sl.x0) * 0.5);
+  S.flowers = [{ id: 'flowerZ', slope: 0, x: fx, y: Math.round(slopeY(sl, fx)) }];
+  const cli = make(4);
+  G.restoreGaia(cli, G.gaiaSnapshot(m));
+  assert(J(cli.mechState.marks) === J(S.marks), 'snapshot carries marks');
+  const got = walkOnto(m, m.byId('p1'), S.flowers[0]);
+  assert(got && got.purify && S.stunned && !Object.keys(S.marks).length, 'purify clears marks ' + J(S.marks));
+  applyGaiaPickup(cli, got);
+  assert(!Object.keys(cli.mechState.marks).length && cli.mechState.stunned, 'client too');
+  cli.mechState.marks = { p4: 'grab' };
+  G.restoreGaia(cli, { items: [] });
+  assert(J(cli.mechState.marks) === '{"p4":"grab"}', 'items-only snapshot leaves marks');
+  return { marks: S.marks };
+}));
+
+// 裁判：人都在線上（照超時換人），4 人
+function liveSanctum(n, seed = 3) {
+  const players = mkPlayers(n);
+  const m = new Match({ levelId: 'gaiaSanctum', players, seed, stage: 5 });
+  tough(m);
+  const io = new FakeIo();
+  const ref = new Referee({ match: m, humans: players, io, stageInfo: STAGE });
+  ref.start();
+  return { m, io, ref };
+}
+const advanceUntil = (io, pred, maxMs = 400_000) => {
+  const start = io.t;
+  while (io.t - start < maxMs) { io.advance(100); if (pred()) return true; }
+  return false;
+};
+const taken = (io, t) => io.log.filter(x => x.t === t);
+
+await test('裁判（4 人）：P1 P2 → 蓋亞插話（turn / aiTurn 帶 interject，指名 P3、P4）→ P3 P4 → 蓋亞（最後指名 P1、P2）；P3 被大地之手抓走：hazard 帶 moved / fired、紀錄 hazard；他的畫面送的舊位置被擋（move.reject 帶 fenced），新位置的照收、轉給別人', () => withMarks(() => {
+  const { m, io, ref } = liveSanctum(4);
+  const turns = () => taken(io, 'turn').map(t => t.actorId + (t.interject ? '*' : ''));
+  assert(advanceUntil(io, () => taken(io, 'turn').some(t => t.interject)), 'interjected ' + J(turns()));
+  const it = taken(io, 'aiTurn').find(t => t.interject);
+  assert(J(turns()) === '["p1","p2","gaia*"]' && J(it.boss.steps.map(s => s.action)) === '["mark"]' && J(it.boss.steps[0].targetIds) === '["p3","p4"]', J(turns()));
+  assert(io.records.some(r => r.ev === 'ai.turn' && r.interject) && io.records.some(r => r.ev === 'turn.start' && r.interject), 'interjection logged');
+  assert(advanceUntil(io, () => ref.currentId === 'p3' && ref.phase === 'turn'), 'p3 turn');
+  const t3 = taken(io, 'turn').find(t => t.actorId === 'p3');
+  assert(t3.hazard && t3.hazard.zone && t3.hazard.zone.id === 'p3' && t3.hazard.zone.kind === 'grab', 'grab at p3 turn start ' + J(t3.hazard));
+  const p3 = m.byId('p3');
+  const at = { x: p3.x, y: p3.y };
+  io.advance(FIRE_MS + 60);
+  const hz = taken(io, 'hazard').find(h => h.fired);
+  assert(hz && hz.fired.hit && hz.fired.kind === 'grab' && hz.fired.active && J(hz.moved) === J([{ id: 'p3', x: p3.x, y: p3.y }]) && hz.hp.some(h => h.id === 'p3'), 'hazard ' + J(hz));
+  const rec = io.records.find(r => r.ev === 'hazard' && r.fired);
+  assert(rec && rec.fired.kind === 'grab' && rec.moved && rec.moved[0].id === 'p3' && rec.changes, 'logged ' + J(rec));
+  ref.handle('p3', { t: 'move', x: at.x + 2, y: at.y, facing: 1, stamina: 150, vy: 0 });
+  const rej = io.records.filter(r => r.ev === 'move.reject').pop();
+  assert(rej && rej.fenced === true && p3.x === hz.moved[0].x, 'stale move rejected ' + J(rej));
+  const before = io.log.length;
+  ref.handle('p3', { t: 'move', x: p3.x + 1, y: p3.y, facing: 1, stamina: 150, vy: 0 });
+  assert(io.log.slice(before).some(x => x.t === 'move' && x.id === 'p3') && !p3.fence, 'fresh move relayed');
+  assert(advanceUntil(io, () => taken(io, 'aiTurn').some(t => t.actorId === 'gaia' && !t.interject)), 'gaia main turn');
+  const main = taken(io, 'aiTurn').find(t => t.actorId === 'gaia' && !t.interject);
+  const last = main.boss.steps.at(-1);
+  assert(last.action === 'mark' && J(last.targetIds) === '["p1","p2"]' && J(turns().slice(0, 6)) === '["p1","p2","gaia*","p3","p4","gaia"]', 'main turn marks P1 P2 ' + J(turns()));
+  return { turns: turns().slice(0, 6), thrownTo: hz.fired.ts };
+}, { quake: 0, grab: 1 }));
+
+await test('確定性（指名 / 插話打開）：同 seed 同輸入，4 人大地祭壇整段流程（含脈動、抓走）的廣播完全一樣', () => withMarks(() => {
+  const run = () => {
+    const { io } = liveSanctum(4, 5);
+    io.advance(240_000);
+    return J(io.log);
+  };
+  const a = run(), b = run();
+  assert(a === b, 'same broadcasts');
+  const kinds = [...new Set(JSON.parse(a).filter(x => x.t === 'hazard' && x.fired).map(x => x.fired.kind + (x.fired.hit ? '+' : '-')))];
+  assert(kinds.length >= 2, 'both moves fired ' + J(kinds));
+  return { bytes: a.length, kinds };
 }));
 
 const failed = results.filter(r => !r.ok);

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { CONFIG } from '../shared/core/config.js';
 import { Run } from '../shared/game/run.js';
+import { LEVELS } from '../shared/maps/level.js';
 import { Versus } from '../shared/game/versus.js';
 import { difficultyOf } from '../shared/game/stage-rules.js';
 import { openTheme } from '../shared/game/themes.js';
@@ -29,6 +30,19 @@ const modeOf = (v, theme) => (v === 'versus' ? 'versus' : v === 'theme' && openT
 // 勝者為王的隊伍 id（亂送的 → null）
 const teamOf = (v) => (typeof v === 'string' && CONFIG.VERSUS.teams.includes(v) ? v : null);
 const sanitizeName = (s) => textOf(s).replace(/[\r\n\t]/g, '').trim().slice(0, 12) || '玩家';
+
+// 測試用（開發者自己測新的王，2026-11-09）：伺服器帶環境變數 SH_TEST_LEVEL=關卡 id 啟動的話，每一場冒險的第一關直接是那一張，
+// 第幾關照 SH_TEST_STAGE（預設 5 = 第一個 Boss 關，血量、傷害倍率照那一關算）；之後照常往下打。勝者為王不受影響。
+// 跟單人練習在 console 跳關的寫法一樣（run.stage / run.pickLevel）。沒設、或關卡 id 不認得就什麼都不做
+function testFirstStage(run, versus) {
+  const levelId = process.env.SH_TEST_LEVEL;
+  if (!levelId || versus) return;
+  if (!LEVELS[levelId]) { console.warn(`SH_TEST_LEVEL=${levelId}：沒有這張地圖，照常開始`); return; }
+  const pick = run.pickLevel.bind(run);
+  let first = true;
+  run.stage = Math.max(1, Number(process.env.SH_TEST_STAGE) || 5) - 1;
+  run.pickLevel = () => (first ? ((first = false), levelId) : pick());
+}
 
 function send(client, msg) {
   if (client && client.ws && client.ws.readyState === 1) client.ws.send(JSON.stringify(msg));
@@ -495,6 +509,7 @@ class Room {
       players: players.map(p => ({ pid: p.id, name: p.name, ...(this.versus ? { team: p.team } : {}), ...(p.bot ? { bot: true } : {}) })),
     });
     this.run = this.versus ? new Versus({ players, seed, io, cards }) : new Run({ players, seed, io, cards, difficulty: this.difficulty, theme: this.theme });
+    testFirstStage(this.run, this.versus);
     this.run.start();
     this.manager.notifyBrowsers();   // 列表上改標「遊戲中」
   }

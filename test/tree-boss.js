@@ -9,12 +9,15 @@ import { planShot, hasLineOfSight } from '../shared/ai/ai.js';
 import { isEquippable } from '../shared/physics/weapons.js';
 import { replayChecked } from './replay-check.js';
 import { validateCards } from '../shared/cards/cards.js';
-import { planeOf, planeCounts, chooseTreeAction, rollTreeAction, planTreeNext, resolveTreeTurn, spawnTreant, trunkLane } from '../shared/maps/tree-boss.js';
+import { planeOf, planeCounts, chooseTreeAction, rollTreeAction, planTreeNext, resolveTreeTurn, spawnTreant, trunkLane, markStep, resolveTreeInterject } from '../shared/maps/tree-boss.js';
 import { mapViewFor } from '../client/map-views/index.js';
 
 // 這裡的測試照武器原本傷害算敵人的攻擊；敵人傷害倍率（ENEMY.damageMult / damageMultLate）在 headless.js 另有專門測試
 CONFIG.ENEMY.damageMult = 1;
 CONFIG.ENEMY.damageMultLate = 1;
+// 指名 / 插話（2026-11-09）在檔案最後面另外測（withMarks 打開）；前面測原本招式的測試先關掉（權重全 0 = 不指名、不插話）
+const MARK_WEIGHTS = { ...CONFIG.TREE_BOSS.marks.weights };
+CONFIG.TREE_BOSS.marks.weights = { spike: 0, vine: 0 };
 
 const results = [];
 function test(name, fn) {
@@ -27,6 +30,7 @@ function test(name, fn) {
     console.log(`FAIL  ${name}\n      ${String(err.stack || err).split('\n').slice(0, 4).join('\n      ')}`);
   }
 }
+const J = JSON.stringify;
 const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
 
 class FakeIo {
@@ -1005,6 +1009,214 @@ test('確定性：同 seed 同輸入，古樹之庭整段流程的廣播完全�
   const acts = log.filter(x => x.t === 'aiTurn' && x.boss).flatMap(x => x.boss.steps.map(s => s.action));
   return { bytes: a.length, treeActions: acts.length, kinds: [...new Set(acts)], result: (log.find(x => x.t === 'gameOver') || {}).result || 'running' };
 });
+
+// ---------- 指名 / 插話（2026-11-09 使用者：古樹不要站樁）----------
+
+// 打開指名（weights 沒給 = config 原本的權重），做完關回去
+function withMarks(fn, weights = MARK_WEIGHTS) {
+  CONFIG.TREE_BOSS.marks.weights = { ...weights };
+  try { return fn(); } finally { CONFIG.TREE_BOSS.marks.weights = { spike: 0, vine: 0 }; }
+}
+const M = CONFIG.TREE_BOSS.marks;
+const FIRE_MS = (M.delay + M.grace) * 1000;
+
+test('下一組（Match.upcomingPlayers）：古樹的回合之後 = 前 2 位；第 2 位之後 = 剩下的人（3 人以上才會插話）；倒下的跳過；1 ~ 2 人指名全部', () => {
+  const ids = (list) => list.map(p => p.id).join();
+  const out = {};
+  for (const n of [1, 2, 3, 4]) {
+    const m = garden(n);
+    out[n] = [ids(m.upcomingPlayers('eye')), ids(m.upcomingPlayers(`p${Math.min(2, n)}`))];
+  }
+  assert(J(out) === J({ 1: ['p1', ''], 2: ['p1,p2', ''], 3: ['p1,p2', 'p3'], 4: ['p1,p2', 'p3,p4'] }), J(out));
+  const m = garden(4);
+  m.byId('p3').die('hit');
+  assert(ids(m.upcomingPlayers('p2')) === 'p4' && ids(m.upcomingPlayers('eye')) === 'p1,p2', 'dead players skipped');
+  m.byId('p1').die('hit');
+  assert(ids(m.upcomingPlayers('eye')) === 'p2,p4', 'two alive: both before the tree acts again');
+  return out;
+});
+
+test('插話的時機（Match.interjectBefore）：連續 2 位玩家的回合之後、下一位又是玩家才插；古樹自己的回合歸零；古樹倒下就不插', () => {
+  const m = garden(4);
+  const [p1, p2, p3] = m.players;
+  const eye = m.byId('eye');
+  m.beginTurn(p1);
+  assert(!m.interjectBefore(p2), 'after one player');
+  m.beginTurn(p2);
+  assert(m.interjectBefore(p3) === eye && !m.interjectBefore(eye), 'after two players, before a player');
+  m.resolveInterject(eye, 'p2');
+  assert(m.sinceBoss === 0 && !m.interjectBefore(p3), 'reset by the interjection');
+  m.beginTurn(p1); m.beginTurn(p2);
+  m.beginTurn(eye);
+  assert(m.sinceBoss === 0, 'reset by the tree turn');
+  m.beginTurn(p1); m.beginTurn(p2);
+  eye.die('hit');
+  assert(!m.interjectBefore(p3), 'no interjection once the eye is down');
+});
+
+test('指名（markStep）：每人各抽一招（權重）存在 marks；被綁著的人不指名；權重全 0 → 不指名、插話沒事做（null）', () => {
+  const m = garden(4);
+  const eye = m.byId('eye');
+  assert(resolveTreeInterject(m, eye, 'p2') === null && markStep(m, 'eye') === null, 'weights 0: nothing');
+  const kinds = new Set();
+  withMarks(() => {
+    for (let k = 0; k < 20; k++) {
+      m.mechState.marks = {};
+      const st = markStep(m, 'eye');
+      assert(J(st.targetIds) === J(['p1', 'p2']) && st.kinds.length === 2 && st.cast === M.cast, J(st));
+      st.kinds.forEach((kd, i) => { kinds.add(kd); assert(m.mechState.marks[st.targetIds[i]] === kd, 'stored'); });
+    }
+    m.mechState.bound.p4 = { count: 0, last: 0 };
+    const it = resolveTreeInterject(m, eye, 'p2');
+    assert(it.steps.length === 1 && J(it.steps[0].targetIds) === J(['p3']) && it.next.action === m.mechState.next.action, 'bound p4 not marked: ' + J(it.steps[0]));
+  });
+  assert(kinds.has('spike') && kinds.has('vine'), 'both kinds drawn: ' + [...kinds]);
+  return { kinds: [...kinds] };
+});
+
+test('古樹尖刺：回合開始腳下出現（hazardStart 帶 zone），delay + grace 秒後判定：還站在上面 → 7 × 人數 + 流血 10 層；走開 / 跳得夠高 → 沒事；回合提早收尾 → 馬上冒', () => {
+  const W = CONFIG.WEAPONS.treeSpike;
+  const run = (move, { flush = false } = {}) => {
+    const m = garden(2);
+    const p1 = m.byId('p1');
+    m.mechState.marks.p1 = 'spike';
+    const st = m.hazardStart(p1, 0);
+    assert(st && st.kind === 'marks' && st.zone && st.zone.kind === 'spike' && st.zone.delay === M.delay && !m.mechState.marks.p1, 'zone ' + J(st));
+    assert(m.hazardStep(FIRE_MS - 50, false, true).fired === undefined, 'not yet');
+    const hp0 = p1.hp;
+    move(p1);
+    const s = m.hazardStep(flush ? 100 : FIRE_MS, flush, true);
+    return { s, dmg: hp0 - p1.hp, bleed: p1.bleed };
+  };
+  const stay = run(() => {});
+  assert(stay.s.fired.hit && stay.dmg === W.damage * 2 && stay.bleed === W.bleed && stay.s.done, 'stayed: ' + J(stay));
+  const away = run(p => { p.x += M.zoneW / 2 + p.hw + 1; });
+  assert(!away.s.fired.hit && away.dmg === 0 && away.bleed === 0, 'walked away: ' + J(away));
+  const edge = run(p => { p.x += M.zoneW / 2 + p.hw - 2; });
+  assert(edge.s.fired.hit, 'still touching the edge');
+  const jump = run(p => { p.y -= M.spikeH + 2; });
+  assert(!jump.s.fired.hit, 'jumped over');
+  const early = run(() => {}, { flush: true });
+  assert(early.s.fired.hit && early.dmg === W.damage * 2, 'flushed at turn end');
+  return { dmg: stay.dmg, bleed: stay.bleed };
+});
+
+test('刺毒藤蔓：中了就綁住（走不動、還能開火）+ 扣 1 × 人數 + 1 層毒；操作中每 0.5 秒再扣、開火之後的結算不扣；下一個自己的回合一開始先扣；連打 A/D 交替 10 下掙脫（不扣體力）', () => {
+  const W = CONFIG.WEAPONS.treeVine;
+  const m = garden(3);
+  const p1 = m.byId('p1');
+  m.mechState.marks.p1 = 'vine';
+  m.hazardStart(p1, 0);
+  const hp0 = p1.hp;
+  const s1 = m.hazardStep(FIRE_MS, false, true);
+  assert(s1.fired.hit && p1.held && J(s1.bound) === J(['p1']) && J(s1.ticks) === J(['p1']) && hp0 - p1.hp === W.damage * 3 && p1.poison === 1 && !s1.done, 'bound: ' + J(s1));
+  const x0 = p1.x;
+  p1.moveDir = 1;
+  for (let f = 0; f < 30; f++) m.step();
+  p1.moveDir = 0;
+  assert(p1.x === x0, 'cannot walk');
+  assert(!m.hazardStep(FIRE_MS + 400, false, true).ticks, 'not yet 0.5s');
+  assert(J(m.hazardStep(FIRE_MS + 500, false, true).ticks) === J(['p1']) && p1.poison === 2, 'tick every 0.5s');
+  assert(!m.hazardStep(FIRE_MS + 2000, false, false).ticks, 'no ticks while the shot resolves');
+  const s2 = m.hazardStep(FIRE_MS + 2050, true, false);
+  assert(!s2.ticks && s2.done && p1.poison === 2, 'turn over: no more ticks ' + J(s2));
+  // 下一個自己的回合：一開始先扣一次（AI 代打馬上開火也一樣）
+  const st = m.hazardStart(p1, 60_000);
+  assert(st.boundTurn === 'p1' && J(st.bound) === J(['p1']), 'still bound next turn ' + J(st));
+  assert(J(m.hazardStep(60_050, false, false).ticks) === J(['p1']) && p1.poison === 3, 'tick at turn start');
+  // 掙脫：同一邊連按不算，左右交替第 10 下放開
+  const stamina = p1.stamina;
+  assert(m.struggle(p1, 1).ok && m.struggle(p1, 1).reason === 'sameDir', 'same side twice');
+  let r;
+  for (let k = 0; k < M.need - 1; k++) r = m.struggle(p1, k % 2 ? 1 : -1);
+  assert(r.freed && !p1.held && p1.stamina === stamina && !m.mechState.bound.p1, 'freed ' + J(r));
+  assert(m.hazardStep(60_600, false, true) === null, 'nothing left');
+  assert(m.struggle(p1, 1) === null, 'not bound any more');
+  return { poison: p1.poison };
+});
+
+test('快照：被指名的人、被藤蔓綁著的人（連打數）帶在快照裡，新的客戶端照著套用（走不動）；倒下就放開', () => {
+  const m = garden(3);
+  m.mechState.marks = { p2: 'spike', p3: 'vine' };
+  m.mechState.bound = { p1: { count: 4, last: -1 } };
+  const snap = JSON.parse(JSON.stringify(m.snapshot()));
+  assert(J(snap.treeMarks) === J({ p2: 'spike', p3: 'vine' }) && J(snap.treeBound) === J({ p1: { count: 4, last: -1 } }), J(snap));
+  const c = garden(3);
+  c.applySnapshot(snap);
+  assert(J(c.mechState.marks) === J(snap.treeMarks) && c.mechState.bound.p1.count === 4 && c.byId('p1').held && !c.byId('p2').held, 'restored');
+  c.byId('p1').die('hit');
+  c.byId('p3').die('hit');
+  c.result();   // cascade：倒下的放開、指名清掉
+  assert(!c.mechState.bound.p1 && !c.byId('p1').held && J(c.mechState.marks) === J({ p2: 'spike' }), 'dead released');
+});
+
+// 一場 n 人的古樹（真人都連著，回合超時就換人），回傳 io / 裁判
+function liveGarden(n, seed = 5) {
+  const players = mkPlayers(n);
+  const m = new Match({ levelId: 'treeGarden', players, seed, stage: 6 });
+  for (const p of m.players) { p.hp = p.maxHp = 5000; }
+  const io = new FakeIo();
+  const ref = new Referee({ match: m, humans: players, io });
+  ref.start();
+  return { m, io, ref };
+}
+const turnsOf = (io) => io.take('turn').map(t => t.actorId + (t.interject ? '*' : ''));
+
+test('裁判（4 人）：P1 P2 → 古樹插話（turn / aiTurn 帶 interject，指名 P3、P4）→ P3 P4 → 古樹（最後指名 P1、P2）；插話不算古樹的回合（輪數不變、燃燒不結算、嘴巴不張開）', () => withMarks(() => {
+  const { m, io, ref } = liveGarden(4);
+  const eye = m.byId('eye');
+  eye.burn = 20;
+  m.byId('mouth').closedTurns = 1;
+  assert(advanceUntil(io, () => io.take('turn').some(t => t.interject)), 'interjected');
+  const round = m.round;
+  const it = io.take('aiTurn').find(t => t.interject);
+  assert(J(turnsOf(io)) === J(['p1', 'p2', 'eye*']) && it.actorId === 'eye' && J(it.boss.steps.map(s => s.action)) === J(['mark']) && J(it.boss.steps[0].targetIds) === J(['p3', 'p4']), J(turnsOf(io)));
+  assert(J(m.mechState.marks) === J(Object.fromEntries(['p3', 'p4'].map((id, i) => [id, it.boss.steps[0].kinds[i]]))), 'marks stored');
+  assert(advanceUntil(io, () => ref.currentId === 'p3' && ref.phase === 'turn'), 'p3 turn');
+  assert(m.round === round && eye.burn === 20 && m.byId('mouth').closedTurns === 1 && !io.take('turnFx').some(t => t.actorId === 'eye'), 'not a tree turn');
+  const t3 = io.take('turn').find(t => t.actorId === 'p3');
+  assert(t3.hazard && t3.hazard.zone && t3.hazard.zone.id === 'p3', 'p3 zone at turn start ' + J(t3.hazard));
+  assert(advanceUntil(io, () => io.take('aiTurn').some(t => t.actorId === 'eye' && !t.interject)), 'tree main turn');
+  const main = io.take('aiTurn').find(t => t.actorId === 'eye' && !t.interject);
+  const last = main.boss.steps[main.boss.steps.length - 1];
+  assert(last.action === 'mark' && J(last.targetIds.filter(id => !m.mechState.bound[id])) === J(last.targetIds) && last.targetIds.every(id => ['p1', 'p2'].includes(id)), 'main turn marks the first two: ' + J(last));
+  assert(J(turnsOf(io).slice(0, 6)) === J(['p1', 'p2', 'eye*', 'p3', 'p4', 'eye']), J(turnsOf(io)));
+  return { turns: turnsOf(io).slice(0, 6), marks: last.kinds };
+}));
+
+test('裁判：被指名的人在自己的回合中招（hazard 廣播 fired + 扣血）；被藤蔓綁住的人送 struggle（左右交替）掙脫（struggle 廣播 freed），之後走得動', () => withMarks(() => {
+  const { m, io, ref } = liveGarden(2, 8);
+  // 古樹第一次行動之後 P1 被指名（只會抽到藤蔓）
+  assert(advanceUntil(io, () => ref.currentId === 'p1' && ref.phase === 'turn' && m.round === 2), 'round 2 p1 turn');
+  const t1 = io.take('turn').filter(t => t.actorId === 'p1').pop();
+  assert(t1.hazard && t1.hazard.zone && t1.hazard.zone.kind === 'vine', 'vine zone ' + J(t1.hazard));
+  io.clear();
+  io.advance(FIRE_MS + 60);
+  const hz = io.take('hazard').find(h => h.fired);
+  const p1 = m.byId('p1');
+  assert(hz && hz.fired.hit && hz.damages.some(d => d.id === 'p1' && d.dmg > 0) && p1.held, 'bound by the vine ' + J(hz));
+  for (let k = 0; k < M.need; k++) ref.handle('p1', { t: 'struggle', dir: k % 2 ? 1 : -1 });
+  const st = io.take('struggle');
+  assert(st.length === M.need && st[st.length - 1].freed && !p1.held, 'freed by struggling ' + J(st.map(s => s.count)));
+  return { ticks: io.take('hazard').filter(h => h.ticks).length };
+}, { spike: 0, vine: 1 }));
+
+test('確定性（指名 / 插話打開）：同 seed 同輸入，4 人古樹之庭整段流程的廣播完全一樣', () => withMarks(() => {
+  const run = () => {
+    const { m, io, ref } = liveGarden(4, 21);
+    ref.setConnected('p3', false);
+    let guard = 0;
+    while (ref.phase !== 'over' && guard++ < 600) {
+      io.advance(250);
+      if (ref.phase === 'turn' && ref.currentId === 'p1') ref.handle('p1', { t: 'struggle', dir: guard % 2 ? 1 : -1 });
+    }
+    return JSON.stringify(io.log.map(({ _except, ...x }) => x));
+  };
+  const a = run(), b = run();
+  assert(a === b, 'two runs differ');
+  const log = JSON.parse(a);
+  return { bytes: a.length, interjections: log.filter(x => x.t === 'aiTurn' && x.interject).length, fired: log.filter(x => x.t === 'hazard' && x.fired).length };
+}));
 
 const failed = results.filter(r => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

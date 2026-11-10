@@ -1,5 +1,6 @@
 import {
   GAIA_ID, buildGaia, planGaiaNext, resolveGaiaTurn, pickFlowers, fogTurnStart, gaiaSnapshot, restoreGaia,
+  gaiaOf, resolveGaiaInterject, gaiaHazardStart, gaiaHazardStep, syncGaiaMarks,
 } from '../gaia.js';
 
 // 大地祭壇（莫利亞森林的主題王）的地圖機制：大地之母・蓋亞的臉、瘴氣、自然之花與祭壇、最後之光 → 誅滅（規則在 gaia.js）。
@@ -27,12 +28,34 @@ export const gaia = {
     fogTurnStart(match, e, fx);
   },
 
-  // 輪到蓋亞：出招並直接結算好
+  // 輪到蓋亞：出招並直接結算好，最後指名下一組
   aiTurn(match, actor) {
     return actor.id === GAIA_ID ? resolveGaiaTurn(match, actor) : null;
   },
 
-  // 整包放在 gaia 一個欄位（預定的下一招、瘴氣、花、祭壇、暈眩、暴走、最後之光）
+  // 被指名的人倒下了就清掉（勝負判定前、一波結算完都會叫）
+  cascade(match) {
+    syncGaiaMarks(match);
+  },
+
+  // 被指名的人回合開始：腳下那一片開始震（大地・脈動）/ 石頭手冒出來（大地之手・攫取），delay 秒後發動
+  hazardStart(match, e, now) {
+    return gaiaHazardStart(match, e, now);
+  },
+  hazardStep(match, now, flush, active) {
+    return gaiaHazardStep(match, now, flush, active);
+  },
+
+  // 插話的是蓋亞（3 人以上，連續 2 位玩家之後）：指名剩下還沒輪到的人；祭壇淨化讓她暈眩、還沒暈完就不插話
+  interjector(match) {
+    const g = gaiaOf(match);
+    return g && g.alive ? g : null;
+  },
+  interject(match, boss, afterId) {
+    return resolveGaiaInterject(match, boss, afterId);
+  },
+
+  // 整包放在 gaia 一個欄位（預定的下一招、瘴氣、花、祭壇、暈眩、暴走、最後之光、被指名的人）
   snapshot(match) {
     return gaiaSnapshot(match);
   },

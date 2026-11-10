@@ -10,15 +10,15 @@ import { exactLaunch } from './cyclops.js';
 //   held   = 手上接住的砲彈 [{ w: 武器 id, by: 開槍的玩家 id }]（照接住的順序，最多 MONKEY.maxHeld 顆）
 //   peels  = 場上的香蕉皮 [{ id, x, y（腳底踩的那一點：地面上）}]；seq = 下一張香蕉皮的流水號
 //   angry  = 血量掉到 MONKEY.angryPct 以下生氣了（接住範圍變大，之後一直是 true）
-//   fx     = 這一下（一個飛行事件）剛發生、還沒附到事件上的：{ burst（手上的砲彈在他身上爆炸：[武器 id…]）, burstDmg（炸了他多少）, angry（剛生氣）}（伺服器；eventExtras 拿走）
+//   fx     = 這一下（一個飛行事件）剛發生、還沒附到事件上的：{ knocked（手上被打掉的砲彈：[武器 id…]）, angry（剛生氣）}（伺服器；eventExtras 拿走）
 //
 // - 猴王待在樹枝頂面的中間（level.mechanic.monkey 的大小；不受重力、不會被擊退、不走動：fixed）。血量 MONKEY.hp，跟一般敵人一樣依人數、關數放大。打倒他 = 過關。
 // - 接住（地圖機制的 passed：飛行物這一幀沒撞到東西）：玩家方的飛行物（武器在 MONKEY.catchable 裡）這一幀離他身體中心不到接住範圍
 //   （catchRadius，生氣後 angryRadius），而且已經過了最靠近他的那一點（這一幀比上一幀離他遠，或一樣遠）、照現在的樣子飛下去第一個撞到的不是他
 //   → 被接住：飛行物到此為止（事件 type 'snatch'，不爆炸、不挖地），手上多一顆（held）。手上滿了就接不了。
 //   會直接打中他的照常打中（還在靠近他的時候不接；飛過去之後繞回來會打中他的也不接）
-// - 打中拿著砲彈的他（玩家方的攻擊碰到他，地圖機制的 absorbHit）：大家扣完血之後，手上的砲彈一顆一顆在他身上炸開
-//   （照原本的武器，攻擊者 = 打中他的人：算他的傷害、吃他的加成；只炸猴王自己），手上清空
+// - 打中拿著砲彈的他（玩家方的攻擊碰到他，地圖機制的 absorbHit）：大家扣完血之後，手上的砲彈全部被打掉（掉到地上沒了，不爆炸、不扣他的血），
+//   手上清空——他的回合就沒東西丟回來。2026-11-09 使用者改（原本是在他身上炸開、算打中的人的：會變成故意往他身邊丟三顆、再用狙擊槍引爆）
 // - 他的回合：先把手上的砲彈一顆一顆丟回給各自開槍的人（WEAPONS.monkeyThrow 換成原本武器的傷害、爆炸範圍、擊退、挖不挖地；
 //   拋物線瞄他身體中心左右偏 0 ~ throwError px 的那一點；開槍的人倒下了那顆就丟掉），再出一招（weights）：
 //   coconut = 椰子砸（WEAPONS.monkeyCoconut × 開場人數，打隨機一名活著的玩家，偏 0 ~ coconutError px）、
@@ -44,7 +44,7 @@ const monkeyState = (match) => (match.mechState && match.mechState.def && match.
 
 export const monkeyOf = (match) => match.byId(MONKEY_ID);
 
-const freshFx = () => ({ burst: [], burstDmg: 0, angry: false });
+const freshFx = () => ({ knocked: [], angry: false });
 
 // 樹枝上站的那一點（腳底，頂面的中間）
 export const perchSpot = (perch) => ({ x: Math.round((perch.x0 + perch.x1) / 2), y: perch.y });
@@ -99,35 +99,28 @@ export function snatch(match, owner, seg) {
 
 // ---------- 被打到 ----------
 
-// 同一下（一次 applyExplosion）只炸一次：key = 那一次的 later 陣列
-const burstFor = new WeakSet();
+// 同一下（一次 applyExplosion）只打掉一次：key = 那一次的 later 陣列
+const knockFor = new WeakSet();
 
 /**
  * 爆炸 / 命中的第一步（地圖機制的 absorbHit，hit = { attacker, friendly, damages, later }）：
- * 玩家方的攻擊碰到拿著砲彈的猴王 → 大家扣完血之後，手上的砲彈在他身上炸開（burstHeld）。猴王照一般的扣血（一律回傳 false）
+ * 玩家方的攻擊碰到拿著砲彈的猴王 → 大家扣完血之後，手上的砲彈全部被打掉（knockHeld）。猴王照一般的扣血（一律回傳 false）
  */
 export function hitMonkey(match, e, { attacker, friendly, later }) {
   const S = monkeyState(match);
   if (!S || e.id !== MONKEY_ID || !S.held.length) return false;
-  if (!attacker || friendly || attacker.team !== 'players' || burstFor.has(later)) return false;
-  burstFor.add(later);
-  later.push(() => burstHeld(match, e, attacker));
+  if (!attacker || friendly || attacker.team !== 'players' || knockFor.has(later)) return false;
+  knockFor.add(later);
+  later.push(() => knockHeld(match));
   return false;
 }
 
-// 手上的砲彈一顆一顆在猴王身上炸開：照原本的武器、攻擊者 = 打中他的人（算他的傷害、吃他的加成；統計在那幾次 applyExplosion 裡就算好了），只炸猴王自己。
-// 不接進外面這一下的傷害清單（統計會算兩次）：炸了多少記在 fx.burstDmg，附在事件上給畫面飄字（猴王的血量照事件的角色狀態）。吸血不算這幾下
-function burstHeld(match, g, attacker) {
+// 手上的砲彈被打掉：掉到地上沒了（不爆炸、不扣他的血、不挖地），手上清空；打掉了哪幾顆記在 fx.knocked，附在事件上給畫面演
+function knockHeld(match) {
   const S = monkeyState(match);
   const held = S.held;
   S.held = [];
-  if (!held.length) return;
-  for (const h of held) {
-    if (!g.alive) break;
-    const W = CONFIG.WEAPONS[h.w];
-    if (W) for (const d of match.applyExplosion(g.cx, g.cy, W, attacker, g, { directOnly: true })) if (d.id === g.id) S.fx.burstDmg += d.dmg;
-  }
-  S.fx.burst.push(...held.map(h => h.w));
+  S.fx.knocked.push(...held.map(h => h.w));
 }
 
 // 猴王真的扣到血：掉到 angryPct 以下就生氣（接住範圍變大）
@@ -140,14 +133,14 @@ export function hurtMonkey(match, e) {
   }
 }
 
-// 一個飛行事件的傷害結算完（eventExtras）：剛炸開的手上砲彈（與炸了多少）/ 剛生氣附在事件上 → { monkey: { burst?, dmg?, angry? } }；沒有 = {}
+// 一個飛行事件的傷害結算完（eventExtras）：剛被打掉的手上砲彈 / 剛生氣附在事件上 → { monkey: { knocked?, angry? } }；沒有 = {}
 export function takeFx(match) {
   const S = monkeyState(match);
   if (!S) return {};
-  const { burst, burstDmg, angry } = S.fx;
+  const { knocked, angry } = S.fx;
   S.fx = freshFx();
-  if (!burst.length && !angry) return {};
-  return { monkey: { ...(burst.length ? { burst, dmg: Math.round(burstDmg * 10) / 10 } : {}), ...(angry ? { angry: true } : {}) } };
+  if (!knocked.length && !angry) return {};
+  return { monkey: { ...(knocked.length ? { knocked } : {}), ...(angry ? { angry: true } : {}) } };
 }
 
 // 一顆飛行物爆炸了（地圖機制的 struck；at.blast = 爆炸半徑）：炸到的香蕉皮消失 → { peelGone: [id…] }，沒有 = null
@@ -161,14 +154,14 @@ export function blastPeels(match, at) {
   return { peelGone: gone };
 }
 
-/** 客戶端重播一個事件（replayEvent）：照伺服器附的接住、炸掉的香蕉皮、手上的砲彈炸開、生氣套到自己的狀態 */
+/** 客戶端重播一個事件（replayEvent）：照伺服器附的接住、炸掉的香蕉皮、手上的砲彈被打掉、生氣套到自己的狀態 */
 export function applyMonkeyEvent(match, ev) {
   const S = monkeyState(match);
   if (!S || !ev) return;
   if (ev.monkeyCatch) S.held.push({ w: ev.monkeyCatch.w, by: ev.monkeyCatch.by });
   if (ev.peelGone) S.peels = S.peels.filter(q => !ev.peelGone.includes(q.id));
   const fx = ev.monkey;
-  if (fx && fx.burst) S.held = [];
+  if (fx && fx.knocked) S.held = [];
   if (fx && fx.angry) S.angry = true;
 }
 

@@ -147,7 +147,7 @@ await test('地圖畫面不碰 GameView 本身：不 import 音效 / 畫面模�
   const dir = 'client/map-views/';
   const files = fs.readdirSync(path.join(ROOT, dir)).filter(f => f.endsWith('.js'));
   assert(['index.js', 'plain.js', 'tree.js', 'snake.js', 'hive.js', 'cave.js', 'cyclops.js', 'guardian.js', 'scorpion.js', 'prison.js', 'swordsman.js', 'tengu.js', 'spider.js', 'ranger.js', 'fairy.js', 'monkey.js', 'gaia.js'].every(f => files.includes(f)), 'map-views/: ' + files);
-  const ALLOWED = /^(\.\.\/\.\.\/shared\/(?:[\w-]+\/)+[\w-]+\.js|\.\.\/(draw|weapon-art)\.js|\.\/(plain|tree|snake|hive|cave|cyclops|guardian|scorpion|prison|swordsman|tengu|spider|ranger|fairy|monkey|gaia)\.js)$/;
+  const ALLOWED = /^(\.\.\/\.\.\/shared\/(?:[\w-]+\/)+[\w-]+\.js|\.\.\/(draw|weapon-art)\.js|\.\/(plain|tree|snake|hive|cave|cyclops|guardian|scorpion|prison|swordsman|tengu|spider|ranger|fairy|monkey|gaia|marks-draw)\.js)$/;   // marks-draw = 指名的通用畫面（古樹、巨蟒共用）
   const GAMEVIEW = /\bview\s*\.|\bsfx\b|\baudio\b|\bdocument\b|\bwindow\b|\.(particles|flashes|linkFlashes|floatTexts|treeFx|snakeFx|painter|banner|shake)\s*(=(?!=)|\.push\b|\[)/;
   for (const f of files) {
     const src = read(dir + f);
@@ -565,10 +565,17 @@ await test('真的 GameView：同一串伺服器訊息，每一步 update 之間
   try {
     // seed：這一段（30 秒）裡古樹三招都出得到的（2026-10-08 敵人每回合都走動、代打的走法改了之後，seed 1 的嘴巴一直被打閉，沒召喚）
     for (const [levelId, seed] of [['treeGarden', 2], ['jungleSerpent', 3]]) {
-      // 裁判先把整段跑出來（全員 AI 代打），記下每一批廣播
-      const { io, ref } = refereeRun(levelId, { seed });
-      const batches = [io.log.splice(0)];
-      for (let k = 0; k < 120 && ref.phase !== 'over'; k++) { io.advance(250); batches.push(io.log.splice(0)); }
+      // 裁判先把整段跑出來（全員 AI 代打），記下每一批廣播。古樹的指名（2026-11-09）關掉：這一段要看到原本三招的預兆（指名會把時間拉長）
+      const markW = CONFIG.TREE_BOSS.marks.weights, snakeW = CONFIG.SNAKE_BOSS.marks.weights;
+      const savedMarks = { ...markW }, savedSnake = { ...snakeW };
+      Object.assign(markW, { spike: 0, vine: 0 });
+      Object.assign(snakeW, { strike: 0, coil: 0 });
+      const batches = [];
+      try {
+        const { io, ref } = refereeRun(levelId, { seed });
+        batches.push(io.log.splice(0));
+        for (let k = 0; k < 120 && ref.phase !== 'over'; k++) { io.advance(250); batches.push(io.log.splice(0)); }
+      } finally { Object.assign(markW, savedMarks); Object.assign(snakeW, savedSnake); }
       // 每個畫面各自一樣的亂數：update 一條、render 一條（畫面震動的抖動這種只給畫面用的亂數，不能影響遊戲狀態）
       const runs = RATES.map(rate => {
         const r = { rate, upd: seeded(11), ren: seeded(22) };
@@ -632,6 +639,55 @@ await test('真的 GameView：同一串伺服器訊息，每一步 update 之間
     }
   } finally { Math.random = real; }
   return out;
+});
+
+await test('真的 GameView（古樹之庭 / 叢林巨蟒 / 大地祭壇 4 人，指名打開）：插話的 turn 飄「古樹之眼 / 叢林巨蟒 / 大地之母・蓋亞 的追加行動」；指名播完腳下有標記；輪到被指名的人那一招開始蓄力、發動（扣血 / 綁住走不動 / 被大地之手丟走）；整段沒有腳本錯誤；菁英之路不畫標記', () => {
+  const all = {};
+  for (const [levelId, seed, bossName] of [['treeGarden', 5, '古樹之眼'], ['jungleSerpent', 6, '叢林巨蟒'], ['gaiaSanctum', 7, '大地之母・蓋亞']]) {
+  const binds = levelId !== 'gaiaSanctum';   // 蓋亞的兩招都不綁人（大地之手抓到是丟走：throws）
+  const { io, ref } = refereeRun(levelId, { seed, n: 4 });
+  const view = newView();
+  const seen = { interject: false, marks: 0, zones: 0, fired: new Set(), held: 0, thrown: 0, steps: 0 };
+  const errors = [];
+  const err = console.error;
+  console.error = (...a) => errors.push(a.join(' '));
+  try {
+    for (let k = 0; k < 200 && ref.phase !== 'over' && !(seen.interject && seen.fired.size >= 2 && (binds ? seen.held : seen.thrown)); k++) {
+      io.advance(250);
+      for (const msg of io.log.splice(0)) view.onMessage(JSON.parse(J(msg)));
+      for (let f = 0; f < 15; f++) {
+        view.update(STEP);
+        view.render();
+        seen.steps++;
+        if (view.banner && view.banner.text === `${bossName} 的追加行動`) seen.interject = true;
+        const S = view.match.mechState;
+        seen.marks = Math.max(seen.marks, Object.keys(S.marks).length);
+        const zones = view.mapCtx.state.zones;
+        if (zones.length) seen.zones++;
+        for (const z of zones) if (z.fired) seen.fired.add(z.kind + (z.fired.hit ? '+' : '-'));
+        if (view.match.players.some(p => p.held)) seen.held++;
+        if ((view.mapCtx.state.throws || []).length) seen.thrown++;
+      }
+    }
+  } finally { console.error = err; }
+  assert(!errors.length, `${levelId}: script errors ` + errors[0]);
+  assert(seen.interject && seen.marks >= 2 && seen.zones > 0 && seen.fired.size > 0, levelId + ' ' + J({ ...seen, fired: [...seen.fired] }));
+  // 菁英之路（c.rangeHints false）：標記不畫，招式本身（腳下冒、預警線）照畫
+  const m = matchOf(levelId);
+  const tv = mapViewFor(m);
+  m.mechState.marks = { p1: { treeGarden: 'spike', jungleSerpent: 'strike', gaiaSanctum: 'quake' }[levelId] };
+  const { c } = sinkCtx(m, tv.create(m));
+  const calls = (hints) => {
+    let n = 0;
+    const ctx = new Proxy({}, { get: (o, k) => (k === 'createLinearGradient' || k === 'createRadialGradient' ? () => ({ addColorStop() {} }) : typeof k === 'string' && /^(fill|stroke|ellipse|arc)$/.test(k) ? () => { n++; } : () => {}), set: () => true });
+    c.rangeHints = hints;
+    tv.drawScene(ctx, c);
+    return n;
+  };
+  assert(calls(true) > calls(false), levelId + ': marks drawn only with range hints');
+  all[levelId] = { ...seen, fired: [...seen.fired] };
+  }
+  return all;
 });
 
 await test('真的 GameView：turn / turnFx 帶的場上道具經地圖機制換成伺服器的版本（叢林巨蟒：複本進 match.mechState.items、預定的下一招不動、沒帶 items 就不動）；一般小關 / 古樹之庭照樣帶 items，機制的狀態不變', () => {
@@ -922,6 +978,10 @@ await test('大地之母・蓋亞：手的姿勢照預定的下一招（捏碎 =
 
 await test('大地之母・蓋亞：伺服器的每一種招式（瘴氣 / 暈眩 / 暴走 / 最後之光 / 枯萎 / 誅滅 / 捏碎 / 天罰 / 同罰 / 淨化 / 沉睡）客戶端的腳本都播得完（每幀 update、每幾幀畫一次），橫幅照招式（枯萎照抄使用者的那句），誅滅讓 killed 倒下；播完的狀態跟伺服器一樣', async () => {
   const { gaiaState, gaiaOf, gaiaSnapshot, restoreGaia, slopeY, judgeRound, WITHER_TEXT } = await import('../shared/maps/gaia.js');
+  // 指名（2026-11-10）關掉：這一段看原本每一招是不是回合的最後一步（指名的畫面在「指名打開」那一段測）
+  const gaiaW = CONFIG.GAIA.marks.weights, savedGaiaW = { ...gaiaW };
+  Object.assign(gaiaW, { quake: 0, grab: 0 });
+  try {
   const srv = matchOf('gaiaSanctum', 2), cli = matchOf('gaiaSanctum', 2);
   for (const m of [srv, cli]) for (const p of m.players) { p.hp = p.maxHp = 5000; }
   const g = gaiaOf(srv);
@@ -976,6 +1036,7 @@ await test('大地之母・蓋亞：伺服器的每一種招式（瘴氣 / 暈�
   assert(banners.some(b => b.startsWith('沒有護盾')), 'judgement result banner ' + J(banners));
   v.abortScript(c);
   return { seen: [...seen].sort(), banners: banners.length };
+  } finally { Object.assign(gaiaW, savedGaiaW); }
 });
 
 await test('大地之母・蓋亞：撿花（別人的 pickup：花變成光球飛向祭壇、祭壇的光球數照伺服器）；自己先在本地撿（predictMove：花馬上不見、光球只飛一次）；收滿祭壇淨化（瘴氣淡出、大家中毒歸零、血量照 heals，自己的照本地加上回的血）；回合開始的瘴氣 fx 飄字', async () => {

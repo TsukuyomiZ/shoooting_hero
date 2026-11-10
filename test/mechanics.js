@@ -32,12 +32,12 @@ function test(name, fn) {
 const assert = (cond, msg) => { if (!cond) throw new Error(msg || 'assertion failed'); };
 const J = JSON.stringify;
 const mkPlayers = (n) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
-const HOOKS = ['build', 'ready', 'cascade', 'moved', 'hazardStart', 'hazardStep', 'hazardFinish', 'struggle', 'takeover', 'aiShot', 'turnStart', 'turnEnd', 'roundStart', 'attackMult', 'defenseMult', 'hurt', 'struck', 'passed', 'fireSources', 'absorbHit', 'eventExtras', 'replayEvent', 'aiTurn', 'snapshot', 'restore'];
+const HOOKS = ['build', 'ready', 'cascade', 'moved', 'hazardStart', 'hazardStep', 'hazardFinish', 'struggle', 'takeover', 'aiShot', 'turnStart', 'turnEnd', 'roundStart', 'attackMult', 'defenseMult', 'hurt', 'struck', 'passed', 'fireSources', 'absorbHit', 'eventExtras', 'replayEvent', 'aiTurn', 'interjector', 'interject', 'snapshot', 'restore'];
 const WANT = { treeGarden: 'tree', jungleSerpent: 'snake', beehive: 'hive', cave: 'cave', depths: 'cyclops', forestGuard: 'guardian', scorpionDen: 'scorpion', prisonYard: 'prison', wanderer: 'swordsman', tenguPeak: 'tengu', spiderNest: 'spider', forestRanger: 'ranger', forestFairy: 'fairy', forestMonkey: 'monkey', gaiaSanctum: 'gaia' };
 // 每個機制的狀態（match.mechState）的欄位：跟搬進來之前的 match.tree / snake / hive 一樣，巨蟒多了場上的蛇血（items，原本的 match.items）
 const STATE_KEYS = {
-  tree: ['def', 'hpScale', 'minions', 'seq', 'next'],
-  snake: ['def', 'next', 'dropped', 'itemSeq', 'items'],
+  tree: ['def', 'hpScale', 'minions', 'seq', 'next', 'marks', 'bound', 'zone', 'tick'],
+  snake: ['def', 'next', 'dropped', 'itemSeq', 'items', 'marks', 'bound', 'zone', 'tick'],
   hive: ['def', 'hpScale', 'bees', 'seq', 'fresh'],
   cave: ['def', 'lit', 'fallen'],
   cyclops: ['def', 'lit', 'fallen', 'next', 'turns', 'sealed'],
@@ -50,7 +50,7 @@ const STATE_KEYS = {
   ranger: ['def', 'next', 'perch', 'trapped', 'spawned', 'seq', 'lastHitBy', 'clock', 'pending'],
   fairy: ['def', 'whisper', 'lastWhisper', 'angry', 'revealed', 'charm', 'burnHold', 'fx'],
   monkey: ['def', 'perch', 'held', 'peels', 'seq', 'angry', 'fx'],
-  gaia: ['def', 'hpScale', 'next', 'fog', 'nextFog', 'orbs', 'need', 'flowers', 'stunned', 'rage', 'lightAt', 'light', 'seq'],
+  gaia: ['def', 'hpScale', 'next', 'fog', 'nextFog', 'orbs', 'need', 'flowers', 'stunned', 'rage', 'lightAt', 'light', 'seq', 'marks', 'bound', 'zone', 'tick'],
 };
 
 // 一個關卡暫時加進 LEVELS，建 Match 看會不會丟錯

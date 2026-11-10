@@ -8,7 +8,7 @@ import { CONFIG } from '../shared/core/config.js';
 import { LEVELS, levelsInPool } from '../shared/maps/level.js';
 import { Match } from '../shared/game/match.js';
 import { Referee } from '../shared/game/referee.js';
-import { MONKEY_ID, monkeyOf, snatch, touchPeel, catchRadius, perchSpot, applyPeelPickup } from '../shared/maps/monkey.js';
+import { MONKEY_ID, monkeyOf, snatch, touchPeel, catchRadius, perchSpot, applyPeelPickup, applyMonkeyEvent } from '../shared/maps/monkey.js';
 import { replayChecked } from './replay-check.js';
 
 const results = [];
@@ -201,23 +201,28 @@ await test('接住（真的開一槍）：大砲從他身邊飛過去 → 事件
   return { near, direct };
 }));
 
-await test('打中拿著砲彈的猴王：手上的砲彈全部在他身上炸開（照原本的武器、算打中他的人的：傷害、統計）、手上清空、事件帶 monkey.burst；沒拿砲彈就只有那一下；客戶端重播一致', () => base(() => {
+await test('打中拿著砲彈的猴王：手上的砲彈全部被打掉（不爆炸、不多扣他的血，2026-11-09 使用者改）、手上清空、事件帶 monkey.knocked、他的回合沒東西丟回來；沒拿砲彈就只有那一下；客戶端重播一致', () => base(() => {
   const direct = findShot(2, 'cannon', (s) => hitMonkey(s));
   const plain = make(2);
   const d0 = fire(plain, plain.players[0], 'cannon', direct.angle, direct.power);
   const lost0 = monkeyOf(plain).maxHp - monkeyOf(plain).hp;
   const m = make(2);
   m.mechState.held = [{ w: 'cannon', by: 'p2' }, { w: 'plasma', by: 'p1' }];
+  const c = make(2);
+  c.applySnapshot(JSON.parse(J(m.snapshot())));
   const shot = fire(m, m.players[0], 'cannon', direct.angle, direct.power);
   const g = monkeyOf(m);
   const lost = g.maxHp - g.hp;
-  const ev = shot.events.find(e => e.monkey && e.monkey.burst);
-  assert(ev && J(ev.monkey.burst) === J(['cannon', 'plasma']) && !m.mechState.held.length && ev.monkey.dmg > 0, 'burst ' + J(shot.events.map(e => e.monkey)));
-  const mult = m.damageMult(m.players[0], CONFIG.WEAPONS.cannon);
-  const extra = Math.round((CONFIG.WEAPONS.cannon.damage + CONFIG.WEAPONS.plasma.damage) * mult);
-  assert(Math.abs(lost - lost0 - extra) <= 2 && Math.abs(ev.monkey.dmg - (lost - lost0)) <= 1, `extra damage ${lost - lost0} vs ${extra} / ${ev.monkey.dmg}`);
-  assert(m.players[0].dealt === lost && plain.players[0].dealt === lost0, 'credited to the shooter ' + [m.players[0].dealt, lost]);
-  assert(!d0.events.some(e => e.monkey), 'no burst without shells');
+  const ev = shot.events.find(e => e.monkey && e.monkey.knocked);
+  assert(ev && J(ev.monkey.knocked) === J(['cannon', 'plasma']) && !m.mechState.held.length && ev.monkey.dmg === undefined, 'knocked ' + J(shot.events.map(e => e.monkey)));
+  assert(lost === lost0 && m.players[0].dealt === lost0, `no extra damage: ${lost} vs ${lost0}, dealt ${m.players[0].dealt}`);
+  assert(!d0.events.some(e => e.monkey), 'nothing to knock without shells');
+  // 客戶端照事件重播：手上也清空
+  for (const e of shot.events) if (e.monkey || e.monkeyCatch) applyMonkeyEvent(c, e);
+  assert(!c.mechState.held.length, 'client cleared the hands too');
+  // 他的回合：沒有丟回去的那一步
+  const turn = m.mechanic.aiTurn(m, g);
+  assert(!turn.steps.some(s => s.action === 'throw' || s.action === 'drop'), 'nothing thrown back: ' + J(turn.steps.map(s => s.action)));
   return { lost0, lost };
 }));
 

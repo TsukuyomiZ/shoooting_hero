@@ -1,6 +1,10 @@
 import { CONFIG } from '../core/config.js';
 import { Entity } from '../physics/entities.js';
 import { weightedPick, nearestPlayerAt, bossProjectile, bossShot, stillResult } from './mechanics/common.js';
+import {
+  freshMarks, markStep as markStepOf, syncMarks, marksHazardStart, marksHazardStep, marksStruggle, alignMarksBound, applyMarksStruggle, bindMarked,
+  perPlayer, hitOn,
+} from './marks.js';
 
 // Boss 關「叢林巨蟒」的規則（伺服器與客戶端共用；出招只在伺服器算，客戶端照廣播播動畫）。
 // Match 什麼時候呼叫這些，見地圖機制 shared/maps/mechanics/snake.js。這一場的狀態（含場上的蛇血）在 match.mechState（buildSnake 建的那一份）。
@@ -10,7 +14,7 @@ import { weightedPick, nearestPlayerAt, bossProjectile, bossShot, stillResult } 
 // - 巨蟒的頭（固定不動的角色，判定是橢圓）整顆都打得到，打倒 = 過關。輪到巨蟒時出一招：
 //     巨蟒衝撞（45%）：整顆頭沿著橋往左衝到底，範圍裡（橋上、藤蔓下段）的玩家 3 層中毒。
 //                     下一招是事先抽好的（match.mechState.next），抽到衝撞時玩家回合會一直畫出衝撞範圍（chargeLane），爬上藤蔓就躲得掉
-//     毒液噴灑（25%）：從嘴巴往左上方隨機散射幾顆毒液，打中的玩家 10 層中毒（同一次噴灑每人最多中一次）
+//     毒液噴灑（25%）：從嘴巴往左上方隨機散射幾顆毒液，每一顆打中的玩家 10 層中毒（同一次被好幾顆打中就疊好幾次，2026-11-09 使用者改）
 //     大地震擊（10%）：震波沿著橋面跑，站在橋上的玩家 50 傷害、往巨蟒的方向擊退（藤蔓上 / 半空中的不會被打到）
 //     劇毒撕咬（20%）：咬向離嘴巴最近的玩家，15 傷害 + 10 層中毒
 // - 中毒（任何角色都可能有，巨蟒與蜜蜂會上毒）：在被毒的人自己的回合開始時結算（見 entities.js 的 poisonTick）——
@@ -19,9 +23,14 @@ import { weightedPick, nearestPlayerAt, bossProjectile, bossShot, stillResult } 
 // - 蛇血：巨蟒每受到最大血量 bloodEveryPct% 的傷害就掉一瓶到橋上（巨蟒的狀態 match.mechState.items）。
 //     自己的回合走過去（或回合開始時就站在上面）就喝掉（中毒了、有被鎖住的上限、或血沒滿才撿）：解除中毒、把上限全部解開，再回 bloodHeal 血
 //     （10/50(100) → 25/100）
+// - 指名（2026-11-09 使用者：王不要站樁；流程同古樹，通用的在 marks.js，數值 SNAKE_BOSS.marks）：巨蟒每次行動的最後（自己的回合、3 人以上的插話行動）
+//   指名接下來到它下一次行動之前會輪到的玩家，每人各抽一招，被指名的人回合開始 1.5 秒後發動：
+//     蓄勢突咬 strike：頭縮成 S 形蓄力，沿預警線（嘴 → 他回合開始時的身體中間再往前一點）彈出去咬，傷害 + 中毒
+//     纏身絞殺 coil：蛇身從橋下的水裡翻上來纏住他（綁住），越勒越緊，連打 A / D 掙脫
 
 export const SNAKE_ACTION_NAMES = {
   charge: '巨蟒衝撞',
+  mark: '蛇信探路',
   spray: '毒液噴灑',
   quake: '大地震擊',
   bite: '劇毒撕咬',
@@ -35,7 +44,7 @@ export function buildSnake(match, hpScale) {
   const h = def.head;
   // next：預定的下一招（Match 開場落地後才決定）；dropped：已經掉了幾瓶蛇血；itemSeq：蛇血的流水號；
   // items：場上的蛇血 { id, type, x, y }，y = 落在的地面（快照照樣帶，見 mechanics/snake.js）
-  const state = { def, next: null, dropped: 0, itemSeq: 0, items: [] };
+  const state = { def, next: null, dropped: 0, itemSeq: 0, items: [], ...freshMarks() };
   match.entities.push(new Entity({
     ...CONFIG.ENEMY, id: 'snake', name: '叢林巨蟒', team: 'enemies', controller: 'ai', slot: 0, facing: -1,
     x: h.x, y: h.y, hw: h.hw, h: h.hh * 2, shape: 'ellipse', boss: true, fixed: true, part: 'snake',
@@ -62,8 +71,72 @@ export function resolveSnakeTurn(match, snake) {
   const plan = match.mechState.next || planSnakeNext(match);
   const step = resolveSnakeAction(match, snake, plan.action);
   planSnakeNext(match);
-  return { steps: [step], next: { ...match.mechState.next } };
+  const mark = markStep(match, snake.id);   // 最後指名下一組（重新預定之後才抽，預定的招式跟以前抽到的一樣）
+  return { steps: mark ? [step, mark] : [step], next: { ...match.mechState.next } };
 }
+
+// ---------- 指名 / 插話（見檔案開頭；通用的流程在 shared/maps/marks.js）----------
+
+export const SNAKE_MARK_NAMES = { strike: '蓄勢突咬', coil: '纏身絞殺' };
+
+// 這一場巨蟒的狀態（別張地圖 = null）
+const snakeState = (match) => (match.mechState && match.mechState.def && match.mechState.def.type === 'snake' ? match.mechState : null);
+
+// 蓄勢突咬的線：從嘴巴到 (x, y)（被指名的人回合開始時的身體中間），再往前 strikeReach px；r = 粗細（半寬）
+export function strikeLine(match, x, y) {
+  const M = CONFIG.SNAKE_BOSS.marks;
+  const m = match.mechState.def.mouth;
+  const dx = x - m.x, dy = y - m.y;
+  const d = Math.sqrt(dx * dx + dy * dy) || 1;
+  return { x0: m.x, y0: m.y, x1: r1(x + dx / d * M.strikeReach), y1: r1(y + dy / d * M.strikeReach), r: M.strikeHalf };
+}
+
+// 點 (px, py) 到線段 z 的距離
+function segDist(z, px, py) {
+  const vx = z.x1 - z.x0, vy = z.y1 - z.y0;
+  const L = vx * vx + vy * vy || 1;
+  const t = Math.max(0, Math.min(1, ((px - z.x0) * vx + (py - z.y0) * vy) / L));
+  const qx = z.x0 + vx * t - px, qy = z.y0 + vy * t - py;
+  return Math.sqrt(qx * qx + qy * qy);
+}
+
+// 咬不咬得到 p：腳、身體中間、頭三個點裡有一個離那條線不到 r + 半寬
+export function strikeHits(z, p) {
+  return [p.y - 4, p.cy, p.y - p.h + 4].some(y => segDist(z, p.x, y) < z.r + p.hw);
+}
+
+// 纏身絞殺纏不纏得到 p：左右重疊，腳底還在 top 以下（爬得比它高就躲開了）
+export const coilHits = (z, p) => Math.abs(p.x - z.x) < z.w / 2 + p.hw && p.y > z.top;
+
+export const SNAKE_MARKS = {
+  state: snakeState,
+  boss: (match) => match.byId('snake'),
+  config: () => CONFIG.SNAKE_BOSS.marks,
+  zone: (match, e, kind) => {
+    const M = CONFIG.SNAKE_BOSS.marks;
+    return kind === 'strike' ? strikeLine(match, e.cx, e.cy) : { x: r1(e.x), y: r1(e.y), w: M.coilW, top: r1(e.y - M.coilH) };
+  },
+  hits: (z, p) => (z.kind === 'strike' ? strikeHits(z, p) : coilHits(z, p)),
+  binds: (kind) => kind === 'coil',
+  strike: (match, z, p, boss) => hitOn(match, p, perPlayer(match, CONFIG.WEAPONS.snakeStrike), boss),
+  squeeze: (match, p, rec, boss) => hitOn(match, p, perPlayer(match, CONFIG.WEAPONS.snakeCoil, Math.min(rec.n, CONFIG.SNAKE_BOSS.marks.coilMax)), boss),
+};
+
+// 插話行動：指名剩下還沒輪到的人（afterId = 剛結束回合的玩家）。沒有人可以指名 = null（裁判直接換下一位）
+export function resolveSnakeInterject(match, snake, afterId) {
+  const mark = markStep(match, afterId);
+  return mark ? { steps: [mark], next: match.mechState.next ? { ...match.mechState.next } : null } : null;
+}
+
+export const markStep = (match, afterId) => markStepOf(match, SNAKE_MARKS, afterId);
+export const syncSnakeMarks = (match) => syncMarks(match, SNAKE_MARKS);
+export const snakeHazardStart = (match, e, now) => marksHazardStart(match, SNAKE_MARKS, e, now);
+export const snakeHazardStep = (match, now, flush = false, active = true) => marksHazardStep(match, SNAKE_MARKS, now, flush, active);
+export const snakeStruggle = (match, e, dir) => marksStruggle(match, SNAKE_MARKS, e, dir);
+export const alignSnakeBound = (match, bound) => alignMarksBound(match, SNAKE_MARKS, bound);
+export const applySnakeStruggle = (match, msg) => applyMarksStruggle(match, SNAKE_MARKS, msg);
+export const bindByCoil = (match, id) => bindMarked(match, SNAKE_MARKS, id);
+const r1 = (v) => Math.round(v * 10) / 10;
 
 // 巨蟒衝撞的範圍：頭的上緣 top 到下緣 bottom（= 頭的高度），從嘴前 x1 一路衝到 x0 = 0。
 // 伺服器的衝撞（chargeShot）與客戶端的警示帶都用這個；腳底在 top 以下（數值比 top 大）的人會被撞到
@@ -104,19 +177,18 @@ function chargeShot(match, snake) {
   return bossShot(match, snake, weapon, [bossProjectile(snake, weapon, lane.x1 + weapon.hitRadius, lane.y, -weapon.speed, 0)]);
 }
 
-// 毒液噴灑：從嘴巴往左上方隨機散射（角度、速度都是亂數），所有毒液共用「打過誰」，同一次噴灑每人最多中一次
+// 毒液噴灑：從嘴巴往左上方隨機散射（角度、速度都是亂數）。每一顆各自打（打中第一個人就沒了），
+// 同一次噴灑被好幾顆打中就疊好幾次（2026-11-09 使用者：原本每人最多中一次，但蛇血一喝就全部解光）
 function sprayShot(match, snake) {
   const weapon = CONFIG.WEAPONS.snakeVenom;
   const S = CONFIG.SNAKE_BOSS.spray;
   const { x, y } = match.mechState.def.mouth;
-  const hitOnce = new Set();
   const projs = [];
   for (let k = 0; k < S.count; k++) {
     const a = match.rng.range(S.minAngle, S.maxAngle) * Math.PI / 180;
     const sp = match.rng.range(S.minSpeed, S.maxSpeed);
     const p = bossProjectile(snake, weapon, x, y, Math.cos(a) * sp, -Math.sin(a) * sp);
     p.spawn = 1 + k * 3;   // 一顆接一顆噴出來
-    p.ignore = hitOnce;
     projs.push(p);
   }
   return bossShot(match, snake, weapon, projs);

@@ -36,8 +36,9 @@ import { gaia } from './gaia.js';
 //   hazardStart(match, e, now) → info | null   玩家 e 的回合開始（回合開始的效果之後、開始計時之前，裁判呼叫；now = 裁判的時鐘 ms）：
 //                                         這個回合裡有東西即時移動、碰到人就打（例如流浪劍士的劍氣慢慢飛過整排）就回傳給客戶端畫的資料
 //                                         （跟著 turn 訊息的 hazard 送出，紀錄記在 turn.start），沒有 = null
-//   hazardStep(match, now, flush) → step | null  回合中（含開火結算、AI 代打播放的時間）每隔一小段時間：推進到 now、打碰到的人（自己呼叫 applyExplosion）。
-//                                         flush = 回合要收尾了：還沒到時間的現在就結算（目前的地圖都沒有，劍氣剩下那段交給 hazardFinish）。
+//   hazardStep(match, now, flush, active) → step | null  回合中（含開火結算、AI 代打播放的時間）每隔一小段時間：推進到 now、打碰到的人（自己呼叫 applyExplosion）。
+//                                         flush = 回合要收尾了：還沒到時間的現在就結算（例如古樹的尖刺；劍氣剩下那段交給 hazardFinish）。
+//                                         active = 行動的人還在操作（開火之後的結算、AI 代打播放時是 false；例如古樹的藤蔓只在他還在操作時扣血）。
 //                                         回傳 { damages（這一次打到的）, done（這回合沒有還在動 / 等著的了）, notify（有要告訴客戶端的事）, ...給畫面的欄位 }；沒有 = null
 //   hazardFinish(match) → (() → shot) | null   回合收尾（hazardStep flush 之後、回合結束的效果之前）：還在動的（例如劍氣）回傳一口氣結算剩下那一段的函式
 //                                         （回傳跟開火同樣格式的結果）
@@ -79,6 +80,10 @@ import { gaia } from './gaia.js';
 //                                         weapon = 這一下的武器 id（半路掉下來的鐘乳石 / 吊燈是它自己的），damages = 這一下的傷害清單
 //   replayEvent(match, ev) → { items, bees }  客戶端重播套用一個事件時：照 eventExtras 帶來的欄位建出道具 / 角色（ShotMade 用）
 //   aiTurn(match, actor) → boss|null      AI 回合：這個角色由機制出招就回傳 { steps, next }，null = 照一般 AI
+//   interjector(match) → Entity | null    會插話的王（2026-11-09 古樹之眼）：連續 2 位玩家的回合之後、下一位又是玩家，就先讓它插進來行動一次
+//                                         （見 Match.interjectBefore / upcomingPlayers）。null = 這張地圖沒有插話
+//   interject(match, boss, afterId) → boss|null   插話行動（afterId = 剛結束回合的玩家）：跟 aiTurn 同格式 { steps, next }，
+//                                         不算王的回合（沒有回合開始 / 結束的效果）；null = 這次沒事做（不廣播、直接換下一位）
 //   snapshot(match) → object              同步快照裡這個機制的欄位（預設值與順序見 snapshotOf）
 //   restore(match, s)                     套用快照：地形之後、角色狀態之前（先把快照裡有、這邊還沒有的角色建出來；場上的道具也在這裡換）。
 //                                         s 可能只帶一部分欄位（客戶端收到 turn / turnFx 時只帶 { items }）：沒帶的欄位不要動
@@ -109,6 +114,8 @@ const HOOKS = {
   eventExtras: () => ({}),
   replayEvent: null,   // 一定包一層（補上沒給的 items / bees），見 wrap
   aiTurn: () => null,
+  interjector: () => null,
+  interject: () => null,
   snapshot: () => ({}),
   restore: NOOP,
 };

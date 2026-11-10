@@ -1,4 +1,8 @@
-import { buildSnake, planSnakeNext, resolveSnakeTurn, snakeDrops, takeDrops, pickupAt, pickupAlong } from '../snake-boss.js';
+import {
+  buildSnake, planSnakeNext, resolveSnakeTurn, snakeDrops, takeDrops, pickupAt, pickupAlong,
+  resolveSnakeInterject, snakeHazardStart, snakeHazardStep, snakeStruggle, syncSnakeMarks, SNAKE_MARKS,
+} from '../snake-boss.js';
+import { marksSnapshot, restoreMarks } from '../marks.js';
 
 // 叢林巨蟒的地圖機制：什麼時候、照什麼順序呼叫 snake-boss.js（規則本身在那裡）。
 // 狀態在 match.mechState（buildSnake 建的），場上的蛇血也是巨蟒的狀態（mechState.items，快照照樣帶）。藤蔓是地形（level.vines），不在這裡
@@ -13,6 +17,33 @@ export const snake = {
   // 先抽第一招（抽到衝撞，第一個玩家回合就有警示帶）
   ready(match) {
     planSnakeNext(match);
+  },
+
+  // 被纏住 / 被指名的人倒下了就放開（勝負判定前、一波結算完都會叫）
+  cascade(match) {
+    syncSnakeMarks(match);
+  },
+
+  // 被指名的人回合開始：突咬的預警線 / 纏身的那一條出現；被纏著的人這回合先勒一下、連打數重算
+  hazardStart(match, e, now) {
+    return snakeHazardStart(match, e, now);
+  },
+  hazardStep(match, now, flush, active) {
+    return snakeHazardStep(match, now, flush, active);
+  },
+
+  // 被纏著的人連打 A / D 的其中一下
+  struggle(match, e, dir) {
+    return snakeStruggle(match, e, dir);
+  },
+
+  // 插話的是巨蟒（3 人以上，連續 2 位玩家之後）：指名剩下還沒輪到的人
+  interjector(match) {
+    const sn = match.byId('snake');
+    return sn && sn.alive ? sn : null;
+  },
+  interject(match, boss, afterId) {
+    return resolveSnakeInterject(match, boss, afterId);
   },
 
   // 位置回報：從上一個位置走到這裡的路上碰到蛇血就喝掉（在落水檢查之前：走進水裡的那一段也喝得到）
@@ -42,17 +73,20 @@ export const snake = {
     return { items: takeDrops(match, ev.drops) };
   },
 
-  // 輪到巨蟒：出預定的那一招並直接結算好
+  // 輪到巨蟒：出預定的那一招並直接結算好，最後指名下一組
   aiTurn(match, actor) {
     return actor.part === 'snake' ? resolveSnakeTurn(match, actor) : null;
   },
 
-  // 預定的下一招（衝撞要畫警示帶）、場上的蛇血（複製出來的）
+  // 預定的下一招（衝撞要畫警示帶）、場上的蛇血（複製出來的）、被指名的人、被纏著的人
   snapshot(match) {
     const S = match.mechState;
+    const { marks, bound } = marksSnapshot(S);
     return {
       snakeNext: S.next ? { ...S.next } : null,
       items: S.items.map(it => ({ ...it })),
+      snakeMarks: marks,
+      snakeBound: bound,
     };
   },
 
@@ -61,5 +95,6 @@ export const snake = {
     const S = match.mechState;
     if (s.snakeNext !== undefined) S.next = s.snakeNext ? { ...s.snakeNext } : null;
     if (s.items) S.items = s.items.map(it => ({ ...it }));
+    restoreMarks(match, SNAKE_MARKS, s.snakeMarks, s.snakeBound);
   },
 };

@@ -292,6 +292,24 @@ export const CONFIG = {
     // 閉目養神只有抽的當下眼睛受過傷才會進抽籤；idle = 發呆（什麼都不做）
     weights: { trunk: 40, leaves: 40, meditate: 10, idle: 0 },
     meditateHeal: 50,    // 閉目養神回復眼睛的血量（跟血量一樣隨人數放大）
+    // 2026-11-09 使用者：古樹不要站樁。古樹每次行動（自己的回合、插話行動）最後都「指名」接下來到它下一次行動之前會輪到的玩家
+    // （活著、沒被藤蔓綁著的；見 Match.upcomingPlayers），每人各抽一招；被指名的人在自己的回合開始 delay 秒後，
+    // 腳下的尖刺 / 藤蔓冒出來（判定時身體還碰到那一塊才算中）：
+    //   尖刺 spike：WEAPONS.treeSpike（7 × 開場人數、流血 10 層）
+    //   刺毒藤蔓 vine：綁住雙腳（走不動、跳不起來，還能開火），綁著的人在自己的回合（還在操作的時候）每 vineTick 秒受 WEAPONS.treeVine
+    //                 （1 × 開場人數 + 1 層中毒；綁住的那一下、之後每個自己的回合一開始各扣一次）；連打 A / D（左右交替）need 下掙脫，不扣體力
+    // 插話行動（3 人以上才會發生）：連續 2 位玩家的回合之後、下一位玩家之前，古樹插進來指名剩下的人（不算古樹的回合）。
+    // weights 全部 0 = 不指名、也不插話（回到原本的古樹）
+    marks: {
+      weights: { spike: 50, vine: 50 },   // 使用者：每位各自隨機
+      delay: 1.5,         // 使用者：回合開始幾秒後冒出來（原本 1 秒，2026-11-09 同一天改 1.5：畫面卡的時候太趕）
+      grace: 0.2,         // 伺服器多等這麼久才判定（他的畫面晚一點才開始，見回合開始的網路延遲）
+      zoneW: 56,          // 冒出來的那一塊有多寬（以回合開始時的腳底為中心；人的半寬 9，往旁邊走 37px 就躲開了）
+      spikeH: 52,         // 尖刺 / 藤蔓冒多高（跳得比這高就碰不到）
+      vineTick: 0.5,      // 使用者：綁著每 0.5 秒扣一次
+      need: 10,           // 使用者：連打 A/D 10 下掙脫（同大樹遊俠，但不扣體力）
+      cast: 0.9,          // 指名的預兆動畫（秒）
+    },
   },
   // ---- Boss 關：叢林巨蟒 ----
   // 一條長長的藤蔓橋（平台）+ 三條垂下來的藤蔓（按住 W / S 抓住、上下爬），巨蟒的頭在最右邊、橋的盡頭（那裡沒有橋，會掉進水裡）。
@@ -305,9 +323,31 @@ export const CONFIG = {
     // 巨蟒的下一招是事先抽好的（開場一次、之後每次用掉就在巨蟒回合結束時再抽），
     // 抽到巨蟒衝撞時，玩家回合會一直畫出衝撞範圍的警示帶（爬上藤蔓躲開）；其他招式不預告
     weights: { charge: 45, spray: 25, quake: 10, bite: 20 },
-    // 毒液噴灑：從嘴巴往左上方隨機散射 count 顆毒液（拋物線）。同一次噴灑每個人最多中一次（10 層）
+    // 毒液噴灑：從嘴巴往左上方隨機散射 count 顆毒液（拋物線）。每一顆打中都上 10 層（同一次被好幾顆打中就疊好幾次，2026-11-09 使用者改）
     // 角度 92° 起（幾乎直直往上）：靠近巨蟒的那條藤蔓上段也噴得到，不會有完全安全的地方
     spray: { count: 6, minAngle: 92, maxAngle: 165, minSpeed: 320, maxSpeed: 780 },
+    // 指名（2026-11-09 使用者選的兩招，數字是我提、使用者說可以的；流程同古樹，見 shared/maps/marks.js）：巨蟒每次行動（自己的回合、插話行動）最後
+    // 指名接下來到它下一次行動之前會輪到的玩家，每人各抽一招；被指名的人回合開始 delay 秒後發動（每招自己的 delays 優先）、身體還碰到才算中——
+    //   strike = 蓄勢突咬（delays.strike 秒後）：頭縮成 S 形蓄力，沿直線（嘴 → 他回合開始時身體中間，再往前 strikeReach px）彈出去咬：WEAPONS.snakeStrike（傷害 + 中毒）。
+    //            離開那條線（跳起來、爬藤蔓、退到咬不到的地方）就躲掉；往蛇那邊走還在線上
+    //   coil   = 纏身絞殺：蛇身從橋下的水裡翻上來，纏住還站在那一條（回合開始時腳底左右 coilW、往上 coilH 到水面）的人：
+    //            綁住（走不動、跳不起來、還能開火），每 tick 秒勒一下，第 n 下 WEAPONS.snakeCoil × min(n, coilMax)（越勒越緊、每個回合從 1 算），
+    //            連打 A / D 交替 need 下掙脫（不扣體力）；爬藤蔓爬得比 coilH 高也躲得掉
+    // 插話行動（3 人以上）：連續 2 位玩家的回合之後，巨蟒插進來指名剩下還沒輪到的人。weights 全部 0 = 不指名、也不插話
+    marks: {
+      weights: { strike: 50, coil: 50 },   // 使用者：兩招、每位各自隨機
+      delay: 1.5,         // 同古樹（纏身絞殺）
+      delays: { strike: 2 },     // 使用者 2026-11-09：蓄勢突咬改成 2 秒後才咬（蓄力久一點；先改 2.5、實測後改 2）
+      grace: 0.2,
+      tick: 0.5,
+      need: 10,
+      cast: 0.9,
+      strikeReach: 30,    // 咬到那一點再往前多咬多遠
+      strikeHalf: 16,     // 突咬的粗細（半寬；人的半寬 9 另外加）
+      coilW: 56,
+      coilH: 52,
+      coilMax: 5,         // 越勒越緊最多幾倍
+    },
   },
 
   // ---- 菁英關：地心探險的獨眼巨人（規則在 shared/maps/cyclops.js）----
@@ -409,21 +449,26 @@ export const CONFIG = {
     cast: { feather: 1.4, gust: 1.0 },
   },
 
+  // 插話行動（2026-11-09，見 Match.interjectBefore）：王連續等了 after 位玩家的回合之後、下一位又是玩家，就先插進來行動一次。
+  // 所以活著的玩家要超過 after 位才會插話（大樹遊俠照這個判斷要不要在自己的回合順便放陷阱）
+  INTERJECT: { after: 2 },
+
   // ---- 菁英關：大樹遊俠（森林；規則在 shared/maps/ranger.js）。2026-11-02 使用者定的招式與數值 ----
   // 站在三棵大樹的樹枝上（不受重力、不會被擊退），每回合出完招之後換到另一根樹枝（林間穿梭：被打過就跳到離打她的人最遠的那根；出完招才換，預警線才準）。
-  // 血量跟一般敵人一樣依人數、關數放大。下一招事先抽好（開場一次、之後每回合出完招再抽，weights；場上陷阱滿了不抽陷阱），HUD 標出來：
+  // 血量跟一般敵人一樣依人數、關數放大。下一招事先抽好（開場一次、之後每回合出完招再抽，weights：貫穿箭 / 箭雨），HUD 標出來：
   //   pierce = 貫穿箭：一抽到就標記一名玩家（隨機）；輪到她時一箭直線射向他（WEAPONS.rangerArrow），一定打得到他（穿過地形），
   //            同一條線上的其他玩家也會被射穿：照箭飛過的順序，每多穿一人傷害再減半，最多穿 maxPierce 人
   //   rain   = 箭雨：用了馬上落下（不預告），以一名玩家為中心、左右合計 rainWidth px 寬（WEAPONS.rangerRain，附加流血）；
   //            優先挑被藤蔓陷阱困住的玩家，沒有就隨機挑一人
-  //   trap   = 藤蔓陷阱：在地面上隨機的地方放 trap.perCast 個（場上最多 trap.max 個），不會自己消失。
+  //   trap   = 藤蔓陷阱（2026-11-09 使用者：改成插話招）：3 人以上活著時在插話行動放；活著的玩家不到 3 人（不會插話）就在她自己的回合出完招之後順便放。
+  //            在地面上隨機的地方放 trap.perCast 個（場上最多 trap.max 個，滿了就不放、也不插話），不會自己消失。
   //            觸發前被玩家打 trap.hp 下就破；玩家踩到就被困住（走不動、跳不起來，還能開火），踩到的那一下受傷（WEAPONS.rangerTrap）
   // 被困住的玩家只能在自己的回合連打 A / D（左右交替）trap.need 下掙脫；從他回合開始（回合中才被困住的從被困住起）體力每秒流失 trap.drain，
   // 體力歸 0 就掙脫不了（等下一回合）。原地連打不算移動（不扣流血）。其他方式（隊友打、技能）都放不了他
   // 傷害照開場人數：武器的 damage 是每人多少（× 開場人數，見 rangerDamage），再吃一般的敵人傷害倍率
   RANGER: {
     hp: 200,              // 同其他菁英
-    weights: { pierce: 40, rain: 35, trap: 25 },
+    weights: { pierce: 50, rain: 50 },   // 使用者 2026-11-09：剩下兩招各半（原本 40 / 35 / 25，陷阱改成插話招）
     maxPierce: 4,         // 使用者定的：最多穿透四名玩家
     pierceFalloff: 0.5,   // 使用者定的：每穿一人傷害再減半
     rainWidth: 100,       // 使用者：大約三個人的範圍
@@ -456,7 +501,7 @@ export const CONFIG = {
     clones: 2,            // 使用者定的
     blinkGap: 150,        // 我提、使用者說可以的：三個彼此至少隔多遠
     playerGap: 60,        // 我抓的：閃現的落點離活著的玩家至少多遠（不要貼在人身上）
-    angryPct: 0.4,        // 使用者定的：血量 40% 以下不再咬耳朵
+    angryPct: 0.5,        // 使用者定的：血量 50% 以下不再咬耳朵（原本 40%，2026-11-09 改：4 人打得太快；先說 60%、同一天改 50%）
     charmHit: 0.7,        // 使用者定的：被魅惑的人打中隊友的機率
     missOffset: 130,      // 我抓的：打偏的那一發瞄在隊友旁邊多遠
     cast: { star: 1.0, swap: 1.1, blink: 0.9 },
@@ -466,7 +511,7 @@ export const CONFIG = {
   // 待在樹冠上（不受重力、不會被擊退、不走動），每回合結束盪到另一棵樹的樹冠（level 的 perches，不會連續待在同一棵）。
   // 接住：玩家的飛行物（catchable 那幾把）從他身邊 catchRadius px 內飛過、不會直接打中他 → 被他接住（不爆炸、不挖地，飛行物到此為止）；
   //   會直接打中他的照常打中。手上最多 maxHeld 顆，滿了就接不了。血量掉到 angryPct 以下生氣：接住範圍變成 angryRadius。
-  // 打中拿著砲彈的他：手上的砲彈全部在他身上爆炸（照原本的武器，炸他自己，算打中他的人的）。
+  // 打中拿著砲彈的他：手上的砲彈全部被打掉（不爆炸、不多扣血；2026-11-09 使用者改，原本會在他身上炸開 → 故意餵三顆再用狙擊槍引爆）。
   // 輪到他：先把手上的砲彈一顆一顆丟回給各自開槍的人（WEAPONS.monkeyThrow：原本武器的基本傷害與爆炸範圍，拋物線，落點隨機偏 0 ~ throwError px；
   //   開槍的人倒下了那顆就丟掉），再出自己的招（weights）：coconut = 椰子砸（WEAPONS.monkeyCoconut，打隨機一名玩家，落點偏 0 ~ coconutError px）、
   //   peel = 香蕉皮（丟在一名玩家旁邊 peelGap px 的地上；場上已經有 maxPeels 張就改丟椰子），最後盪到別棵樹。
@@ -595,11 +640,32 @@ export const CONFIG = {
     lightFlowers: { 1: 2, 2: 4, 3: 4, 4: 6 },      // 使用者定的：最後之光開幾朵花（照活著的人數）
     purifyHealPct: 10,      // 我提、使用者說可以的：祭壇淨化時活著的玩家回 10% 最大血量
     cleanseHealPct: 5,      // 我補的：自然・淨化（11-04 使用者改成只淨化她自己 + 回血）固定回 5% 最大血量（原本每移除一種 3%）
-    ragePct: 50,            // 使用者定的：血量 50% 以下暴走（血量先停在 50%、輪到她才宣告暴走：同蜘蛛女王的門檻，這是我補的做法）
+    ragePct: 60,            // 使用者定的：血量 60% 以下暴走（原本 50%，2026-11-09 改：50% 以下被 4 人打一輪就快死了，暴走階段放不出來）
+                            // （血量先停在門檻、輪到她才宣告暴走：同蜘蛛女王的門檻，這是我補的做法）
     lightEvery: 5,          // 使用者定的：暴走後 5 輪放最後之光；誅滅之後再數 5 輪
     lightCollectRounds: 2,  // 使用者定的：收花兩輪，第 2 輪她的回合還沒收齊就枯萎
     // 我抓的：每一步的預兆秒數（裁判照招式帶的 cast 算這回合要播多久）
     cast: { fog: 1.4, stunned: 1.0, rage: 1.6, light: 2.0, wither: 1.4, judgement: 2.4, crush: 1.2, smite: 1.0, stack: 1.3, cleanse: 1.1, idle: 0.6 },
+    // 指名 / 插話行動（2026-11-10 使用者從我的提案選的兩招，流程同古樹 / 巨蟒，見 shared/maps/marks.js）：她每次行動（暈眩那一回合除外）的最後
+    // 指名接下來會輪到的玩家，每人各抽一招；被指名的人在自己的回合開始 delay 秒後發動：
+    //   大地・脈動 quake：他回合開始時站的那一道斜坡 / 那一層平台整片開始震，發動那一刻腳還踩在上面就中 WEAPONS.gaiaQuake，
+    //                     還在操作的話被往上彈一下（bounce）。跳起來（抓時機）或換到別的斜坡 / 平台就躲開。只打被指名的人
+    //   大地之手・攫取 grab：他腳下冒出石頭手（寬 zoneW、高 grabH），發動那一刻身體還碰到就中 WEAPONS.gaiaGrab，
+    //                     並被丟到隨機另一道斜坡（回合照樣繼續）。走開、或跳得比手高就躲開
+    // 插話行動（3 人以上）：連續 2 位玩家的回合之後，她插進來指名剩下還沒輪到的人；暴走、最後之光照樣插話（使用者選的）。
+    // 祭壇淨化讓她暈眩：那一輪不插話，還沒輪到的指名也一起取消（我補的）。weights 全部 0 = 不指名、也不插話
+    marks: {
+      weights: { quake: 50, grab: 50 },   // 我補的：各半（同古樹 / 巨蟒）
+      delay: 1.5,         // 同古樹（使用者沒另外講）
+      grace: 0.2,
+      zoneW: 56,          // 石頭手的寬（以回合開始時的腳底為中心，同古樹）
+      grabH: 60,          // 石頭手多高（跳得比這高就抓不到）
+      footTol: 6,         // 腳底離斜坡 / 平台表面這麼近（px）算「踩在上面」；高過這個 = 在空中，脈動震不到
+      bounce: 520,        // 脈動中了、他還在操作：往上彈的速度（只有他自己的畫面跑，伺服器照位置回報）
+      tick: 0.5,          // （蓋亞的兩招都不綁人：marks.js 要的欄位，用不到）
+      need: 10,
+      cast: 1.0,          // 指名的預兆動畫（秒）
+    },
   },
 
   // 樹妖：古樹之口召喚出來，每回合慢慢走一段（2026-10-08 起，原本站著不動），投擲長矛
@@ -774,6 +840,32 @@ export const CONFIG = {
       shellRadius: 10,
       color: '#84cc16',
     },
+    // 古樹指名的招式（2026-11-09 使用者；不是飛行物，結算用這兩把的數字，規則見 shared/maps/tree-boss.js 的指名）。
+    // damage 是每一名開場玩家多少（× 開場人數），再吃敵人傷害倍率
+    treeSpike: {          // 古樹尖刺：被指名的人回合開始 1.5 秒後從他腳下刺出來（TREE_BOSS.marks.delay）
+      id: 'treeSpike', name: '古樹尖刺', enemyOnly: true,
+      damage: 7,            // 使用者：7 × 玩家數量
+      bleed: 10,            // 使用者：流血 10 層
+      knockback: 0,         // 回合中被打到時玩家正在自己操作（伺服器不跑他的物理），同流浪劍士的劍氣
+      radius: 0,
+      gravity: 0,
+      speed: 0,
+      hitRadius: 0,
+      shellRadius: 0,
+      color: '#7c4a1e',
+    },
+    treeVine: {           // 刺毒藤蔓：綁著的人每 0.5 秒扣一次
+      id: 'treeVine', name: '刺毒藤蔓', enemyOnly: true,
+      damage: 1,            // 使用者：1 × 玩家數量
+      poison: 1,            // 使用者：+ 一層毒
+      knockback: 0,
+      radius: 0,
+      gravity: 0,
+      speed: 0,
+      hitRadius: 0,
+      shellRadius: 0,
+      color: '#7e22ce',
+    },
     treeSpear: {          // 樹妖投擲的長矛：拋物線，只打直接命中的角色、不挖地
       id: 'treeSpear', name: '長矛', enemyOnly: true,
       damage: 15,
@@ -813,7 +905,8 @@ export const CONFIG = {
       gravity: 460,
       speed: 600,
       hitRadius: 8,
-      passTerrain: true, passAllies: true, shareHits: true,
+      // 2026-11-09 使用者：同一次噴灑可以重複中招（每一顆打中都上 10 層；原本 shareHits 每人最多中一次）——蛇血一喝就全部解光
+      passTerrain: true, passAllies: true,
       shellRadius: 7,
       color: '#a855f7',
     },
@@ -830,6 +923,22 @@ export const CONFIG = {
       noFire: true,         // 震波穿過火把不會著火（見 shared/physics/fire.js）
       shellRadius: 6,
       color: '#a16207',
+    },
+    // 巨蟒指名的招式（不是飛行物，結算用這兩把的數字；規則見 SNAKE_BOSS.marks）。damage 是每一名開場玩家多少（× 開場人數），再吃敵人傷害倍率
+    snakeStrike: {        // 蓄勢突咬：被指名的人回合開始 1.5 秒後沿預警線咬過去
+      id: 'snakeStrike', name: '蓄勢突咬', enemyOnly: true,
+      damage: 8,            // 我提、使用者說可以的：8 × 玩家數
+      poison: 5,            // 我提、使用者說可以的：5 層
+      knockback: 0,         // 回合中被打到時玩家正在自己操作（伺服器不跑他的物理），同古樹尖刺
+      radius: 0, gravity: 0, speed: 0, hitRadius: 0, shellRadius: 0,
+      color: '#166534',
+    },
+    snakeCoil: {          // 纏身絞殺：綁著的人每 0.5 秒勒一下，第 n 下 × min(n, coilMax)
+      id: 'snakeCoil', name: '纏身絞殺', enemyOnly: true,
+      damage: 1,            // 我提、使用者說可以的：1 × 玩家數，越勒越緊
+      knockback: 0,
+      radius: 0, gravity: 0, speed: 0, hitRadius: 0, shellRadius: 0,
+      color: '#15803d',
     },
     snakeBite: {          // 劇毒撕咬：頭直接咬向離嘴巴最近的玩家
       id: 'snakeBite', name: '劇毒撕咬', enemyOnly: true,
@@ -1374,6 +1483,20 @@ export const CONFIG = {
       noFire: true,
       shellRadius: 0,
       color: '#fde68a',
+    },
+    gaiaQuake: {          // 大地・脈動（指名，GAIA.marks）：腳還踩在震動的那一片上就中
+      id: 'gaiaQuake', name: '大地・脈動', enemyOnly: true,
+      damage: 6,            // 我提的：6 × 開場人數（使用者選這招時看到的數字）
+      knockback: 0,         // 回合中被打到時玩家正在自己操作（伺服器不跑他的物理）：往上彈由他自己的畫面跑（GAIA.marks.bounce）
+      radius: 0, gravity: 0, speed: 0, hitRadius: 0, shellRadius: 0,
+      color: '#a16207',
+    },
+    gaiaGrab: {           // 大地之手・攫取（指名，GAIA.marks）：抓到就丟到另一道斜坡
+      id: 'gaiaGrab', name: '大地之手・攫取', enemyOnly: true,
+      damage: 5,            // 我補的：5 × 開場人數（另外被丟走，所以比脈動低一點）
+      knockback: 0,
+      radius: 0, gravity: 0, speed: 0, hitRadius: 0, shellRadius: 0,
+      color: '#78716c',
     },
     gaiaStack: {          // 巨拳・同罰（11-04 使用者加的）：拳頭鎖定一名玩家，結算時他身邊 stackRadius 裡的人平分總傷害；每個分擔的人頭上各落下一記拳（垂直往下、只撞得到他）
       id: 'gaiaStack', name: '巨拳・同罰', enemyOnly: true,

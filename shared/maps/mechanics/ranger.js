@@ -1,5 +1,5 @@
 import {
-  RANGER_ID, buildRanger, planRangerNext, resolveRangerTurn, syncTraps, touchTrap, hitTrap, startTurn, stepTurn, struggle,
+  RANGER_ID, buildRanger, planRangerNext, resolveRangerTurn, resolveRangerInterject, syncTraps, touchTrap, hitTrap, startTurn, stepTurn, struggle,
   rangerSnapshot, restoreRanger,
 } from '../ranger.js';
 
@@ -63,9 +63,18 @@ export const ranger = {
     return null;
   },
 
-  // 輪到遊俠：預定的那一招 + 換樹枝，直接結算好（陷阱不會輪到）
+  // 輪到遊俠：預定的那一招（貫穿箭 / 箭雨）+（不會插話時順便放陷阱）+ 換樹枝，直接結算好（陷阱不會輪到）
   aiTurn(match, actor) {
     return actor.id === RANGER_ID ? resolveRangerTurn(match, actor) : null;
+  },
+
+  // 插話的是遊俠（3 人以上，連續 2 位玩家之後）：放藤蔓陷阱（2026-11-09 使用者）
+  interjector(match) {
+    const g = match.byId(RANGER_ID);
+    return g && g.alive ? g : null;
+  },
+  interject(match, boss) {
+    return resolveRangerInterject(match, boss);
   },
 
   snapshot(match) {

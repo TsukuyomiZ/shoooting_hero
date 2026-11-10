@@ -1,6 +1,10 @@
 import { CONFIG } from '../core/config.js';
 import { Entity } from '../physics/entities.js';
 import { weightedPick, nearestPlayerAt, bossProjectile, bossShot, stillResult } from './mechanics/common.js';
+import {
+  freshMarks, markStep as markStepOf, syncMarks, marksHazardStart, marksHazardStep, marksStruggle, alignMarksBound, applyMarksStruggle, bindMarked,
+  perPlayer, hitOn,
+} from './marks.js';
 
 // Boss 關「古樹之庭」的規則（伺服器與客戶端共用；出招只在伺服器算，客戶端照廣播播動畫）。
 // Match 什麼時候呼叫這些，見地圖機制 shared/maps/mechanics/tree.js。這一場的狀態在 match.mechState（buildTree 建的那一份）。
@@ -23,22 +27,37 @@ import { weightedPick, nearestPlayerAt, bossProjectile, bossShot, stillResult } 
 // - 剛召喚的樹妖這一輪先不動，下一輪才開始投擲長矛（見 Match.nextActor）
 // - 古樹的攻擊只打玩家，不會打到自己的樹妖
 // - 單人 / 多人以這一關的玩家人數判斷（1 人 = 單人）
+// - 指名（2026-11-09 使用者：古樹不要站樁；數值見 TREE_BOSS.marks）：古樹每次行動的最後（自己的回合、插話行動），指名「接下來到它下一次行動之前
+//   會輪到的玩家」（Match.upcomingPlayers：活著、沒被藤蔓綁著的），每人各抽一招存在 S.marks。被指名的人一定在中招之前輪到自己的回合：
+//   回合一開始，腳下（那時的腳底）出現那一塊（S.zone），delay 秒後冒出來（伺服器多等 grace），那時身體還碰到才算中——
+//     古樹尖刺 spike：WEAPONS.treeSpike（流血）
+//     刺毒藤蔓 vine：綁住雙腳（S.bound，Entity.held：走不動、跳不起來、還能開火），綁住的那一下扣一次 WEAPONS.treeVine（中毒），
+//                    之後他還在操作的時候每 vineTick 秒一次（開火之後的結算不扣），之後每個自己的回合一開始也先扣一次；
+//                    只能自己的回合連打 A / D（左右交替）need 下掙脫，不扣體力
+//   回合在冒出來之前就收尾（開火結算完、超時）：收尾時馬上冒（還站在那裡就中）。傷害 × 開場人數，再吃敵人傷害倍率
+// - 插話行動（Match.interjectBefore）：3 人以上時，連續 2 位玩家的回合之後，古樹插進來指名剩下還沒輪到的人（不算古樹的回合）
 
 export const TREE_ACTION_NAMES = {
   summon: '士兵召喚',
   trunk: '古樹撞擊',
   leaves: '飛散落葉',
   meditate: '閉目養神',
+  mark: '根脈蔓延',
   idle: '古樹靜靜地看著你們',
 };
+
+// 指名的兩招
+export const TREE_MARK_NAMES = { spike: '古樹尖刺', vine: '刺毒藤蔓' };
 
 // 建立古樹的兩個部位，回傳這一場古樹的狀態（地圖機制的 build 回傳給 Match，存成 match.mechState）。
 // hpScale = 血量倍率（關卡規則的 bossHp：每多一位玩家 +50%，第二個王關以後再放大，見 shared/game/stage-rules.js）；樹妖、閉目養神也照這個
 export function buildTree(match, hpScale) {
   const T = CONFIG.TREE_BOSS;
   const def = match.level.mechanic;
-  // minions：召喚過的樹妖出生資料（重連時照著重建）；next：預定的下一招（Match 開場落地後才決定）
-  const state = { def, hpScale, minions: [], seq: 0, next: null };
+  // minions：召喚過的樹妖出生資料（重連時照著重建）；next：預定的下一招（Match 開場落地後才決定）；
+  // marks：被指名的玩家 { [pid]: 'spike' | 'vine' }（輪到他時用掉）；bound：被藤蔓綁著的玩家 { [pid]: { count（這回合連打了幾下）, last（上一下是哪一邊）} }；
+  // zone：這回合正在冒的那一塊 { id, kind, x, y, w, h, fireAt }、tick：綁著的人下一次扣血 { id, next, owed }（只有伺服器在用，見 treeHazardStep）
+  const state = { def, hpScale, minions: [], seq: 0, next: null, ...freshMarks() };
   const part = (p, o) => new Entity({
     ...CONFIG.ENEMY, team: 'enemies', controller: 'ai', slot: 0, facing: -1,
     x: p.x, y: p.y + p.hh, hw: p.hw, h: p.hh * 2, boss: true, fixed: true, body: 'tree', ...o,
@@ -192,8 +211,49 @@ export function resolveTreeTurn(match, eye) {
     used = true;
   }
   if (used) planTreeNext(match, eye);
+  const mark = markStep(match, eye.id);   // 最後指名下一組（重新預定之後才抽，預定的招式跟以前抽到的一樣）
+  if (mark) steps.push(mark);
   return { steps, next: { ...match.mechState.next } };
 }
+
+// ---------- 指名 / 插話（見檔案開頭；通用的流程在 shared/maps/marks.js）----------
+
+// 古樹的指名：尖刺 spike（WEAPONS.treeSpike）、刺毒藤蔓 vine（綁住，每下 WEAPONS.treeVine）。範圍 = 回合開始時腳底那一塊（寬 zoneW、高 spikeH）
+export const TREE_MARKS = {
+  state: treeState,
+  boss: (match) => match.byId('eye'),
+  config: () => { const M = CONFIG.TREE_BOSS.marks; return { ...M, tick: M.vineTick }; },
+  zone: (match, e) => { const M = CONFIG.TREE_BOSS.marks; return { x: r1(e.x), y: r1(e.y), w: M.zoneW, h: M.spikeH }; },
+  hits: (z, p) => inMarkZone(z, p),
+  binds: (kind) => kind === 'vine',
+  strike: (match, z, p, boss) => hitOn(match, p, perPlayer(match, CONFIG.WEAPONS.treeSpike), boss),
+  squeeze: (match, p, rec, boss) => hitOn(match, p, perPlayer(match, CONFIG.WEAPONS.treeVine), boss),
+};
+
+// 插話行動：指名剩下還沒輪到的人（afterId = 剛結束回合的玩家）。沒有人可以指名 = null（裁判直接換下一位）
+export function resolveTreeInterject(match, eye, afterId) {
+  const mark = markStep(match, afterId);
+  return mark ? { steps: [mark], next: match.mechState.next ? { ...match.mechState.next } : null } : null;
+}
+
+// 指名（見 marks.js 的 markStep）：回傳 { action: 'mark', targetIds, kinds, cast, still }，沒有人可以指名 = null
+export const markStep = (match, afterId) => markStepOf(match, TREE_MARKS, afterId);
+
+// 冒出來的那一塊碰不碰得到 p：左右重疊、腳底沒高過尖刺（跳得比它高就躲開了）、身體沒在它底下
+export function inMarkZone(z, p) {
+  return Math.abs(p.x - z.x) < z.w / 2 + p.hw && p.y > z.y - z.h && p.y - p.h < z.y + 6;
+}
+
+// 地圖機制 / 畫面用的（規則在 marks.js）
+export const syncBound = (match) => syncMarks(match, TREE_MARKS);
+export const treeHazardStart = (match, e, now) => marksHazardStart(match, TREE_MARKS, e, now);
+export const treeHazardStep = (match, now, flush = false, active = true) => marksHazardStep(match, TREE_MARKS, now, flush, active);
+export const treeStruggle = (match, e, dir) => marksStruggle(match, TREE_MARKS, e, dir);
+export const alignBound = (match, bound) => alignMarksBound(match, TREE_MARKS, bound);
+export const applyTreeStruggle = (match, msg) => applyMarksStruggle(match, TREE_MARKS, msg);
+export const bindByVine = (match, id) => bindMarked(match, TREE_MARKS, id);
+
+const r1 = (v) => Math.round(v * 10) / 10;
 
 // 古樹撞擊的橫掃範圍：樹幹中心高度 y、半徑 half（上緣 top、下緣 bottom），從樹皮表面 x1 一路掃到 x0 = 0。
 // 伺服器的樹幹（trunkShot）與客戶端的預告警示帶都用這個，兩邊才不會對不上

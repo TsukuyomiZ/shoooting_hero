@@ -17,12 +17,14 @@ import { weightedPick, nearestPlayerAt, bossProjectile, bossShot, stillResult } 
 //   打倒她 = 過關（陷阱不算敵人：不會輪到、打破不算擊殺、不擋過關）。
 // - 每回合出完招之後換到另一根樹枝（林間穿梭，hop）：上一次打到她的人還活著就跳到離他最遠的那根，不然隨機挑另一根。
 //   出完招才換（不是先換再射）：玩家回合裡她站的地方就是她下一次出招的地方，貫穿箭的預警線才準
-// - 她的招式（伺服器先抽好下一招，玩家回合畫面上標出來；權重 RANGER.weights，場上陷阱滿了不抽陷阱）：
+// - 她的招式（伺服器先抽好下一招，玩家回合畫面上標出來；權重 RANGER.weights：貫穿箭 / 箭雨各半）：
 //     貫穿箭（pierce）：一抽到就隨機標記一名玩家；輪到她時從弓上直直射向他（那人倒下了就改隨機一人），穿過地形，一定射得到他；
 //                       同一條線上的人照箭飛過的順序都會被射穿，每多穿一人傷害再減半（WEAPONS.rangerArrow 的 pierceFalloff），最多 maxPierce 人
 //     箭雨（rain）：用了馬上落下（不預告）：被困住的玩家優先（隨機挑一個），沒有就隨機一名玩家，以他為中心左右合計 rainWidth px 的箭從天上落下，
 //                   一人最多中一支（WEAPONS.rangerRain，附加流血），碰到地面就停
-//     藤蔓陷阱（trap）：在地面上隨機的地方放 trap.perCast 個（場上最多 trap.max 個；離其他陷阱、玩家至少 trap.gap px）
+// - 藤蔓陷阱（trap，2026-11-09 使用者：改成插話招）：3 人以上活著時在插話行動放（Match.interjectBefore，不算她的回合、不換樹枝）；
+//   活著的玩家不到 3 人（不會插話）就在她自己的回合出完招之後順便放。在地面上隨機的地方放 trap.perCast 個
+//   （場上最多 trap.max 個，滿了就不放、也不插話；離其他陷阱、玩家至少 trap.gap px）
 // - 藤蔓陷阱（角色 kind 'vineTrap'，敵方的東西：敵人的攻擊穿過去）：觸發前玩家打到一下扣 1（不管什麼武器、直擊或波及），扣光就破；
 //   玩家自己走路踩進去（位置回報 / AI 代打的每一步，見 touchTrap；跳過去、站著不動、被擊退停在上面再走開都不算）就觸發：陷阱消失、他被困住（Entity.held：走不動、跳不起來、
 //   不會被擊退，還能開火），踩到的那一下受傷（WEAPONS.rangerTrap，在下一個 hazardStep 扣：踩死的話裁判才收得了這回合）。
@@ -81,13 +83,12 @@ export function rangerDamage(match, weapon) {
 // 場上還在的陷阱
 export const liveTraps = (match) => match.entities.filter(e => isTrap(e) && e.alive);
 
-// 抽下一招（開場、每回合出完招之後）。貫穿箭：馬上隨機標記一名活著的玩家（targetId）。場上陷阱滿了不抽陷阱
+// 抽下一招（開場、每回合出完招之後）：貫穿箭 / 箭雨（藤蔓陷阱 2026-11-09 改成插話招，不在這裡抽）。貫穿箭：馬上隨機標記一名活著的玩家（targetId）
 export function planRangerNext(match) {
   const S = rangerState(match);
   if (!S) return null;
   const R = CONFIG.RANGER;
-  const full = liveTraps(match).length >= R.trap.max;
-  const action = weightedPick(match.rng, [['pierce', R.weights.pierce], ['rain', R.weights.rain], ['trap', full ? 0 : R.weights.trap]]) || 'pierce';
+  const action = weightedPick(match.rng, [['pierce', R.weights.pierce], ['rain', R.weights.rain]]) || 'pierce';
   S.next = { action };
   if (action === 'pierce') {
     const alive = match.players.filter(e => e.alive);
@@ -129,18 +130,26 @@ export function arrowLine(match, from, to) {
   return { x0: from.x, y0: from.y, x1: from.x + ux * t, y1: from.y + uy * t };
 }
 
-// 輪到遊俠：出預定的那一招並直接結算好，再換樹枝，再抽下一招。回傳 { steps: [招式, 換樹枝], next }（格式同 Boss）
+// 會不會有插話行動（活著的玩家超過 INTERJECT.after 位）：不會的話藤蔓陷阱在她自己的回合順便放
+const interjects = (match) => match.players.filter(e => e.alive).length > CONFIG.INTERJECT.after;
+
+// 輪到遊俠：出預定的那一招（貫穿箭 / 箭雨）並直接結算好；不會插話的時候（活著的玩家不到 3 人）順便放藤蔓陷阱；再換樹枝，再抽下一招。
+// 回傳 { steps: [招式, (陷阱,) 換樹枝], next }（格式同 Boss）
 export function resolveRangerTurn(match, g) {
   const S = rangerState(match);
   const steps = [];
   if (g.alive && match.players.some(e => e.alive)) {
-    let plan = (S && S.next) || planRangerNext(match) || { action: 'pierce' };
-    if (plan.action === 'trap' && liveTraps(match).length >= CONFIG.RANGER.trap.max) plan = { action: 'rain' };
-    const main = plan.action === 'trap' ? trapStep(match, g) : plan.action === 'rain' ? rainStep(match, g) : pierceStep(match, g, plan);
+    const plan = (S && S.next) || planRangerNext(match) || { action: 'pierce' };
+    const main = plan.action === 'rain' ? rainStep(match, g) : pierceStep(match, g, plan);
     steps.push(main);
     // 先校正成這一招的結果（跟客戶端播完這一招、套上 results 一樣），換樹枝的重播才從同一個狀態開始
     const res = main.shot || main.still;
     if (res) match.applyEntities(res.results);
+    // 2026-11-09 使用者：藤蔓陷阱改成插話招；不會插話的時候（1 ~ 2 人）回合結束順便放
+    if (g.alive && match.players.some(e => e.alive) && !interjects(match)) {
+      const trap = trapStep(match, g);
+      if (trap) steps.push(trap);
+    }
     if (g.alive && match.players.some(e => e.alive)) steps.push(hopStep(match, g));
   }
   if (!steps.length) steps.push({ action: 'idle', still: stillResult(match) });
@@ -150,6 +159,16 @@ export function resolveRangerTurn(match, g) {
   const res = last.shot || last.still;
   if (res) res.results = match.entities.map(e => e.toState());
   return { steps, next: S && S.next ? { ...S.next } : null };
+}
+
+// 插話行動（3 人以上活著，連續 2 位玩家的回合之後）：放藤蔓陷阱（不換樹枝、不改預定的下一招）。場上滿了 / 放不下 = null（不插話）
+export function resolveRangerInterject(match, g) {
+  const S = rangerState(match);
+  if (!S || !g.alive || !match.players.some(e => e.alive)) return null;
+  const step = trapStep(match, g);
+  if (!step) return null;
+  syncTraps(match);
+  return { steps: [step], next: S.next ? { ...S.next } : null };
 }
 
 // 林間穿梭：換到另一根樹枝（上一次打到她的人還活著 → 離他最遠的那根；不然隨機），樹枝上站哪裡隨機（match.rng）。
@@ -245,7 +264,8 @@ function rainStep(match, g) {
   };
 }
 
-// 藤蔓陷阱：在地面上隨機的地方放 perCast 個（場上最多 max 個）。spawns = 放下的陷阱（客戶端照它建出來）、xs = 放在哪（紀錄用）
+// 藤蔓陷阱：在地面上隨機的地方放 perCast 個（場上最多 max 個）。spawns = 放下的陷阱（客戶端照它建出來）、xs = 放在哪（紀錄用）。
+// 一個都放不下（滿了、找不到地方）= null
 function trapStep(match, g) {
   const S = rangerState(match);
   const T = CONFIG.RANGER.trap;
@@ -258,6 +278,7 @@ function trapStep(match, g) {
     spawnTrap(match, spec);
     spawns.push(spec);
   }
+  if (!spawns.length) return null;
   return { action: 'trap', spawns, xs: spawns.map(s => s.x), facing: g.facing, cast: CONFIG.RANGER.cast.trap, still: stillResult(match) };
 }
 

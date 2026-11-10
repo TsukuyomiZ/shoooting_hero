@@ -65,7 +65,7 @@ function withConfig(patch, fn) {
   return out;
 }
 const RANGER = {
-  hp: 200, weights: { pierce: 40, rain: 35, trap: 25 }, maxPierce: 4, pierceFalloff: 0.5, rainWidth: 100,
+  hp: 200, weights: { pierce: 50, rain: 50 }, maxPierce: 4, pierceFalloff: 0.5, rainWidth: 100,
   trap: { perCast: 2, max: 8, hp: 2, need: 10, drain: 40, grace: 0.3, hw: 16, h: 8, gap: 60 },
   perchPad: { left: 18, right: 44 }, cast: { hop: 0.9, pierce: 1.2, rain: 1.0, trap: 0.9 },
 };
@@ -149,7 +149,8 @@ await test('林間穿梭：每回合出完招之後換到另一根樹枝（站�
   let perch = m.mechState.perch;
   for (let k = 0; k < 6; k++) {
     const { steps, hop } = rangerTurn(m, { action: 'rain' });
-    assert(steps.length === 2 && steps[1] === hop && steps[0].action === 'rain', 'attack first, then hop ' + J(steps.map(st => st.action)));
+    // 2 人（不會插話）：招式 → 順便放陷阱（場上還放得下）→ 換樹枝
+    assert(steps[steps.length - 1] === hop && steps[0].action === 'rain' && steps.slice(1, -1).every(st => st.action === 'trap'), 'attack first, then hop ' + J(steps.map(st => st.action)));
     assert(hop.action === 'hop' && hop.from === perch && hop.to !== perch && m.mechState.perch === hop.to, 'hops ' + J(hop));
     const r = perchRange(P[hop.to]);
     assert(g.y === P[hop.to].y && g.x >= r.x0 && g.x <= r.x1 && hop.x === g.x && hop.cast > 0, 'on the branch');
@@ -231,13 +232,17 @@ await test('箭雨：以目標為中心左右合計 100 px 的箭從天上落下
   assert(m2.targetId === 'p3' && m2.held === true, 'prefers the trapped one ' + J(m2));
 }));
 
-await test('藤蔓陷阱：一次放 2 個在地面上（離其他陷阱、玩家至少 gap）；場上 8 個就不再抽陷阱（預定了也改箭雨）；陷阱不擋過關、不會輪到', () => base(() => {
-  const m = make(2);
+await test('藤蔓陷阱（2026-11-09 改成插話招）：插話放 2 個在地面上（離其他陷阱、玩家至少 gap，不換樹枝、不改預定的下一招）；場上 8 個就不放、不插話；她自己的回合只抽貫穿箭 / 箭雨；陷阱不擋過關、不會輪到', () => base(() => {
+  const m = make(4);
   for (const p of m.players) placeOn(m, p, p.x, 540);
+  const g = m.byId(RANGER_ID);
   const out = [];
   for (let k = 0; k < 4; k++) {
-    const { main } = rangerTurn(m, { action: 'trap' });
-    assert(main.action === 'trap' && main.spawns.length === 2, 'two at a time ' + J(main));
+    const perch = m.mechState.perch, next = J(m.mechState.next);
+    const it = m.mechanic.interject(m, g, 'p2');
+    const main = it.steps[0];
+    assert(it.steps.length === 1 && main.action === 'trap' && main.spawns.length === 2, 'two at a time ' + J(main));
+    assert(m.mechState.perch === perch && J(it.next) === next, 'no hop, same plan');
     for (const s of main.spawns) {
       assert(groundAt(m, s.x) === s.y && s.hp === 2, 'on the ground ' + J(s));
       assert(m.players.every(p => Math.abs(p.x - s.x) >= 60), 'away from players');
@@ -247,12 +252,13 @@ await test('藤蔓陷阱：一次放 2 個在地面上（離其他陷阱、玩�
   const traps = liveTraps(m);
   assert(traps.length === 8, 'eight ' + traps.length);
   for (const a of traps) for (const b of traps) if (a !== b) assert(Math.abs(a.x - b.x) >= 60, 'apart');
-  for (let k = 0; k < 20; k++) {   // 滿了：不會再抽到陷阱
+  assert(m.mechanic.interject(m, g, 'p2') === null, 'full: nothing to do, no interjection');
+  for (let k = 0; k < 20; k++) {   // 她自己的回合只抽貫穿箭 / 箭雨
     m.mechanic.ready(m);
-    assert(m.mechState.next.action !== 'trap', 'no trap when full');
+    assert(['pierce', 'rain'].includes(m.mechState.next.action), 'own turn: pierce or rain');
   }
-  const { main } = rangerTurn(m, { action: 'trap' });
-  assert(main.action === 'rain', 'planned trap turns into rain when full: ' + main.action);
+  const { steps } = rangerTurn(m, { action: 'rain' });
+  assert(!steps.some(st => st.action === 'trap'), '4 alive: no trap on her own turn ' + J(steps.map(st => st.action)));
   m.byId(RANGER_ID).die('hit');
   assert(m.result() === 'win', 'traps do not block the win: ' + m.result());
   return { xs: out };
@@ -449,7 +455,7 @@ await test('快照：預定的下一招、站哪根樹枝、被困住的人（�
   assert(c.byId('p2').held && c.mechState.trapped.p2.count === 3, 'a partial snapshot leaves it alone');
 }));
 
-await test('裁判：全員 AI 代打打幾輪；換樹枝 + 三招都出現、每回合兩招（招式 + hop）；紀錄 ai.turn 帶招式、next、被標記的人；開場的第一招記在 battle.start；沒有丟錯', () => base(() => {
+await test('裁判：全員 AI 代打打幾輪（2 人）；換樹枝 + 三招都出現、每回合 招式 →（順便放陷阱）→ hop；紀錄 ai.turn 帶招式、next、被標記的人；開場的第一招記在 battle.start；沒有丟錯', () => base(() => {
   const seen = new Set();
   const out = {};
   for (const seed of [1, 2, 3, 4]) {
@@ -467,8 +473,9 @@ await test('裁判：全員 AI 代打打幾輪；換樹枝 + 三招都出現、�
     assert(turns.length >= 6, `seed ${seed}: turns ${turns.length}`);
     for (const t of turns) {
       const st = t.boss.steps;
-      assert(st.length === 2 && st[1].action === 'hop' && st.every(s => s.cast > 0 && (s.shot || s.still)), 'move + hop ' + J(st.map(s => s.action)));
-      seen.add(st[0].action);
+      assert(['pierce', 'rain'].includes(st[0].action) && st[st.length - 1].action === 'hop' && st.slice(1, -1).every(s => s.action === 'trap')
+        && st.length <= 3 && st.every(s => s.cast > 0 && (s.shot || s.still)), 'move + (trap) + hop ' + J(st.map(s => s.action)));
+      for (const s of st) seen.add(s.action);
     }
     const recs = io.records.filter(r => r.ev === 'ai.turn' && r.actor === RANGER_ID);
     assert(recs.length === turns.length && recs.every((r, i) => r.boss[0].action === turns[i].boss.steps[0].action && r.next === turns[i].boss.next.action), 'logged');
@@ -478,6 +485,27 @@ await test('裁判：全員 AI 代打打幾輪；換樹枝 + 三招都出現、�
   }
   assert(['pierce', 'rain', 'trap'].every(a => seen.has(a)), 'all moves ' + [...seen]);
   return out;
+}));
+
+
+await test('裁判（4 人）：P1 P2 → 遊俠插話（turn / aiTurn 帶 interject，放藤蔓陷阱、不換樹枝）→ P3 P4 → 遊俠（貫穿箭 / 箭雨 + 換樹枝，不放陷阱）；陷阱滿了就不插話', () => base(() => {
+  const players = mkPlayers(4);
+  const m = new Match({ levelId: 'forestRanger', players, seed: 2, stage: 3 });
+  for (const p of m.players) { p.hp = p.maxHp = 4000; }
+  const io = new FakeIo();
+  const ref = new Referee({ match: m, humans: players, io, stageInfo: stageInfo() });
+  ref.start();
+  for (const p of players) ref.setConnected(p.id, false);
+  for (let k = 0; k < 120 && ref.phase !== 'over'; k++) io.advance(500);
+  const turns = io.log.filter(x => x.t === 'turn').map(t => t.actorId + (t.interject ? '*' : ''));
+  assert(J(turns.slice(0, 6)) === J(['p1', 'p2', 'ranger*', 'p3', 'p4', 'ranger']), J(turns.slice(0, 8)));
+  const ai = io.log.filter(x => x.t === 'aiTurn' && x.actorId === RANGER_ID);
+  const inter = ai.filter(t => t.interject), own = ai.filter(t => !t.interject);
+  assert(inter.length && inter.every(t => J(t.boss.steps.map(s => s.action)) === J(['trap'])), 'interjections sow traps ' + J(inter.map(t => t.boss.steps.map(s => s.action))));
+  assert(own.every(t => !t.boss.steps.some(s => s.action === 'trap') && t.boss.steps[t.boss.steps.length - 1].action === 'hop'), 'own turns: no traps');
+  assert(liveTraps(m).length <= CONFIG.RANGER.trap.max, 'never over the cap');
+  ref.stop();
+  return { turns: turns.slice(0, 6), interjections: inter.length, traps: liveTraps(m).length };
 }));
 
 // ---------------- 真的 GameView ----------------

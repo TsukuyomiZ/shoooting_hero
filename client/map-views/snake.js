@@ -1,13 +1,19 @@
 import { CONFIG } from '../../shared/core/config.js';
-import { SNAKE_ACTION_NAMES, chargeLane, takeDrops, pickupAlong } from '../../shared/maps/snake-boss.js';
+import { SNAKE_ACTION_NAMES, SNAKE_MARK_NAMES, SNAKE_MARKS, syncSnakeMarks, chargeLane, takeDrops, pickupAlong } from '../../shared/maps/snake-boss.js';
 import { clamp } from '../../shared/core/utils.js';
+import { clockOf, marksHazard, pruneZones, marksStruggleKey, marksOnStruggle, drawMarkSigils, drawEscapeHint, boundHudLine } from './marks-draw.js';
 
 // 叢林巨蟒的地圖畫面：巨蟒回合的動畫腳本（照伺服器廣播的招式播）、巨蟒倒下的特效、蛇血（掉出來、喝到、自己走過去先喝），
 // 與巨蟒 / 藤蔓 / 蛇血 / 招式的繪圖。掛勾的說明見 index.js
+// 指名（2026-11-09，規則見 shared/maps/snake-boss.js 與 marks.js；共同的畫面在 marks-draw.js）：被指名的人腳下的標記（菁英之路不畫）；
+//   蓄勢突咬 = 回合開始畫一條預警線（嘴 → 他），頭往後縮、抬起來抖（蓄力），發動時整顆頭沿線彈出去再縮回來；
+//   纏身絞殺 = 回合開始他腳下的水面冒泡、水裡一條黑影游過來，發動時蛇身從水裡翻上來，纏住的人身上繞著一圈圈蛇身（越勒越緊會抖）
 const FPS = 60;
 const SCALE = '#5f7a2c', SCALE_DARK = '#3b4a1a', BELLY = '#c8b878', BLOTCH = '#2f2a14';
 const POISON = '#c084fc';
 const DROP_FLIGHT = 0.7;   // 掉出來的蛇血飛到落點要幾秒
+const LUNGE = 0.12, BITE_HOLD = 0.15;   // 蓄勢突咬：彈出去要幾秒、咬住停多久（之後照一般的慢慢縮回原位）
+const RISE = 0.12, COIL_HOLD = 0.35, SINK = 0.35;   // 纏身絞殺：蛇身翻上來、停住、沒纏到就縮回水裡（秒）
 
 export const snake = {
   type: 'snake',
@@ -17,7 +23,8 @@ export const snake = {
   //   head   頭畫面上的位移（id → { dx, dy, t }：衝出去 / 縮回來 / 抬頭，照 c.time 慢慢回原位）
   //   anims  剛掉出來、還在飛的蛇血（道具 id → { x, y, t0 }：從嘴裡沿拋物線飛到落點，飛完由 update 刪掉）。
   //          照 id 對：GameView 換成伺服器版本的道具（setItems）也接得上；道具的 id 不會重複用
-  create: () => ({ fx: null, head: new Map(), anims: new Map() }),
+  //   zones  被指名的人這回合正在等著發動的那一招（marks-draw.js 記帳：{ id, kind, ...範圍, at, delay, fired }）；lastDir = 自己被纏住時上一下按的方向
+  create: () => ({ fx: null, head: new Map(), anims: new Map(), zones: [], lastDir: 0 }),
 
   musicTrack: () => 'snake',   // 先一聲蛇的哈氣再淡入（見 music.js）
   turnScript: snakeTurnScript,
@@ -26,6 +33,8 @@ export const snake = {
 
   // 每一步：飛完的蛇血刪掉記錄；大地震擊的震波一路揚起碎屑（畫圖只讀狀態，不在畫圖時做這些）
   update(c) {
+    syncSnakeMarks(c.match);
+    pruneZones(c, Math.max(LUNGE + BITE_HOLD, RISE + COIL_HOLD + SINK) + 0.2);
     for (const [id, a] of c.state.anims) if (dropProgress(c, a) >= 1) c.state.anims.delete(id);
     for (const p of c.projectiles) if (p.weapon && p.weapon.id === 'snakeQuake') quakeDebris(c, p);
   },
@@ -43,6 +52,28 @@ export const snake = {
   },
 
   statusFx,
+
+  // 回合裡的事（流程見 marks-draw.js）：被指名的人那一招開始蓄力（突咬嘶一聲、纏身水面冒泡）、發動了、被纏住的人勒一下
+  hazard(c, msg, early = false) {
+    marksHazard(c, SNAKE_MARKS, msg, early, {
+      zone: (z) => {
+        if (z.kind === 'strike') c.fx.particles(z.x0, z.y0, 8, { speed: 60, life: 0.5, size: 2.4, color: '#86efac', gravity: 0 });
+        else c.fx.splash(z.x);
+      },
+      fired: (f) => showSnakeFired(c, f),
+      ticks: (ids) => {
+        for (const id of ids) {
+          const e = c.match.byId(id);
+          if (!e) continue;
+          c.fx.particles(e.x, e.cy, 4, { speed: 80, life: 0.35, size: 2.4, color: SCALE, gravity: 200 });
+        }
+      },
+    });
+  },
+
+  // 自己被纏住時按了一下 A / D：左右交替才算；伺服器的 struggle：連打數照伺服器的，掙脫了就放開、飄字
+  struggle: (c, me, dir) => marksStruggleKey(c, SNAKE_MARKS, me, dir, SCALE),
+  onStruggle: (c, e, msg) => marksOnStruggle(c, SNAKE_MARKS, e, msg, { main: SCALE, bit: BELLY }),
 
   // 行動玩家走路途中喝到蛇血（伺服器廣播的 pickup）：改上限與血量（位置照他自己 / 他的 move 回報）。
   // 自己的血量照本地的（喝完之後可能已經在本地掉過水），伺服器帶的 hp 是喝的那一刻：自己已經先喝過（預測）就什麼都不用改，
@@ -90,10 +121,13 @@ export const snake = {
 
   drawProjectile: drawSnakeProjectile,
 
-  // 隊伍名單下面：巨蟒的血量
+  // 隊伍名單下面：巨蟒的血量、現在輪到的人被纏住的話他要連打幾下
   hud(c) {
     const s = c.match.byId('snake');
-    return [[`叢林巨蟒 ${s.hp} / ${s.maxHp}`, '#fca5a5']];
+    const lines = [[`叢林巨蟒 ${s.hp} / ${s.maxHp}`, '#fca5a5']];
+    const bound = boundHudLine(c, c.match.mechState, CONFIG.SNAKE_BOSS.marks.need);
+    if (bound) lines.push(bound);
+    return lines;
   },
 };
 
@@ -114,7 +148,7 @@ function* snakeStepScript(c, b) {
   const match = c.match;
   const def = match.mechState ? match.mechState.def : null;
   const fx = c.state.fx = { action: b.action, t: 0, phase: 'cast', targetId: b.targetId ?? null };
-  const cast = Math.round(CONFIG.TIMING.bossCast * FPS);
+  const cast = Math.round((b.cast ?? CONFIG.TIMING.bossCast) * FPS);   // 招式自己帶 cast（指名）就照它，跟伺服器等的一樣久
   const name = SNAKE_ACTION_NAMES[b.action] || '';
   const target = b.targetId ? match.byId(b.targetId) : null;
   if (b.action === 'idle') c.fx.banner(SNAKE_ACTION_NAMES.idle, '#d9f99d');
@@ -128,6 +162,10 @@ function* snakeStepScript(c, b) {
       const o = def.mouth;
       c.fx.particle({ x: o.x + Math.cos(a) * r, y: o.y + Math.sin(a) * r, vx: -Math.cos(a) * r * 2.2, vy: -Math.sin(a) * r * 2.2, life: 0.4, maxLife: 0.4, size: 3, color: Math.random() < 0.5 ? '#a855f7' : '#86efac', gravity: 0 });
     }
+    if (b.action === 'mark' && def && i % 10 === 0) {   // 指名：吐信探路（蛇信一伸一縮，嘴邊冒一點綠光；菁英之路也一樣：不指出是誰）
+      c.fx.particles(def.mouth.x - 14, def.mouth.y + 6, 3, { speed: 90, life: 0.3, size: 2, color: '#f87171', gravity: 0 });
+      if (i === 0) c.fx.sound('snare', { x: def.mouth.x, vol: 0.4 });
+    }
     if (b.action === 'quake' && i === slam) {   // 頭砸進水裡：大水花、整個畫面震
       c.fx.shake(16);
       for (let x = 620; x <= 1000; x += 60) c.fx.splash(x);
@@ -137,12 +175,172 @@ function* snakeStepScript(c, b) {
   }
   fx.phase = 'act';
   if (b.action === 'quake') c.fx.shake(10);
+  if (b.action === 'mark' && match.mechState && match.mechState.marks) {   // 播完才換上：被指名的人腳下的標記
+    (b.targetIds || []).forEach((id, i) => { match.mechState.marks[id] = (b.kinds || [])[i] || 'strike'; });
+  }
   if (b.shot) {
     yield* c.shotScript(b.shot);
   } else if (b.still) {
     yield { until: () => match.isSettled(), max: b.still.settleFrames + 60 };
     match.applyEntities(b.still.results);
     yield { frames: CONFIG.TIMING.settleDelay * FPS * 0.5 };
+  }
+}
+
+// ---------- 指名的兩招 ----------
+
+// 伺服器說發動了（hazard 的 fired；範圍的記帳、纏住在 marks-draw.js）：突咬 = 嘴邊一道綠光、咬到的人噴血；纏身 = 水花、蛇身翻上來
+function showSnakeFired(c, f) {
+  if (f.kind === 'strike') {
+    c.fx.sound('crack', { x: f.x1, vol: 0.7 });
+    c.fx.shake(f.hit ? 7 : 3);
+    c.fx.particles(f.x0, f.y0, 10, { speed: 160, life: 0.35, size: 2.4, color: '#bbf7d0', gravity: 0 });
+    if (f.hit) c.fx.particles(f.x1, f.y1, 10, { speed: 140, life: 0.45, size: 2.6, color: POISON, gravity: 200 });
+    return;
+  }
+  c.fx.splash(f.x);
+  c.fx.sound('snare', { x: f.x, vol: 0.8 });
+  c.fx.particles(f.x, CONFIG.WATER_LEVEL - 6, 14, { speed: 160, life: 0.6, size: 3, color: '#4d7c0f', gravity: 500 });
+  const e = f.hit ? c.match.byId(f.id) : null;
+  if (e) c.fx.float(e, `被${SNAKE_MARK_NAMES.coil.slice(0, 2)}了！`, '#bef264', 15);
+}
+
+// 這回合的那一招：突咬 = 預警線（嘴 → 他再往前一點，越接近發動閃得越快）；纏身 = 他腳下水面冒泡、黑影游過來、那一條淡淡的框，
+// 發動後蛇身從水裡翻上來（纏到了就交給 drawConstricted，沒纏到就縮回水裡）
+function drawSnakeZones(ctx, c) {
+  const snake = c.match.byId('snake');
+  if (!snake || !snake.alive) return;
+  const now = clockOf(c);
+  for (const z of c.state.zones) {
+    const k = clamp((now - z.at) / Math.max(0.1, z.delay || 1), 0, 1);
+    if (z.kind === 'strike') {
+      if (!z.fired) drawStrikeLine(ctx, z, k, now);
+      continue;
+    }
+    if (!z.fired) { drawCoilWarning(ctx, z, k, now); continue; }
+    const t = now - z.fired.at;
+    const h = t < RISE ? t / RISE
+      : z.fired.hit ? (t < RISE + 0.12 ? 1 : 0)
+        : t < RISE + COIL_HOLD ? 1 : 1 - clamp((t - RISE - COIL_HOLD) / SINK, 0, 1);
+    if (h > 0) drawRisingBody(ctx, z, h, now);
+  }
+}
+
+// 突咬的預警線：一條半透明的帶子（粗細 = 咬得到的寬度）+ 虛線中線 + 盡頭一個準星
+function drawStrikeLine(ctx, z, k, now) {
+  const pulse = 0.5 + 0.5 * Math.sin(now * (8 + k * 22));
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = `rgba(239,68,68,${0.12 + 0.16 * k * pulse})`;
+  ctx.lineWidth = z.r * 2;
+  ctx.beginPath(); ctx.moveTo(z.x0, z.y0); ctx.lineTo(z.x1, z.y1); ctx.stroke();
+  ctx.strokeStyle = `rgba(254,202,202,${0.55 + 0.35 * pulse})`;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([10, 8]);
+  ctx.lineDashOffset = now * 40;
+  ctx.beginPath(); ctx.moveTo(z.x0, z.y0); ctx.lineTo(z.x1, z.y1); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.arc(z.x1, z.y1, 7 + 3 * pulse, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+
+// 纏身的預兆（2026-11-09 使用者：要再明顯一點）：整條範圍（腳底往上 coilH 到水面）一條閃動的綠色帶子 + 跑動的虛線框，越接近發動閃得越快；
+// 腳下一圈圈往內縮的圈（像要被纏住）；蛇身的黑影從水裡慢慢往上冒（發動前冒到範圍的一半）；範圍右邊腰的高度一個上下浮動的「！」（不蓋到名字、血條）；水面冒泡
+function drawCoilWarning(ctx, z, k, now) {
+  const W = CONFIG.WATER_LEVEL;
+  const pulse = 0.5 + 0.5 * Math.sin(now * (8 + k * 22));
+  const x0 = z.x - z.w / 2;
+  ctx.save();
+  ctx.fillStyle = `rgba(132,204,22,${0.16 + 0.2 * k * pulse})`;
+  ctx.fillRect(x0, z.top, z.w, W - z.top);
+  ctx.strokeStyle = `rgba(217,249,157,${0.65 + 0.35 * pulse})`;
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([9, 6]);
+  ctx.lineDashOffset = -now * 30;
+  ctx.strokeRect(x0, z.top, z.w, W - z.top);
+  ctx.setLineDash([]);
+  // 腳下一圈圈往內縮的圈
+  ctx.lineWidth = 3;
+  for (let i = 0; i < 3; i++) {
+    const ph = (now * 1.3 + i / 3) % 1;
+    ctx.strokeStyle = `rgba(190,242,100,${(1 - ph) * (0.45 + 0.5 * k)})`;
+    ctx.beginPath(); ctx.ellipse(z.x, z.y - 2, (z.w / 2 + 16) * (1 - ph * 0.65), 7 * (1 - ph * 0.5), 0, 0, Math.PI * 2); ctx.stroke();
+  }
+  // 蛇身的黑影從水裡往上冒
+  const rise = (W - z.top) * 0.5 * k;
+  if (rise > 2) {
+    const sway = Math.sin(now * 7) * 5;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = `rgba(20,40,10,${0.35 + 0.3 * k})`;
+    ctx.lineWidth = 18;
+    ctx.beginPath();
+    ctx.moveTo(z.x - 18, W + 12);
+    ctx.quadraticCurveTo(z.x + 16 + sway, W - rise * 0.55, z.x + sway * 0.4, W - rise);
+    ctx.stroke();
+  }
+  // 範圍右邊一個「！」
+  const ix = z.x + z.w / 2 + 12, iy = z.y - 16 + Math.sin(now * 6) * 2;   // 腰的高度（名字、血條在頭上，不蓋到）
+  ctx.fillStyle = `rgba(132,204,22,${0.75 + 0.25 * pulse})`;
+  ctx.beginPath(); ctx.arc(ix, iy, 11, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#1a2e05';
+  ctx.font = 'bold 16px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('!', ix, iy + 1);
+  // 水面冒泡
+  ctx.fillStyle = 'rgba(220,252,231,0.8)';
+  for (let i = 0; i < 6; i++) {
+    const ph = (now * 1.6 + i * 0.37) % 1;
+    const bx = z.x + (i - 2.5) * 9 + Math.sin(now * 4 + i) * 3;
+    ctx.beginPath(); ctx.arc(bx, W - 2 - ph * 18 * (0.4 + k), 1.5 + 2.5 * k * (1 - ph), 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// 蛇身從水裡翻上來（h = 0 ~ 1 伸出來的比例）：一段粗粗的 S 形身體，背上有斑紋、肚子淡黃
+function drawRisingBody(ctx, z, h, now) {
+  const W = CONFIG.WATER_LEVEL;
+  const top = W - (W - z.top + 10) * h;
+  const sway = Math.sin(now * 10) * 6;
+  ctx.save();
+  ctx.lineCap = 'round';
+  const path = () => {
+    ctx.beginPath();
+    ctx.moveTo(z.x - 26, W + 10);
+    ctx.bezierCurveTo(z.x - 34, W - (W - top) * 0.45, z.x + 28 + sway, W - (W - top) * 0.6, z.x + sway * 0.5, top);
+  };
+  ctx.strokeStyle = SCALE_DARK; ctx.lineWidth = 24; path(); ctx.stroke();
+  ctx.strokeStyle = SCALE; ctx.lineWidth = 19; path(); ctx.stroke();
+  ctx.strokeStyle = BLOTCH; ctx.lineWidth = 8; ctx.setLineDash([10, 14]); path(); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+// 被纏住的人：身上繞著三圈蛇身（越勒越緊：這回合勒越多下抖得越兇），一段身體從腳邊垂到水裡
+function drawConstricted(ctx, c) {
+  const S = c.match.mechState;
+  if (!S || !S.bound) return;
+  for (const [pid, rec] of Object.entries(S.bound)) {
+    const p = c.match.byId(pid);
+    if (!p || !p.alive) continue;
+    const shake = Math.sin(c.time * 34) * Math.min(2.5, 0.6 + (rec.n || 0) * 0.4);
+    ctx.save();
+    ctx.translate(p.x + shake, p.y);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = SCALE_DARK; ctx.lineWidth = 9;
+    ctx.beginPath(); ctx.moveTo(-p.hw - 6, -4); ctx.quadraticCurveTo(-p.hw - 18, 20, -p.hw - 10, CONFIG.WATER_LEVEL - p.y + 10); ctx.stroke();
+    ctx.strokeStyle = SCALE; ctx.lineWidth = 6;
+    ctx.stroke();
+    for (const [y, rx] of [[-5, p.hw + 6], [-14, p.hw + 5], [-23, p.hw + 4]]) {
+      ctx.strokeStyle = SCALE_DARK; ctx.lineWidth = 8;
+      ctx.beginPath(); ctx.ellipse(0, y, rx, 4.5, -0.15, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = SCALE; ctx.lineWidth = 5;
+      ctx.stroke();
+      ctx.strokeStyle = BLOTCH; ctx.lineWidth = 2; ctx.setLineDash([4, 6]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
   }
 }
 
@@ -196,6 +394,11 @@ function drawSnakeScene(ctx, c) {
   drawCanopy(ctx);
   match.terrain.vines.forEach((v, i) => drawVine(ctx, v, i, c.time));
   for (const it of match.mechState.items) drawItem(ctx, c, it);
+  // 指名：被指名的人腳下的標記（菁英之路不畫）、這回合的突咬預警線 / 纏身的水影、發動的蛇身、被纏住的人、自己被纏住時的提示
+  drawMarkSigils(ctx, c, match.mechState, (kind) => (kind === 'coil' ? { ring: '#86efac', dot: SCALE, spiky: false } : { ring: '#fca5a5', dot: '#7f1d1d', spiky: true }));
+  drawSnakeZones(ctx, c);
+  drawConstricted(ctx, c);
+  drawEscapeHint(ctx, c, match.mechState, CONFIG.SNAKE_BOSS.marks.need, '#bef264');
 
   const snake = match.byId('snake');
   const next = match.mechState.next;
@@ -337,9 +540,26 @@ function headOffset(c, e) {
     h.t = c.time;   // 計時也要跟著走：飛行物一消失，下面才是從這一刻慢慢縮回原位（不然整段衝刺都算進去，一幀就彈回去）
     return h;
   }
+  // 蓄勢突咬：等著發動的時候頭往後縮、抬起來抖（蓄力）；發動那一下沿預警線彈出去（之後照一般的慢慢縮回原位）
+  const strike = e.alive ? c.state.zones.find(z => z.kind === 'strike') : null;
+  if (strike && strike.fired) {
+    const t = clockOf(c) - strike.fired.at;
+    if (t < LUNGE + BITE_HOLD) {
+      const k = Math.min(1, t / LUNGE);
+      h.dx = (strike.x1 - strike.x0) * k;
+      h.dy = (strike.y1 - strike.y0) * k;
+      h.t = c.time;
+      return h;
+    }
+  }
   const fx = c.state.fx;
   let tx = 0, ty = Math.sin(c.time * 1.6) * 3;
   if (!e.alive) ty = Math.min(160, e.deathTimer * 120);
+  else if (strike && !strike.fired) {
+    const k = clamp((clockOf(c) - strike.at) / Math.max(0.1, strike.delay || 1), 0, 1);
+    tx = 40 * Math.min(1, k * 2);
+    ty = -22 * Math.min(1, k * 2) + Math.sin(c.time * (20 + k * 30)) * (1 + k * 2);
+  }
   else if (fx && fx.phase === 'cast') {
     const k = clamp(fx.t / CONFIG.TIMING.bossCast, 0, 1);
     if (fx.action === 'charge') { tx = 46 * Math.min(1, k * 2.5); ty = 8 + Math.sin(fx.t * 40) * 2; }

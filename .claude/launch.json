@@ -10,6 +10,55 @@
       "port": 8123
     },
     {
+      "name": "tree-test",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "server/server.js"
+      ],
+      "env": {
+        "PORT": "8128",
+        "SH_TEST_LEVEL": "treeGarden"
+      },
+      "port": 8128
+    },
+    {
+      "name": "snake-test",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "server/server.js"
+      ],
+      "env": {
+        "PORT": "8129",
+        "SH_TEST_LEVEL": "jungleSerpent"
+      },
+      "port": 8129
+    },
+    {
+      "name": "ranger-test",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "server/server.js"
+      ],
+      "env": {
+        "PORT": "8130",
+        "SH_TEST_LEVEL": "forestRanger",
+        "SH_TEST_STAGE": "3"
+      },
+      "port": 8130
+    },
+    {
+      "name": "gaia-test",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "server/server.js"
+      ],
+      "env": {
+        "PORT": "8131",
+        "SH_TEST_LEVEL": "gaiaSanctum"
+      },
+      "port": 8131
+    },
+    {
       "name": "shooting-hero-8124",
       "runtimeExecutable": "node",
       "runtimeArgs": [

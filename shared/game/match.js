@@ -15,7 +15,10 @@ import * as Effects from '../cards/effects/index.js';
 import { stageRules } from './stage-rules.js';
 
 // 關卡 enemySpawns 的 type → config 裡的數值區塊（沒寫 type = 一般敵人 CONFIG.ENEMY）
-const ENEMY_TYPES = { sniper: 'SNIPER', artillery: 'ARTILLERY', bat: 'BAT' };
+const ENEMY_TYPES ={ sniper: 'SNIPER', artillery: 'ARTILLERY', bat: 'BAT' };
+// 伺服器把人移走之後（Match.relocate），位置回報要回到新位置這麼近（px）才收：他的畫面收到之後才會從那裡送，
+// 送出去之前走了一小段（回報最多 1/moveSendHz 秒一次）也要收得下
+const FENCE_R = 120;
 // 敵人種類的名字（type: 'random' 隨機抽到種類時，名字 = 這個 + 關卡給的 tag，例如「砲兵 B」）
 export const ENEMY_LABELS = { normal: '敵人', sniper: '狙擊手', artillery: '砲兵', bat: '蝙蝠' };
 
@@ -48,6 +51,7 @@ export class Match {
     // 客戶端照 turn 訊息 / 快照設）。這個回合射出去的飛行物照它偏（resolveVolley 設在飛行物上；預覽、AI 試射照 world.wind）
     this.windMax = windMaxOf(this.level);
     this.wind = 0;
+    this.sinceBoss = 0;   // 插話的王上一次行動之後過了幾個玩家回合（見 interjectBefore；只有伺服器在用）
 
     // 勝者為王（3v3 對戰，關卡的 pool 'versus'）：玩家分兩隊（players[i].team，照 CONFIG.VERSUS.teams 的順序：第一隊在左邊、第二隊在右邊），
     // 從 teamSpawns 照隊裡的順序出生、面向場中央、顏色照隊伍（players[i].color）；沒有敵人。陣列順序（= 回合順序）照 players 給的
@@ -142,6 +146,42 @@ export class Match {
     return null;
   }
 
+  // ---- 插話行動（地圖機制的 interjector / interject，2026-11-09 古樹）----
+  // 人多的時候王要等很久才輪到一次：連續 CONFIG.INTERJECT.after 位玩家的回合之後，下一位又是玩家的話，王先插進來行動一次（不算王的回合：
+  // 沒有回合開始 / 結束的效果，燃燒、中毒、地圖機制的回合計數都不動）。所以 1 ~ 2 人永遠不會插話，3 ~ 4 人在第 2 位之後插一次。
+  // sinceBoss = 王上一次行動（自己的回合或插話）之後過了幾個玩家回合（Match.beginTurn 數、插話與王的回合歸零；只有伺服器在用）
+
+  // 現在要輪到 next：王要不要先插話（回傳插話的王，不插 = null）
+  interjectBefore(next) {
+    const boss = this.mechanic.interjector(this);
+    if (!boss || !boss.alive || !next || !next.isPlayer || this.sinceBoss < CONFIG.INTERJECT.after) return null;
+    return boss;
+  }
+
+  // 王插話：歸零計數，交給地圖機制出招（afterId = 剛結束回合的那位玩家；回傳 { steps, next } 跟王的回合同格式，沒事做 = null）
+  resolveInterject(boss, afterId) {
+    this.sinceBoss = 0;
+    return this.mechanic.interject(this, boss, afterId);
+  }
+
+  // 從 afterId 之後、到插話的王下一次行動（他自己的回合或插話）之前，會輪到的玩家（照回合順序、活著的）。
+  // 規則跟真的回合流程一樣（連續 CONFIG.INTERJECT.after 位玩家之後、下一位又是玩家 = 王會插話），只是不改任何狀態。
+  // 王出招時用它挑「下一組」（例如古樹的指名：被指名的人一定在中招之前輪得到自己的回合）
+  upcomingPlayers(afterId) {
+    const boss = this.mechanic.interjector(this);
+    const n = this.entities.length;
+    const start = this.entities.findIndex(e => e.id === afterId);
+    const out = [];
+    for (let i = 1; i <= n; i++) {
+      const e = this.entities[(start + i + n) % n];
+      if (e === boss) break;
+      if (!e.alive || e.noTurn || !e.isPlayer) continue;
+      if (boss && out.length >= CONFIG.INTERJECT.after) break;   // 王會在這裡插話
+      out.push(e);
+    }
+    return out;
+  }
+
   step(dt = CONFIG.FIXED_DT) {
     for (const e of this.entities) e.update(dt, this.world);
   }
@@ -214,6 +254,11 @@ export class Match {
     const rejected = { ok: false, water: null, pickup: null, ...bleed };
     if (!Number.isFinite(x) || !Number.isFinite(y)) return rejected;
     if (x < e.hw || x > this.terrain.maxX - e.hw || y < 0 || y > CONFIG.WORLD_H) return rejected;
+    // 伺服器剛把他移走（relocate）：他的畫面收到之前送來的舊位置不收（不然會把他拉回去），回報回到新位置附近才解除
+    if (e.fence) {
+      if (Math.hypot(x - e.fence.x, y - e.fence.y) > FENCE_R) return { ...rejected, fenced: true };
+      e.fence = null;
+    }
     if (Math.hypot(x - e.x, y - e.y) > 400) return rejected;   // 不准瞬移
     let ny = y;
     // 在水裡的回報不檢查卡進地形：沿著斜的崖壁掉下去時身體會擦進牆裡一點（直落只檢查腳下），反正馬上就回到岸上
@@ -276,8 +321,10 @@ export class Match {
 
   // ---- 回合開始 / 結束（裁判呼叫） ----
 
-  // 輪到 e：體力回滿、自己的回合數 +1
+  // 輪到 e：體力回滿、自己的回合數 +1；插話的計數（玩家的回合 +1、插話的王自己的回合歸零，見 interjectBefore）
   beginTurn(e) {
+    if (e.isPlayer) this.sinceBoss++;
+    else if (e === this.mechanic.interjector(this)) this.sinceBoss = 0;
     e.stamina = e.maxStamina;
     e.moveDir = 0;
     e.vineDir = 0;
@@ -285,6 +332,17 @@ export class Match {
     e.turnCount++;
     e.movedThisTurn = 0;
     e.bledThisTurn = 0;
+    e.fence = null;
+  }
+
+  /**
+   * 伺服器把 e 移到 (x, y)（腳底；地圖機制在回合中途移動玩家，例如蓋亞的大地之手把被抓到的人丟到別的斜坡）：
+   * 停下來、放開藤蔓、重生點也改這裡；e.fence 擋掉他的畫面還沒收到之前送來的舊位置回報（見 applyPositionReport）。
+   * 客戶端照 hazard 訊息的 moved 套（GameView.onHazard）
+   */
+  relocate(e, x, y) {
+    Object.assign(e, { x, y, vx: 0, vy: 0, slide: 0, onVine: -1, moveDir: 0, wantJump: false, fence: { x, y } });
+    if (e.canStandAt(this.terrain, x, y)) { e.safeX = x; e.safeY = y; }
   }
 
   // 輪到 e 之後、開始計時之前（裁判呼叫）：有效果要出手（例如無差別轟炸）就回傳一個函式，
@@ -295,13 +353,14 @@ export class Match {
 
   // 回合中即時移動 / 倒數、碰到人就打的東西（地圖機制的 hazard*，例如流浪劍士的劍氣在玩家回合裡慢慢飛過整排）。
   // 裁判呼叫，now = 裁判的時鐘（ms）：hazardStart = 玩家的回合開始時（回傳給客戶端的資料或 null）、
-  // hazardStep = 回合中每隔一小段時間（推進、打碰到的人；flush = 回合要收尾了，還沒到時間的現在就結算）、
+  // hazardStep = 回合中每隔一小段時間（推進、打碰到的人；flush = 回合要收尾了，還沒到時間的現在就結算；
+  // active = 行動的人還在操作（還沒開火、開火結算 / AI 代打播放的時候是 false）、
   // hazardFinish = 回合收尾時還在動的話，一口氣結算剩下那段的函式
   hazardStart(e, now) {
     return this.mechanic.hazardStart(this, e, now);
   }
-  hazardStep(now, flush = false) {
-    return this.mechanic.hazardStep(this, now, flush);
+  hazardStep(now, flush = false, active = true) {
+    return this.mechanic.hazardStep(this, now, flush, active);
   }
   hazardFinish() {
     return this.mechanic.hazardFinish(this);

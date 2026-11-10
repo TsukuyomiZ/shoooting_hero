@@ -1,7 +1,13 @@
 import { CONFIG } from '../core/config.js';
 import { Entity } from '../physics/entities.js';
+import { clamp } from '../core/utils.js';
 import { weightedPick, bossProjectile, bossShot, stillResult } from './mechanics/common.js';
 import { standY } from './guardian.js';
+import {
+  freshMarks, markStep as markStepOf, syncMarks, marksHazardStart, marksHazardStep, marksSnapshot, restoreMarks, perPlayer, hitOn,
+} from './marks.js';
+
+const r1 = (v) => Math.round(v * 10) / 10;
 
 // 主題王「大地祭壇」的大地之母・蓋亞（莫利亞森林第 11 關；伺服器與客戶端共用：出招只在伺服器算，客戶端照廣播播動畫）。
 // Match 什麼時候呼叫這些，見地圖機制 shared/maps/mechanics/gaia.js。數字見 config.GAIA / WEAPONS.gaiaCrush / gaiaSmite / gaiaStack。
@@ -10,7 +16,8 @@ import { standY } from './guardian.js';
 //   fog（瘴氣在不在）、nextFog（第幾輪她的回合要放下一次瘴氣）、orbs / need（祭壇收了幾顆光球 / 要收幾顆）、
 //   flowers（場上的自然之花 [{ id, slope: 開在第幾道斜坡（0 ~ 5，見關卡的 slopes）, x, y: 腳底 = 斜坡表面 }]）、
 //   stunned（祭壇淨化了：她下一回合暈眩、什麼都不做）、rage（暴走了沒）、lightAt（暴走後第幾輪她的回合放最後之光；沒暴走 = null）、
-//   light（最後之光進行中 { at: 放的那一輪, need: 要收幾朵, got: 收了幾朵, shield: 祭壇的護盾張開了沒, withered: 花枯萎了沒 }，沒有 = null）、seq（流水號）
+//   light（最後之光進行中 { at: 放的那一輪, need: 要收幾朵, got: 收了幾朵, shield: 祭壇的護盾張開了沒, withered: 花枯萎了沒 }，沒有 = null）、seq（流水號）、
+//   marks / bound / zone / tick（指名，見 shared/maps/marks.js；蓋亞的兩招都不綁人，bound 一直是空的）
 //
 // 2026-11-04 使用者定的規則（U）與我補的詮釋：
 // - 一輪裡玩家先、蓋亞最後（她排在角色陣列最後）。「她的第 N 回合」= 第 N 輪（match.round）。客戶端不跑 roundStart：畫面要的都在狀態裡
@@ -39,6 +46,9 @@ import { standY } from './guardian.js';
 //   第 L+2 輪她的回合還沒收齊 → 剩下的花「因為自然的力量枯萎了」。第 L+3 輪玩家回到祭壇，她的回合誅滅：
 //   不在護盾裡的人直接死亡（不吃無敵、減傷、免疫，剩下的血全算承受傷害；沒有護盾 = 全滅），在裡面的中毒層數歸零（U 方案 A）。
 //   之後再數 lightEvery 輪。最後之光那幾回合（她的第 L ~ L+3 回合）不放捏碎（U）
+// - 指名 / 插話行動（2026-11-10 U 選的兩招：大地・脈動、大地之手・攫取；規則見檔案後面「指名 / 插話」與 config.GAIA.marks）：
+//   她每個回合（暈眩那一回合除外）的最後指名下一組；3 人以上連續 2 位玩家之後插話。暴走、最後之光照樣（U）。
+//   祭壇淨化：還沒輪到的指名取消、暈眩完之前不插話（我補的）
 
 export const GAIA_ID = 'gaia';
 export const GAIA_NAME = '大地之母・蓋亞';
@@ -55,6 +65,7 @@ export const GAIA_ACTION_NAMES = {
   smite: '神掌・天罰',
   stack: '巨拳・同罰',
   cleanse: '自然・淨化',
+  mark: '大地的注視',
   idle: '沉睡',
 };
 
@@ -79,7 +90,7 @@ export function buildGaia(match, { bossScale }) {
   match.entities.push(g);
   const S = {
     def, hpScale: bossScale, next: null, fog: false, nextFog: 1, orbs: 0, need: 0, flowers: [], stunned: false,
-    rage: false, lightAt: null, light: null, seq: 0,
+    rage: false, lightAt: null, light: null, seq: 0, ...freshMarks(),
   };
   g.hpFloor = floorHp(g, S);
   return S;
@@ -230,6 +241,7 @@ function purify(match) {
   S.orbs = 0;
   S.need = 0;
   S.stunned = true;
+  S.marks = {};   // 還沒輪到的指名一起取消（我補的；正在冒的那一招照樣發動）
   const cured = [], heals = [];
   for (const e of match.players) {
     if (!e.alive) continue;
@@ -260,7 +272,7 @@ export function applyGaiaPickup(match, msg) {
   S.orbs = msg.orbs | 0;
   S.need = msg.need | 0;
   if (!msg.purify) return;
-  Object.assign(S, { fog: false, flowers: [], orbs: 0, need: 0, stunned: true });
+  Object.assign(S, { fog: false, flowers: [], orbs: 0, need: 0, stunned: true, marks: {} });
   for (const p of match.players) if (p.alive) p.poison = 0;
   for (const h of msg.heals || []) {
     const p = match.byId(h.id);
@@ -375,10 +387,14 @@ export function resolveGaiaTurn(match, g) {
   return finish(match, steps, true);
 }
 
-// 收尾：抽下一招（暈眩的那一回合不抽：預定的照舊留著）
+// 收尾：抽下一招，最後指名下一組（暈眩的那一回合都不做：預定的照舊留著）
 function finish(match, steps, replan) {
   const S = gaiaState(match);
-  if (replan) planGaiaNext(match);
+  if (replan) {
+    planGaiaNext(match);
+    const mark = gaiaMarkStep(match, GAIA_ID);
+    if (mark) steps.push(mark);
+  }
   return { steps, next: S.next ? { ...S.next } : null, state: gaiaSnapshot(match).gaia };
 }
 
@@ -574,6 +590,106 @@ function cleanseStep(match, e) {
   return done(match, { action: 'cleanse', cleared, heal, hp: e.hp, cast: CONFIG.GAIA.cast.cleanse, still: stillResult(match) });
 }
 
+// ---------- 指名 / 插話（2026-11-10，通用的流程在 shared/maps/marks.js；數字見 config.GAIA.marks）----------
+
+/**
+ * 場上踩得住的每一片：六道斜坡（surf 0 ~ 5，關卡的 slopes）、中間三層平台（surf 6 ~ 8，關卡的 tiers）。
+ * 每片 { surf, x0, y0, x1, y1 }（平台 y0 = y1），表面高度照 slopeY
+ */
+export function surfacesOf(def) {
+  const n = def.slopes.length;
+  return [
+    ...def.slopes.map((s, i) => ({ surf: i, x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1 })),
+    ...def.tiers.map((t, i) => ({ surf: n + i, x0: t.x0, y0: t.y, x1: t.x1, y1: t.y })),
+  ];
+}
+
+/** 腳底踩在 s 那一片上（左右在那一片的範圍裡、腳底離表面 tol 以內）。p 只用 x / y / hw */
+export function footOn(s, p, tol = CONFIG.GAIA.marks.footTol) {
+  const lo = Math.min(s.x0, s.x1), hi = Math.max(s.x0, s.x1);
+  if (p.x < lo - p.hw || p.x > hi + p.hw) return false;
+  return Math.abs(p.y - slopeY(s, clamp(p.x, lo, hi))) <= tol;
+}
+
+/** p 現在腳下是哪一片（踩著的；都沒踩著就找正下方最近的那一片）；都沒有 = null */
+function surfaceUnder(def, p) {
+  const all = surfacesOf(def);
+  const on = all.filter(s => footOn(s, p)).sort((a, b) => Math.abs(p.y - slopeY(a, p.x)) - Math.abs(p.y - slopeY(b, p.x)))[0];
+  if (on) return on;
+  let best = null, gap = Infinity;
+  for (const s of all) {
+    if (p.x < Math.min(s.x0, s.x1) || p.x > Math.max(s.x0, s.x1)) continue;
+    const d = slopeY(s, p.x) - p.y;
+    if (d >= -CONFIG.GAIA.marks.footTol && d < gap) { best = s; gap = d; }
+  }
+  return best;
+}
+
+/**
+ * 大地之手要把 p 丟到哪裡：隨機另一道斜坡（不是他回合開始時踩的那一道；站在平台上 = 六道都可以），
+ * x 在那一道的 20% ~ 80% 之間（同開花的範圍），腳底照那裡站得住的高度。回傳 { x, y, slope }
+ */
+function throwSpot(match, def, p, from) {
+  const choices = def.slopes.map((s, i) => i).filter(i => !from || i !== from.surf);
+  const k = match.rng.pick(choices);
+  const s = def.slopes[k];
+  const t = FLOWER_SPAN[0] + (FLOWER_SPAN[1] - FLOWER_SPAN[0]) * match.rng.float();
+  const x = Math.round(s.x0 + (s.x1 - s.x0) * t);
+  const y = standY(match, p, x, slopeY(s, x) - 1) ?? Math.round(slopeY(s, x)) - 1;
+  return { x, y, slope: k };
+}
+
+/** 石頭手抓不抓得到 p：左右重疊、腳底沒高過手、身體沒在它底下（同古樹尖刺的判定） */
+export function inHand(z, p) {
+  return Math.abs(p.x - z.x) < z.w / 2 + p.hw && p.y > z.y - z.h && p.y - p.h < z.y + 6;
+}
+
+/**
+ * 蓋亞的指名（spec 的欄位見 marks.js）：
+ *   quake 大地・脈動：範圍 = 回合開始時腳下那一片 { surf, x0, y0, x1, y1 }（找不到 surf = -1，打不到人）；
+ *                     發動那一刻腳還踩在那一片上（站得住、離表面 footTol 以內）就中
+ *   grab 大地之手・攫取：範圍 = 回合開始時腳底那一塊 { x, y, w, h }，丟到哪裡回合開始就抽好（tx, ty, ts = 第幾道斜坡，客戶端中了才畫）
+ */
+export const GAIA_MARKS = {
+  state: gaiaState,
+  boss: (match) => gaiaOf(match),
+  config: () => CONFIG.GAIA.marks,
+  zone: (match, e, kind) => {
+    const S = gaiaState(match);
+    const M = CONFIG.GAIA.marks;
+    const under = surfaceUnder(S.def, e);
+    if (kind === 'quake') return under ? { ...under } : { surf: -1, x0: r1(e.x), y0: r1(e.y), x1: r1(e.x), y1: r1(e.y) };
+    const to = throwSpot(match, S.def, e, under);
+    return { x: r1(e.x), y: r1(e.y), w: M.zoneW, h: M.grabH, tx: to.x, ty: r1(to.y), ts: to.slope };
+  },
+  hits: (z, p, match) => (z.kind === 'quake'
+    ? z.surf >= 0 && footOn(z, p) && p.standing(match.terrain, p.x, p.y)
+    : inHand(z, p)),
+  binds: () => false,
+  strike: (match, z, p, boss) => hitOn(match, p, perPlayer(match, z.kind === 'quake' ? CONFIG.WEAPONS.gaiaQuake : CONFIG.WEAPONS.gaiaGrab), boss),
+  squeeze: () => [],
+  moveTo: (match, z) => (z.kind === 'grab' ? { x: z.tx, y: z.ty } : null),
+};
+
+export const GAIA_MARK_NAMES = { quake: '大地・脈動', grab: '大地之手・攫取' };
+
+// 指名下一組（見 marks.js 的 markStep）：回傳 { action: 'mark', targetIds, kinds, cast, still }，沒有人可以指名 = null
+export const gaiaMarkStep = (match, afterId) => markStepOf(match, GAIA_MARKS, afterId);
+export const syncGaiaMarks = (match) => syncMarks(match, GAIA_MARKS);
+export const gaiaHazardStart = (match, e, now) => marksHazardStart(match, GAIA_MARKS, e, now);
+export const gaiaHazardStep = (match, now, flush = false, active = true) => marksHazardStep(match, GAIA_MARKS, now, flush, active);
+
+/**
+ * 插話行動（3 人以上，連續 2 位玩家之後；見 Match.interjectBefore）：指名剩下還沒輪到的人。
+ * 祭壇淨化讓她暈眩、還沒輪到她（S.stunned）就不插話（我補的：「一輪不能行動」連插話也算）。沒有人可以指名 = null（裁判直接換下一位）
+ */
+export function resolveGaiaInterject(match, g, afterId) {
+  const S = gaiaState(match);
+  if (!S || S.stunned || !g || !g.alive) return null;
+  const mark = gaiaMarkStep(match, afterId);
+  return mark ? { steps: [mark], next: S.next ? { ...S.next } : null } : null;
+}
+
 // ---------- 快照 ----------
 
 export function gaiaSnapshot(match) {
@@ -582,7 +698,7 @@ export function gaiaSnapshot(match) {
     gaia: {
       next: S.next ? { ...S.next } : null, fog: S.fog, nextFog: S.nextFog, orbs: S.orbs, need: S.need,
       flowers: S.flowers.map(f => ({ ...f })), stunned: S.stunned, rage: S.rage, lightAt: S.lightAt,
-      light: S.light ? { ...S.light } : null, seq: S.seq,
+      light: S.light ? { ...S.light } : null, seq: S.seq, marks: marksSnapshot(S).marks,
     },
   };
 }
@@ -597,6 +713,7 @@ export function restoreGaia(match, s) {
     flowers: (P.flowers || []).map(f => ({ ...f })), stunned: !!P.stunned, rage: !!P.rage,
     lightAt: Number.isFinite(P.lightAt) ? P.lightAt : null, light: P.light ? { ...P.light } : null, seq: P.seq | 0,
   });
+  restoreMarks(match, GAIA_MARKS, P.marks, undefined);   // 指名（沒帶 = 不動；蓋亞不綁人）
   const g = gaiaOf(match);
   if (g) g.hpFloor = floorHp(g, S);
 }

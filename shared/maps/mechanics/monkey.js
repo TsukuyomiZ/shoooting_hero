@@ -28,7 +28,7 @@ export const monkey = {
     return blastPeels(match, at);
   },
 
-  // 打中拿著砲彈的猴王：手上的砲彈在他身上炸開（他照一般的扣血）
+  // 打中拿著砲彈的猴王：手上的砲彈全部被打掉（不爆炸；他照一般的扣血）
   absorbHit(match, e, hit) {
     return hitMonkey(match, e, hit);
   },
@@ -38,7 +38,7 @@ export const monkey = {
     hurtMonkey(match, e);
   },
 
-  // 這一下手上的砲彈炸開 / 生氣：附在事件上，客戶端照著套（接住、炸掉香蕉皮在 passed / struck 就附上了）
+  // 這一下手上的砲彈被打掉 / 生氣：附在事件上，客戶端照著套（接住、炸掉香蕉皮在 passed / struck 就附上了）
   eventExtras(match) {
     return takeFx(match);
   },

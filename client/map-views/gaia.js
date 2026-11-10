@@ -1,8 +1,9 @@
 import { CONFIG } from '../../shared/core/config.js';
 import {
   GAIA_ID, GAIA_NAME, WITHER_TEXT, GAIA_ACTION_NAMES as N, FLOWER_R, FLOWER_LIFT, STACK_DROP, gaiaState, gaiaOf, zoneOf, flowerCenter, touchFlowers,
-  stackSharers, applyGaiaPickup, lightStatus, restoreGaia,
+  stackSharers, applyGaiaPickup, lightStatus, restoreGaia, GAIA_MARKS, GAIA_MARK_NAMES, slopeY,
 } from '../../shared/maps/gaia.js';
+import { clockOf, marksHazard, pruneZones, drawMarkSigils } from './marks-draw.js';
 
 // 主題王「大地祭壇」的地圖畫面：背景正上方大地之母・蓋亞的臉（打得到的那個角色；暴走時臉上裂開紅光、暈眩時眼睛轉圈）、
 // 左右兩隻飄在空中的巨大石手（照預定的下一招擺姿勢：捏碎 = 兩手平舉到中間那一欄的高度握拳、天罰 = 那一邊的手掌高舉攤平、
@@ -10,6 +11,9 @@ import {
 // 一般難度另外畫警示（紅色警示帶 / 同罰的集合圈：圈裡的人一起分擔）、
 // 瘴氣（整個畫面的紫色薄霧 + 飄散的紫色粉塵）、自然之花（金色發光的花）→ 撿到變成光球飛進祭壇、祭壇上的光球凹槽、
 // 祭壇淨化的金光、最後之光（大家被傳送到祭壇、開花、收齊張開金色護盾、枯萎的橫幅）、誅滅（全畫面的白金色光）、各招的動畫腳本。
+// 指名（2026-11-10，流程見 marks-draw.js）：她的眼睛射出綠光指名下一組（菁英之路不畫是誰）、被指名的人腳下的標記；
+// 輪到他時：大地・脈動 = 他站的那一片斜坡 / 平台整片發光、裂開、越震越兇，發動時隆起噴碎石（中了、還在操作就往上彈一下）；
+// 大地之手・攫取 = 腳下冒出石頭手指，發動時整隻手竄上來握住，抓到就變成石拳帶著他飛到另一道斜坡（飛的時候人先不畫）。
 // 規則在 shared/maps/gaia.js；掛勾的說明見 index.js
 const FPS = 60;
 const W = CONFIG.WORLD_W;
@@ -29,6 +33,13 @@ const COLOR = {
   crush: '#f87171', smite: '#fbbf24', stack: '#fb923c', cleanse: '#4ade80', rage: '#ef4444', light: '#fde68a', judgement: '#fef3c7', fog: '#c084fc', calm: '#a3e635',
 };
 const ALTAR_COLOR = { orb: '#fde047', light: '#fffbeb' };
+// 指名的兩招
+const QUAKE = '#f59e0b', QUAKE_DEEP = '#b45309', STONE = '#a8a29e', STONE_DARK = '#57534e', GAZE = '#a3e635';
+const HEAVE = 0.45;        // 脈動發動之後隆起、碎石往上噴幾秒
+const GRAB_UP = 0.14;      // 石頭手竄上來、握起來的秒數
+const SINK = 0.4;          // 抓空 / 抓完之後沉回地裡的秒數
+const THROW = 0.6;         // 被抓到的人變成石拳飛到另一道斜坡的秒數
+const ZONE_LIFE = 1.0;     // 發動之後範圍還畫幾秒（隆起、沉回去）
 
 // 手的姿勢（左手的座標；右手照畫面中線鏡像）：x / y = 手腕、rot = 手指往中間轉幾度（0 = 朝上）、curl = 握起來的程度、s = 大小、glow = 掌心的光
 const POSE = {
@@ -53,11 +64,15 @@ export const gaia = {
   //              predictedPurify = 自己先撿的那一下收滿祭壇、本地已經先淨化（自己回過血了，伺服器的 pickup 不再加一次）
   //   wilts      正在枯萎 / 消失的花 [{ x, y, t0 }]；purify = 祭壇淨化的光（{ t0, need }：光球飛到之前凹槽照收滿的畫）
   //   flash      全畫面的閃光 { t0, dur, rgb, a }（祭壇淨化的金光、誅滅的白光）
+  //   zones      被指名的人輪到時的那一招（marks-draw.js 記帳）[{ id, kind, ...範圍, at（clockOf）, delay, fired: null | { at, hit } }]
+  //   lastDir    （marks-draw.js 要的欄位；蓋亞不綁人，用不到）
+  //   throws     被大地之手丟出去、正在飛的人 [{ id, x0, y0, x1, y1, at（clockOf）, landed }]
   create: (match) => {
     const S = gaiaState(match);
     return {
       fx: null, hands: {}, fog: S && S.fog ? (S.rage ? 1 : 0.8) : 0, dome: S && S.light && S.light.shield ? 1 : 0,
       blooms: new Map(), orbs: [], predicted: new Set(), predictedPurify: false, wilts: [], purify: null, flash: null,
+      zones: [], lastDir: 0, throws: [],
     };
   },
 
@@ -117,9 +132,40 @@ export const gaia = {
     if (g && g.alive && S.rage && Math.random() < dt * 6) {
       c.fx.particle({ x: g.x + (Math.random() - 0.5) * g.hw * 1.6, y: g.y - Math.random() * g.h * 0.9, vx: (Math.random() - 0.5) * 20, vy: -30 - Math.random() * 30, life: 0.8, maxLife: 0.8, size: 1.8, color: Math.random() < 0.5 ? '#ef4444' : '#fca5a5', gravity: -20 });
     }
+    // 指名：還沒發動的那一招冒土、震動；被丟出去的人落地
+    pruneZones(c, ZONE_LIFE);
+    zoneRumble(c, dt);
+    const now = clockOf(c);
+    for (const t of s.throws) {
+      if (t.landed || now - t.at < THROW) continue;
+      t.landed = true;
+      c.fx.shake(6);
+      c.fx.sound('stomp', { x: t.x1, vol: 0.7 });
+      c.fx.particles(t.x1, t.y1 - 6, 16, { speed: 160, life: 0.6, size: 3, color: STONE, gravity: 600 });
+    }
+    s.throws = s.throws.filter(t => now - t.at < THROW + 0.05);
   },
 
-  // 她的血量停在 50%（等輪到她暴走）：多打的不算，飄「鎖血」（這一下還上了燃燒 / 中毒 / 流血的照一般的接著飄）
+  // 回合裡的事（指名的流程見 marks-draw.js）：被指名的人腳下那一片開始震 / 石頭手指冒出來、發動（隆起 / 握住）。
+  // 照順序套用的時候（early = false）：抓到的人 GameView 已經照 hazard 的 moved 移到另一道斜坡了 → 石拳帶著他飛過去；
+  // 脈動中了、是自己、發動時還在操作 → 往上彈一下（只有自己的畫面跑，伺服器照位置回報）
+  hazard(c, msg, early = false) {
+    marksHazard(c, GAIA_MARKS, msg, early, {
+      zone: (z) => zoneStart(c, z),
+      fired: (f) => showFired(c, f),
+    });
+    if (early || msg.start || msg.kind !== 'marks' || !msg.fired) return;
+    const f = msg.fired;
+    const now = clockOf(c);
+    for (const m of msg.moved || []) c.state.throws.push({ id: m.id, x0: f.x, y0: f.y - 24, x1: m.x, y1: m.y, at: now, landed: false });
+    const me = c.myId ? c.match.byId(c.myId) : null;
+    if (f.kind === 'quake' && f.hit && f.active && me && me.id === f.id && me.alive) {
+      me.vy = -CONFIG.GAIA.marks.bounce;
+      me.onGround = false;
+    }
+  },
+
+  // 她的血量停在暴走門檻（GAIA.ragePct，等輪到她暴走）：多打的不算，飄「鎖血」（這一下還上了燃燒 / 中毒 / 流血的照一般的接著飄）
   showDamage(c, e, d) {
     if (e.id !== GAIA_ID || d.dmg > 0 || d.blocked || d.friendly || !e.alive || e.hp > e.hpFloor) return false;
     c.fx.float(e, '鎖血', '#9ca3af', 15);
@@ -211,6 +257,10 @@ export const gaia = {
     drawWarning(ctx, c, S, g);
     drawStackHint(ctx, c, S, g);
     drawAltar(ctx, c, S);
+    // 指名：被指名、還沒輪到的人腳下的標記（菁英之路不畫）、指名時眼睛射出的綠光、輪到時正在震 / 冒出來的那一招
+    drawMarkSigils(ctx, c, S, (kind) => (kind === 'quake' ? { ring: QUAKE, dot: QUAKE_DEEP, spiky: true } : { ring: STONE, dot: STONE_DARK, spiky: false }));
+    drawGaze(ctx, c, g);
+    drawZones(ctx, c);
     for (const w of c.state.wilts) drawFlower(ctx, w.x, w.y, 1, c.time, Math.min(1, (c.time - w.t0) / WILT));
     for (const f of S.flowers) {
       const t0 = c.state.blooms.get(f.id);
@@ -227,8 +277,9 @@ export const gaia = {
   // 臉在最後面（被打的人、飛過去的人畫在前面）
   drawEntityFirst: (c, e) => e.id === GAIA_ID,
 
-  // 倒下的臉留在背景（石化、眼睛闔上），不淡出
+  // 被大地之手丟出去、還在飛的人先不畫（石拳帶著他飛，落地才出現）；倒下的臉留在背景（石化、眼睛闔上），不淡出
   drawEntityBare(ctx, c, e) {
+    if (c.state.throws.some(t => t.id === e.id && !t.landed)) return true;
     if (e.id !== GAIA_ID || e.alive) return false;
     drawFace(ctx, c, e, false, true);
     return true;
@@ -273,6 +324,7 @@ export const gaia = {
     }
     drawCleanseOrb(ctx, c);
     for (const o of c.state.orbs) drawOrb(ctx, c, S, o);
+    drawThrows(ctx, c);
     drawJudgeLight(ctx, c);
     const fl = c.state.flash;
     if (fl && c.time >= fl.t0) {
@@ -348,6 +400,7 @@ function announce(c, b) {
     case 'judgement': c.fx.banner('誅滅！', COLOR.judgement); break;
     case 'idle': c.fx.banner(`大地之母${N.idle}中…`, '#e9d5ff'); break;
     case 'smite': c.fx.banner(`大地之母：${N.smite}（${b.side < 0 ? '左側' : '右側'}）！`, '#fdba74'); break;
+    case 'mark': c.fx.banner(`大地之母：${N.mark}`, GAZE); break;
     default: c.fx.banner(`大地之母：${N[b.action] || b.action}${target ? ` → ${target.name}` : ''}！`, b.action === 'cleanse' ? '#86efac' : '#fca5a5');
   }
 }
@@ -453,7 +506,211 @@ function castFrame(c, b, i, cast) {
       if (i === 0) c.fx.sound('charm', { x: m.x });
       if (at(ABSORB_AT)) cleanseImpact(c, b);
       break;
+    case 'mark':   // 指名：眼睛射出綠光（drawGaze）、地面一震；播到最後被指名的人腳下才出現標記
+      if (i === 0) c.fx.sound('quake', { vol: 0.35 });
+      if (i % 9 === 0) c.fx.shake(2);
+      if (at(0.9)) (b.targetIds || []).forEach((id, n) => { S.marks[id] = (b.kinds || [])[n] || 'quake'; });
+      break;
     default:
+  }
+}
+
+// ---------- 指名的兩招 ----------
+
+// 輪到被指名的人、那一招開始（marks-draw.js 記好帳之後）：脈動 = 那一片轟隆一聲、冒一排土；攫取 = 地面裂開
+function zoneStart(c, z) {
+  if (z.kind === 'quake') {
+    if (z.surf < 0) return;
+    c.fx.sound('quake', { x: (z.x0 + z.x1) / 2, vol: 0.5 });
+    for (let q = 0; q <= 6; q++) {
+      const x = lerp(z.x0, z.x1, q / 6);
+      c.fx.particles(x, slopeY(z, x) - 2, 2, { speed: 50, life: 0.5, size: 2, color: QUAKE_DEEP, gravity: 200 });
+    }
+    return;
+  }
+  c.fx.sound('crack', { x: z.x, vol: 0.5 });
+  c.fx.particles(z.x, z.y - 2, 8, { speed: 60, life: 0.5, size: 2.2, color: STONE, gravity: 300 });
+}
+
+// 伺服器說發動了（hazard 的 fired，收到就演一次）：脈動 = 整片隆起、碎石往上噴；攫取 = 石頭手竄上來握住（抓到了飄字）
+function showFired(c, f) {
+  if (f.kind === 'quake') {
+    if (f.surf < 0) return;
+    c.fx.sound('stomp', { x: (f.x0 + f.x1) / 2, vol: 0.9 });
+    c.fx.shake(f.hit ? 9 : 6);
+    const n = Math.max(3, Math.round(Math.abs(f.x1 - f.x0) / 36));
+    for (let q = 0; q <= n; q++) {
+      const x = lerp(f.x0, f.x1, q / n);
+      if (x < -10 || x > W + 10) continue;
+      c.fx.particles(x, slopeY(f, x) - 2, 3, { speed: 190, life: 0.6, size: 3, color: q % 2 ? QUAKE_DEEP : STONE, gravity: 700 });
+    }
+    return;
+  }
+  c.fx.sound('clap', { x: f.x, vol: 0.8 });
+  c.fx.particles(f.x, f.y - 20, 12, { speed: 130, life: 0.5, size: 3, color: STONE, gravity: 500 });
+  const e = f.hit ? c.match.byId(f.id) : null;
+  if (e) c.fx.float(e, `被${GAIA_MARK_NAMES.grab}抓住了！`, '#e7e5e4', 15);
+}
+
+// 還沒發動的那一招：脈動的那一片沿路冒土（越接近發動越多，自己那一片還會輕輕震畫面）；攫取的石頭手旁邊跳碎石
+function zoneRumble(c, dt) {
+  const now = clockOf(c);
+  for (const z of c.state.zones) {
+    if (z.fired) continue;
+    const k = Math.max(0, Math.min(1, (now - z.at) / Math.max(0.05, z.delay || 1)));
+    if (z.kind === 'quake') {
+      if (z.surf < 0) continue;
+      if (Math.random() < dt * (10 + 40 * k)) {
+        const x = lerp(z.x0, z.x1, Math.random());
+        if (x > -10 && x < W + 10) c.fx.particle({ x, y: slopeY(z, x) - 1, vx: (Math.random() - 0.5) * 30, vy: -40 - 90 * k * Math.random(), life: 0.5, maxLife: 0.5, size: 2 + 1.5 * Math.random(), color: Math.random() < 0.5 ? QUAKE_DEEP : '#78716c', gravity: 400 });
+      }
+      if (z.id === c.myId && k > 0.5 && Math.random() < dt * 8) c.fx.shake(1 + 2 * k);
+    } else if (Math.random() < dt * (6 + 14 * k)) {
+      c.fx.particle({ x: z.x + (Math.random() - 0.5) * z.w, y: z.y - 1, vx: (Math.random() - 0.5) * 40, vy: -50 - 60 * k * Math.random(), life: 0.45, maxLife: 0.45, size: 2, color: STONE, gravity: 500 });
+    }
+  }
+}
+
+// 指名的那一下：她的眼睛射出綠光到每個被指名的人（菁英之路不畫是誰）
+function drawGaze(ctx, c, g) {
+  const fx = c.state.fx;
+  if (!fx || fx.action !== 'mark' || c.rangeHints === false || !g || !g.alive) return;
+  const eye = eyesOf(g);
+  const a = Math.sin(Math.min(1, fx.k / 0.9) * Math.PI);
+  ctx.save();
+  for (const id of fx.step.targetIds || []) {
+    const p = c.match.byId(id);
+    if (!p || !p.alive) continue;
+    ctx.globalAlpha = 0.55 * a;
+    ctx.strokeStyle = GAZE;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 6]);
+    ctx.lineDashOffset = -c.time * 60;
+    ctx.beginPath(); ctx.moveTo(eye.x, eye.y); ctx.lineTo(p.x, p.y - 4); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.35 * a;
+    ctx.fillStyle = GAZE;
+    ctx.beginPath(); ctx.ellipse(p.x, p.y - 1, p.hw + 10, 5, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// 輪到被指名的人：還沒發動 = 預兆（越來越亮、越抖）；發動了 = 隆起 / 握住，再收回去
+function drawZones(ctx, c) {
+  const now = clockOf(c);
+  for (const z of c.state.zones) {
+    const k = z.fired ? 1 : Math.max(0, Math.min(1, (now - z.at) / Math.max(0.05, z.delay || 1)));
+    if (z.kind === 'quake') drawQuake(ctx, z, k, z.fired ? now - z.fired.at : -1, now);
+    else drawStoneHand(ctx, c, z, k, z.fired ? now - z.fired.at : -1, now);
+  }
+}
+
+// 大地・脈動：那一片表面一條發光的帶子 + 裂縫，越接近發動越亮、抖得越兇；發動（t >= 0）= 整片往上鼓起、冒出一排尖石，再慢慢平回去
+function drawQuake(ctx, z, k, t, now) {
+  if (z.surf < 0) return;
+  const after = t >= 0;
+  if (after && t > HEAVE + 0.3) return;
+  const fade = after ? Math.max(0, 1 - Math.max(0, t - HEAVE) / 0.3) : 1;
+  const lift = after ? Math.sin(Math.min(1, t / HEAVE) * Math.PI) * 9 : 0;
+  const jit = after ? 0 : Math.sin(now * (30 + 30 * k)) * k * 1.6;
+  const lo = Math.max(-20, Math.min(z.x0, z.x1)), hi = Math.min(W + 20, Math.max(z.x0, z.x1));
+  if (hi <= lo) return;
+  const y = (x) => slopeY(z, x) + jit - lift;
+  const pulse = 0.5 + 0.5 * Math.sin(now * (6 + 10 * k));
+  ctx.save();
+  ctx.globalAlpha = fade;
+  ctx.lineCap = 'round';
+  // 外圈一道寬的光暈 + 中間一條亮的（站在上面的人一眼看得出「這一整片要震」）
+  ctx.strokeStyle = after ? 'rgba(254,215,170,0.45)' : `rgba(245,158,11,${0.22 + 0.3 * k * pulse})`;
+  ctx.lineWidth = after ? 22 : 12 + 12 * k;
+  ctx.beginPath(); ctx.moveTo(lo, y(lo) + 1); ctx.lineTo(hi, y(hi) + 1); ctx.stroke();
+  ctx.strokeStyle = after ? 'rgba(255,247,237,0.95)' : `rgba(253,224,71,${0.45 + 0.5 * k * pulse})`;
+  ctx.lineWidth = after ? 6 : 3 + 2 * k;
+  ctx.beginPath(); ctx.moveTo(lo, y(lo) + 1); ctx.lineTo(hi, y(hi) + 1); ctx.stroke();
+  // 裂縫：沿著表面一條鋸齒線（發動前越來越清楚）
+  ctx.strokeStyle = `rgba(41,24,10,${0.35 + 0.5 * k})`;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  for (let x = lo, n = 0; x <= hi; x += 12, n++) {
+    const yy = y(x) + 1 + (n % 2 ? -2 : 1.5) * (0.4 + k);
+    if (n === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+  }
+  ctx.stroke();
+  // 尖石：發動前慢慢頂出來一點點，發動時整排竄高
+  const n = Math.max(3, Math.round((hi - lo) / 30));
+  for (let q = 0; q <= n; q++) {
+    const x = lerp(lo, hi, q / n) + (q % 2 ? 5 : -4);
+    const hh = after ? (8 + (q % 3) * 5) * Math.sin(Math.min(1, t / HEAVE) * Math.PI) : 1.5 + 4 * k * (q % 2 ? 1 : 0.6);
+    if (hh < 0.5) continue;
+    ctx.fillStyle = q % 2 ? QUAKE_DEEP : STONE_DARK;
+    ctx.beginPath(); ctx.moveTo(x - 4, y(x) + 2); ctx.lineTo(x + 4, y(x) + 2); ctx.lineTo(x + (q % 2 ? 1 : -1), y(x) - hh); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// 大地之手・攫取：腳下那一塊裂開，石頭手指慢慢頂出來；發動（t >= 0）= 整隻手竄上來握住（GRAB_UP），之後沉回地裡（SINK）。
+// 抓到的人被丟出去的那一段畫在 drawThrows（石拳）
+function drawStoneHand(ctx, c, z, k, t, now) {
+  let rise, curl, alpha = 1;
+  if (t < 0) { rise = 0.12 + 0.2 * k; curl = 0; }
+  else if (t < GRAB_UP) { rise = 0.32 + 0.68 * (t / GRAB_UP); curl = t / GRAB_UP; }
+  else { rise = 1 - Math.min(1, (t - GRAB_UP) / SINK); curl = 1; alpha = rise; }
+  if (rise <= 0.01) return;
+  const jit = t < 0 ? Math.sin(now * (25 + 30 * k)) * k * 1.2 : 0;
+  const hh = z.h * rise;
+  ctx.save();
+  ctx.translate(z.x + jit, z.y);
+  ctx.globalAlpha = alpha;
+  // 地上的裂口
+  ctx.fillStyle = `rgba(41,24,10,${0.35 + 0.3 * k})`;
+  ctx.beginPath(); ctx.ellipse(0, 0, z.w / 2, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+  if (t < 0) {
+    ctx.strokeStyle = `rgba(214,211,209,${0.25 + 0.5 * k * (0.5 + 0.5 * Math.sin(now * 12))})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(0, -1, z.w / 2 + 2, 6, 0, 0, Math.PI * 2); ctx.stroke();
+  }
+  // 四根手指 + 一根拇指：從裂口往上長，握起來時往中間彎
+  const fingers = [-18, -6, 6, 18];
+  for (let i = 0; i < fingers.length; i++) {
+    const bx = fingers[i];
+    const len = hh * (i === 1 || i === 2 ? 1 : 0.86);
+    const tipX = bx * (1 - 0.85 * curl);
+    const g = ctx.createLinearGradient(0, 0, 0, -len);
+    g.addColorStop(0, STONE_DARK);
+    g.addColorStop(1, STONE);
+    ctx.strokeStyle = g;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 9;
+    ctx.beginPath(); ctx.moveTo(bx, 2); ctx.quadraticCurveTo(bx * 1.15, -len * 0.6, tipX, -len); ctx.stroke();
+    ctx.strokeStyle = 'rgba(28,25,23,0.55)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(bx - 3, -len * 0.45); ctx.lineTo(bx + 3, -len * 0.45); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// 被抓到的人：一顆石拳帶著他沿拋物線飛到另一道斜坡（落地在 update，那時人才畫出來）
+function drawThrows(ctx, c) {
+  const now = clockOf(c);
+  for (const t of c.state.throws) {
+    if (t.landed) continue;
+    const k = Math.max(0, Math.min(1, (now - t.at) / THROW));
+    const arc = 110 + Math.abs(t.x1 - t.x0) * 0.18;
+    const x = lerp(t.x0, t.x1, k);
+    const y = lerp(t.y0, t.y1 - 18, k) - Math.sin(k * Math.PI) * arc;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(168,162,158,0.35)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([4, 6]);
+    ctx.beginPath();
+    for (let q = 0; q <= 12; q++) {
+      const kk = k * q / 12;
+      const px = lerp(t.x0, t.x1, kk), py = lerp(t.y0, t.y1 - 18, kk) - Math.sin(kk * Math.PI) * arc;
+      if (q === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.restore();
+    drawFist(ctx, x, y + 14, 0.42, STONE, 0.3, false, false, now);
   }
 }
 

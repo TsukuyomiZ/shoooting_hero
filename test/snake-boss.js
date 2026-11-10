@@ -1,7 +1,7 @@
 // node test/snake-boss.js
 // Boss 關「叢林巨蟒」的規則測試：地圖（藤蔓橋、橋的盡頭是水、巨蟒的橢圓判定）、藤蔓（抓、爬、放手、跳開、被打下來、伺服器檢查回報）、
 // 中毒（上毒、無敵擋、連結不分、自己的回合開始結算 + 生命鎖、被毒倒）、蛇血（每 N% 掉一瓶、走過去喝 / 回合開始站在上面、解毒 + 解鎖 + 回血）、
-// 四種招式（權重、預定下一招、衝撞範圍、噴灑每人最多一次、震擊只打站在橋上的人並往巨蟒甩、撕咬最近的人）、
+// 四種招式（權重、預定下一招、衝撞範圍、噴灑每顆都會中（可重複）、震擊只打站在橋上的人並往巨蟒甩、撕咬最近的人）、
 // 客戶端重播一致、裁判流程、客戶端警示帶、確定性
 import { CONFIG } from '../shared/core/config.js';
 import { LEVELS, levelsInPool } from '../shared/maps/level.js';
@@ -11,8 +11,12 @@ import { Rng } from '../shared/core/rng.js';
 import { planShot } from '../shared/ai/ai.js';
 import { replayChecked } from './replay-check.js';
 import { VINE_HAND, poisonTick } from '../shared/physics/entities.js';
-import { chargeLane, resolveSnakeTurn, rollSnakeAction, planSnakeNext, nearestPlayer, snakeDrops, pickupAlong } from '../shared/maps/snake-boss.js';
+import { chargeLane, resolveSnakeTurn, rollSnakeAction, planSnakeNext, nearestPlayer, snakeDrops, pickupAlong, markStep, resolveSnakeInterject, strikeLine } from '../shared/maps/snake-boss.js';
 import { mapViewFor } from '../client/map-views/index.js';
+
+// 指名 / 插話（2026-11-09）在檔案最後面另外測（withMarks 打開）；前面測原本招式的測試先關掉（權重全 0 = 不指名、不插話）
+const MARK_WEIGHTS = { ...CONFIG.SNAKE_BOSS.marks.weights };
+CONFIG.SNAKE_BOSS.marks.weights = { strike: 0, coil: 0 };
 
 const results = [];
 function test(name, fn) {
@@ -539,8 +543,8 @@ test('巨蟒衝撞：範圍 = 頭的上緣到水面（chargeLane）；橋上、�
   return { lane: [lane.top, lane.bottom, lane.x1] };
 });
 
-test('毒液噴灑：從嘴巴往左上散射 count 顆（拋物線、穿過藤蔓橋掉進水裡），同一次噴灑每人最多中一次（10 層）', () => {
-  let hitPlayers = 0, globs = 0;
+test('毒液噴灑：從嘴巴往左上散射 count 顆（拋物線、穿過藤蔓橋掉進水裡），每一顆打中都上 10 層（同一次被好幾顆打中就疊好幾次，2026-11-09）', () => {
+  let hitPlayers = 0, globs = 0, multi = 0;
   for (let seed = 1; seed <= 25; seed++) {
     const m = jungle(4, { seed, hp: 150 });
     placeOn(m, m.players[0], 80);
@@ -553,14 +557,15 @@ test('毒液噴灑：從嘴巴往左上散射 count 顆（拋物線、穿過藤�
     assert(b.shot.projectiles.every(p => p.vx < 0 && p.vy < 0), 'all launched up-left');
     assert(!b.shot.events.some(e => e.type === 'terrain' || e.target === 'snake'), 'no terrain hits (passes the bridge), no self hits');
     for (const p of m.players) {
-      assert(p.poison === 0 || p.poison === CONFIG.WEAPONS.snakeVenom.poison, `${p.id} at most one hit: ${p.poison}`);
       const hits = b.shot.events.filter(e => e.target === p.id).length;
-      assert(hits <= 1, `${p.id} hit ${hits} times`);
+      assert(p.poison === hits * CONFIG.WEAPONS.snakeVenom.poison, `${p.id}: ${hits} hits → ${p.poison} stacks`);
       if (p.poison) hitPlayers++;
+      if (hits > 1) multi++;
     }
   }
   assert(hitPlayers > 10 && hitPlayers < 90, 'spray hits a fair share: ' + hitPlayers + '/100');
-  return { globs, hitPlayers: hitPlayers + '/100' };
+  assert(multi > 0, 'some players got hit by more than one glob');
+  return { globs, hitPlayers: hitPlayers + '/100', multiHit: multi };
 });
 
 test('大地震擊：只打站在橋上的人（50 × 敵人倍率），往巨蟒的方向擊退（knockback）；離巨蟒近的被甩下水、遠的留在橋上；掛在藤蔓上的沒事', () => {
@@ -902,6 +907,143 @@ test('中毒不會自己解除：每個自己的回合開始都再扣一次、�
   assert((tick ? tick.stacks : 0) === fresh, `after the cure only new stacks tick: ${tick && tick.stacks} vs ${fresh}`);
   return { ticks, cured: stacks };
 })));
+
+// ---------- 指名 / 插話（2026-11-09 使用者：蓄勢突咬、纏身絞殺）----------
+
+const J = JSON.stringify;
+function withMarks(fn, weights = MARK_WEIGHTS) {
+  CONFIG.SNAKE_BOSS.marks.weights = { ...weights };
+  try { return fn(); } finally { CONFIG.SNAKE_BOSS.marks.weights = { strike: 0, coil: 0 }; }
+}
+const SM = CONFIG.SNAKE_BOSS.marks;
+const FIRE_MS = (SM.delay + SM.grace) * 1000;                                   // 纏身絞殺
+const STRIKE_MS = (((SM.delays && SM.delays.strike) ?? SM.delay) + SM.grace) * 1000;   // 蓄勢突咬（2026-11-09 使用者改 2 秒）
+const near = (a, b, eps = 1) => Math.abs(a - b) <= eps;
+
+test('巨蟒的回合最後指名下一組（2 人：兩位都指名；4 人：P1、P2），每人各自抽 strike / coil；插話指名 P3、P4；權重全 0 不指名', () => {
+  const kinds = new Set();
+  const out = {};
+  withMarks(() => {
+    for (const n of [2, 4]) {
+      for (let seed = 1; seed <= 6; seed++) {
+        const m = jungle(n, { seed });
+        const r = resolveSnakeTurn(m, m.byId('snake'));
+        const last = r.steps[r.steps.length - 1];
+        assert(r.steps.length === 2 && last.action === 'mark' && J(last.targetIds) === J(['p1', 'p2']) && last.cast === SM.cast, J(r.steps.map(s => s.action)));
+        last.kinds.forEach(k => kinds.add(k));
+        if (n === 4) {
+          const it = resolveSnakeInterject(m, m.byId('snake'), 'p2');
+          assert(it && J(it.steps[0].targetIds) === J(['p3', 'p4']), 'interject marks p3, p4');
+        }
+        out[n] = last.targetIds.length;
+      }
+    }
+  });
+  const m = jungle(2);
+  assert(markStep(m, 'snake') === null && resolveSnakeTurn(m, m.byId('snake')).steps.length === 1, 'weights 0: no marks');
+  assert(kinds.has('strike') && kinds.has('coil'), 'both kinds: ' + [...kinds]);
+  return out;
+});
+
+test('蓄勢突咬：回合開始畫一條線（嘴 → 他身體中間再往前 30px），2 + 0.2 秒後咬（纏身照 1.5）：還在線上 → 8 × 人數 + 5 層毒；往蛇那邊走還是被咬；跳開 / 往左退出咬得到的地方 → 沒事', () => {
+  const W = CONFIG.WEAPONS.snakeStrike;
+  const run = (move) => {
+    const m = jungle(2, { seed: 3 });
+    const p1 = m.byId('p1');
+    placeOn(m, p1, 300);
+    m.mechState.marks.p1 = 'strike';
+    const st = m.hazardStart(p1, 0);
+    const z = st.zone;
+    const mouth = m.mechState.def.mouth;
+    assert(st.kind === 'marks' && z.kind === 'strike' && z.x0 === mouth.x && z.y0 === mouth.y && z.delay === 2 && SM.delay === 1.5, J(st));
+    const d = Math.hypot(p1.cx - mouth.x, p1.cy - mouth.y);
+    assert(near(Math.hypot(z.x1 - mouth.x, z.y1 - mouth.y), d + SM.strikeReach), 'reaches 30px past him');
+    assert(m.hazardStep(STRIKE_MS - 50, false, true).fired === undefined, 'not yet');
+    const hp0 = p1.hp;
+    move(p1, m);
+    const s = m.hazardStep(STRIKE_MS, false, true);
+    return { hit: s.fired.hit, dmg: hp0 - p1.hp, poison: p1.poison };
+  };
+  const stay = run(() => {});
+  assert(stay.hit && stay.dmg === Math.round(W.damage * 2 * mult()) && stay.poison === W.poison, 'stayed: ' + J(stay));
+  const toward = run((p) => { p.x += 80; });
+  assert(toward.hit, 'walking toward the snake stays on the line');
+  const back = run((p) => { p.x -= SM.strikeReach + SM.strikeHalf + p.hw + 6; });
+  assert(!back.hit && back.dmg === 0 && back.poison === 0, 'backed out of reach: ' + J(back));
+  const jump = run((p) => { p.y -= 60; });
+  assert(!jump.hit, 'jumped off the line');
+  return { dmg: stay.dmg, poison: stay.poison };
+});
+
+test('纏身絞殺：發動時還在那一條（爬得不夠高）→ 纏住（走不動）；每 0.5 秒勒一下、越勒越緊（1、2、3… × 人數，最多 5 倍）、不上毒、開火後不勒；下個回合從 1 重新算；連打 A/D 10 下掙脫；走開 / 爬高 → 沒事', () => {
+  const W = CONFIG.WEAPONS.snakeCoil;
+  const m = jungle(3, { seed: 4 });
+  const p1 = m.byId('p1');
+  placeOn(m, p1, 260);
+  m.mechState.marks.p1 = 'coil';
+  const st = m.hazardStart(p1, 0);
+  assert(st.zone.kind === 'coil' && near(st.zone.top, p1.y - SM.coilH), J(st.zone));
+  const dmgs = [];
+  let hp = p1.hp;
+  const take = () => { dmgs.push(hp - p1.hp); hp = p1.hp; };
+  const s1 = m.hazardStep(FIRE_MS, false, true);
+  take();
+  assert(s1.fired.hit && p1.held && J(s1.ticks) === J(['p1']) && p1.poison === 0, 'coiled ' + J(s1));
+  for (let k = 1; k <= 6; k++) { m.hazardStep(FIRE_MS + k * 500, false, true); take(); }
+  const per = W.damage * 3 * mult();
+  const want = [1, 2, 3, 4, 5, 5, 5].map(n => Math.round(n * per));
+  assert(dmgs.every((d, i) => Math.abs(d - want[i]) <= 1), 'tightening ' + J(dmgs) + ' vs ' + J(want));
+  assert(!m.hazardStep(FIRE_MS + 4000, false, false).ticks, 'no squeeze while the shot resolves');
+  m.hazardStep(FIRE_MS + 4050, true, false);
+  // 下一個回合：一開始先勒一下，從 1 倍重新算
+  m.hazardStart(p1, 60_000);
+  m.hazardStep(60_050, false, true);
+  take();
+  assert(Math.abs(dmgs[dmgs.length - 1] - Math.round(per)) <= 1, 'restarts at 1x: ' + dmgs[dmgs.length - 1]);
+  let r;
+  for (let k = 0; k < SM.need; k++) r = m.struggle(p1, k % 2 ? 1 : -1);
+  assert(r.freed && !p1.held, 'struggled free');
+  // 躲得掉：走開 / 爬高
+  const dodge = (move) => {
+    const g = jungle(2, { seed: 4 });
+    const q = g.byId('p1');
+    placeOn(g, q, 260);
+    g.mechState.marks.p1 = 'coil';
+    g.hazardStart(q, 0);
+    move(q);
+    return g.hazardStep(FIRE_MS, false, true).fired.hit;
+  };
+  assert(!dodge(q => { q.x += SM.coilW / 2 + q.hw + 1; }), 'walked away');
+  assert(!dodge(q => { q.y -= SM.coilH + 2; }), 'climbed above');
+  return { squeeze: dmgs.slice(0, 7) };
+});
+
+test('裁判（4 人）：P1 P2 → 巨蟒插話（指名 P3、P4）→ P3 P4 → 巨蟒（最後指名 P1、P2）；插話不算巨蟒的回合；被纏住的人送 struggle 掙脫；快照帶指名 / 被纏住的人', () => withMarks(() => {
+  const players = mkPlayers(4);
+  const m = new Match({ levelId: 'jungleSerpent', players, seed: 6, stage: 5 });
+  for (const p of m.players) { p.hp = p.maxHp = 5000; }
+  const io = new FakeIo();
+  const ref = new Referee({ match: m, humans: players, io });
+  ref.start();
+  assert(advanceUntil(io, () => io.take('aiTurn').some(t => t.actorId === 'snake' && !t.interject)), 'snake main turn');
+  const turns = io.take('turn').map(t => t.actorId + (t.interject ? '*' : ''));
+  assert(J(turns.slice(0, 6)) === J(['p1', 'p2', 'snake*', 'p3', 'p4', 'snake']), J(turns));
+  const it = io.take('aiTurn').find(t => t.interject);
+  assert(J(it.boss.steps[0].targetIds) === J(['p3', 'p4']), 'interjection marks p3, p4');
+  const main = io.take('aiTurn').find(t => t.actorId === 'snake' && !t.interject);
+  assert(main.boss.steps[main.boss.steps.length - 1].action === 'mark', 'main turn ends with a mark');
+  // 第 2 輪：P1 的回合發動
+  io.clear();
+  assert(advanceUntil(io, () => io.take('hazard').some(h => h.fired && h.fired.id === 'p1')), 'p1 mark fired');
+  const snap = JSON.parse(J(m.snapshot()));
+  assert(snap.snakeMarks && snap.snakeBound, 'snapshot carries marks');
+  const p1 = m.byId('p1');
+  if (p1.held) {
+    for (let k = 0; k < SM.need; k++) ref.handle('p1', { t: 'struggle', dir: k % 2 ? 1 : -1 });
+    assert(!p1.held && io.take('struggle').pop().freed, 'struggled free through the referee');
+  }
+  return { turns: turns.slice(0, 6), fired: io.take('hazard').filter(h => h.fired).map(h => h.fired.kind + (h.fired.hit ? '+' : '-')) };
+}));
 
 const failed = results.filter(r => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

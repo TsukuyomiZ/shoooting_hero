@@ -20,7 +20,8 @@ export const monkey = {
   //   throwW  正在丟回去的那顆原本是什麼武器（畫飛行物用）
   //   peelAt  上一幀場上香蕉皮的位置 { id: { x, y } }（被炸掉的那一刻狀態裡已經沒有了，噴碎屑要知道在哪）
   //   time    動畫時間（秒）
-  create: () => ({ fx: null, swing: null, toss: null, throwW: null, peelAt: {}, time: 0 }),
+  //   falling 被打掉、正在往下掉的砲彈 [{ w, x, y, vx, vy, t, spin }]（掉到地上冒一陣煙就沒了，只給畫面用）
+  create: () => ({ fx: null, swing: null, toss: null, throwW: null, peelAt: {}, time: 0, falling: [] }),
 
   turnScript: monkeyTurnScript,
   abortScript(c) {
@@ -39,9 +40,21 @@ export const monkey = {
       c.fx.particles(p.x, p.y, 1, { speed: 40, life: 0.35, size: 2, color: PEEL, gravity: 0 });
     }
     if (st.toss) st.toss.t += dt;
+    // 被打掉的砲彈往下掉：碰到地（或掉了 1.2 秒）就冒一陣煙沒了
+    for (const f of st.falling) {
+      f.t += dt;
+      f.vy += 900 * dt;
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      if (!f.gone && (f.t > 1.2 || (f.vy > 0 && c.match.terrain.isSolid(Math.round(f.x), Math.round(f.y + 4))))) {
+        f.gone = true;
+        c.fx.particles(f.x, f.y, 8, { speed: 50, life: 0.7, size: 3, color: '#9ca3af', gravity: -60 });
+      }
+    }
+    st.falling = st.falling.filter(f => !f.gone);
   },
 
-  // 接住了 / 炸掉了香蕉皮 / 手上的砲彈在他身上炸開 / 他生氣了
+  // 接住了 / 炸掉了香蕉皮 / 手上的砲彈被打掉 / 他生氣了
   showEvent(c, ev) {
     const g = monkeyOf(c.match);
     if (ev.type === 'snatch' && ev.monkeyCatch) {
@@ -54,16 +67,19 @@ export const monkey = {
       if (q) c.fx.particles(q.x, q.y - 2, 10, { speed: 110, life: 0.5, size: 2.4, color: PEEL, gravity: 400 });
     }
     const M = ev.monkey;
-    if (M && M.burst && g) {
-      c.fx.particles(g.cx, g.cy, 34, { speed: 280, life: 0.6, size: 3.2, color: '#fb923c', gravity: 120 });
-      c.fx.particles(g.cx, g.cy, 14, { speed: 160, life: 0.8, size: 2.6, color: '#fde68a', gravity: 60 });
-      c.fx.shake(9);
-      c.fx.sound('explode', { x: g.x });
-      if (M.dmg > 0) c.fx.float(g, `-${Math.round(M.dmg)}`, '#ff6b6b', 20);
+    if (M && M.knocked && g) {   // 手上的砲彈從頭上那一排噴開、往下掉（掉到地上冒煙沒了，不爆炸）
+      const n = M.knocked.length;
+      M.knocked.forEach((w, k) => {
+        const side = n > 1 ? (k - (n - 1) / 2) / ((n - 1) / 2) : (Math.random() < 0.5 ? -1 : 1);
+        c.state.falling.push({ w, x: g.x + (k - (n - 1) / 2) * 18, y: g.y - g.h - 50, vx: side * (60 + Math.random() * 50), vy: -160 - Math.random() * 60, t: 0, spin: Math.random() * 6 });
+      });
+      c.fx.particles(g.cx, g.y - g.h - 40, 10, { speed: 120, life: 0.4, size: 2.4, color: '#fde68a', gravity: 300 });
+      c.fx.sound('pop', { x: g.x });
+      c.fx.float(g, '砲彈掉了！', '#fde68a');
     }
-    // 炸開與生氣常常同一下（炸開的傷害把他打到 40% 以下）：併成一張橫幅，不然後面那張會蓋掉前面的
+    // 打掉與生氣可能同一下：併成一張橫幅，不然後面那張會蓋掉前面的
     const said = [];
-    if (M && M.burst && g) said.push([`手上的 ${M.burst.length} 顆砲彈炸開了！`, '#fdba74']);
+    if (M && M.knocked && g) said.push([`打掉了猴王手上的 ${M.knocked.length} 顆砲彈！`, '#fde68a']);
     if (M && M.angry) said.push(['頑皮猴王生氣了！接住的範圍變大', '#fca5a5']);
     if (said.length) c.fx.banner(said.map(l => l[0]).join('　·　'), said[0][1]);
     if (M && M.angry) {
@@ -101,6 +117,7 @@ export const monkey = {
       ctx.beginPath(); ctx.arc(g.cx, g.cy, R, 0, Math.PI * 2); ctx.stroke();
       ctx.restore();
     }
+    for (const f of c.state.falling) drawShell(ctx, f.w, f.x, f.y, Math.atan2(f.vy, f.vx), f.spin + f.t * 10);   // 被打掉、往下掉的砲彈
     if (c.state.toss) {   // 飛在空中的香蕉皮
       const tz = c.state.toss;
       const k = Math.min(1, tz.t / tz.cast);
