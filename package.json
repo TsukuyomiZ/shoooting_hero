@@ -1,6 +1,6 @@
 {
   "name": "shooting-hero",
-  "version": "2.0.0-beta",
+  "version": "2.1.0-beta",
   "private": true,
   "type": "module",
   "description": "彈彈堂風格回合制射擊遊戲：PVE 最多 4 人共鬥、勝者為王 3v3 對戰（可加電腦玩家）",
