@@ -47,6 +47,20 @@ function drawRapierHeld(ctx) {
   ctx.beginPath(); ctx.moveTo(7, -0.4); ctx.lineTo(33, -0.1); ctx.stroke();   // 劍身的反光
 }
 
+// 急救槍：白色的槍身、綠色十字、細長的針頭（像一支注射槍）
+function drawMedGunHeld(ctx) {
+  ctx.fillStyle = '#7c5a3a';
+  ctx.fillRect(-6, -1, 7, 6);                          // 握把
+  ctx.fillStyle = '#f1f5f9';
+  ctx.fillRect(-4, -4.5, 22, 8);                       // 槍身
+  ctx.fillStyle = 'rgba(74,222,128,0.85)';
+  ctx.fillRect(6, -3.5, 10, 6);                        // 藥劑艙
+  ctx.fillStyle = '#16a34a';
+  ctx.fillRect(9.5, -3, 3, 5); ctx.fillRect(8, -1.5, 6, 2);   // 綠色十字
+  ctx.fillStyle = '#cbd5e1';
+  ctx.fillRect(18, -1, 10, 2);                         // 針頭
+}
+
 // 武器 id → 拿在手上的畫法（沒有 prototype：HELD_ART[id] 查不到 constructor 之類繼承來的東西）
 export const HELD_ART = Object.freeze({
   __proto__: null,
@@ -54,4 +68,5 @@ export const HELD_ART = Object.freeze({
   darts: drawDartsHeld,
   waterCannon: drawWaterCannonHeld,
   rapier: drawRapierHeld,
+  medGun: drawMedGunHeld,
 });

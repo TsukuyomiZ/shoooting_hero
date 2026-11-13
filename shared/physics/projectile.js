@@ -13,6 +13,7 @@ export function makeProjectile(owner, weapon, x, y, vx, vy) {
     stopAt: null,                   // 穿透的飛行物撞到這個角色就停下、不穿過去（大樹守衛衝鋒的目標）
     passTerrain: !!weapon.passTerrain,  // 穿過地形（古樹的攻擊）
     passAllies: !!weapon.passAllies,    // 穿過射手的隊友（古樹與樹妖的攻擊不會打到自己人；迴力鏢）
+    passEnemies: !!weapon.passEnemies,  // 穿過別隊的角色：只打得到自己人（急救槍）
     boomerang: !!weapon.boomerang,  // 飛到最長路徑（或撞到地形 / 落水 / 飛出場外）就沿原路飛回來
     range: weapon.range ?? Infinity,  // 最長飛多遠（路徑長度；看力量的由開火的地方照 shotRange 設），dist = 已經飛了多遠
     dist: 0,

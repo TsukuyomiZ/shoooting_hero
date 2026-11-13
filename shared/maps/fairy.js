@@ -357,7 +357,10 @@ export function charmShot(match, actor) {
   if (!mates.length) return { plan: null, info: { charm: true } };
   const target = match.rng.pick(mates);
   const aimed = match.rng.chance(CONFIG.FAIRY.charmHit);
-  const plan = planShotAt(match.world, actor, match.rng, target, actor.weapon, { hit: aimed, miss: CONFIG.FAIRY.missOffset });
+  // 手上是會回血的武器（急救槍）：換成一般 AI 會拿的那把（魅惑是要打隊友，不是幫他回血）；都沒有就不開火
+  const held = CONFIG.WEAPONS[actor.weapon];
+  const weaponId = held && held.healHp > 0 ? preferredWeapon(actor) : actor.weapon;
+  const plan = weaponId ? planShotAt(match.world, actor, match.rng, target, weaponId, { hit: aimed, miss: CONFIG.FAIRY.missOffset }) : null;
   return { plan, info: { charm: true, targetId: target.id, aimed } };
 }
 

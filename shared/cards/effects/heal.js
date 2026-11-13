@@ -1,6 +1,6 @@
-// 立刻回血 N（選完牌的當下；對著套完牌的新上限，倒下的人不回）
+// 立刻回血 N（選完牌的當下；對著套完牌的新上限，倒下的人不回）。吃自己的治療效率（mult，見 heal-boost.js）
 export const heal = {
   id: 'heal',
   keys: { heal: { desc: '立刻回血 N', instant: true } },
-  healNow: (now) => now.heal,
+  healNow: (now, max, mult) => now.heal * mult,
 };

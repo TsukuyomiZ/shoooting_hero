@@ -796,6 +796,25 @@ export const CONFIG = {
       desc: '往前方刺出一劍，攻擊距離短，命中的敵人會流血',
       hud: '近身刺擊、流血',
     },
+    // 2026-11-10 使用者給的：射擊方式跟狙擊槍一樣（直線、指哪射哪），打到的對象回 20 血、吃武器傷害加成（加成越高回越多）。
+    // 只回隊友、穿過敵人（不會幫敵人回血）、不挖地、不碰地圖的機關是我補的（見 Match.resolveHit 的 healHp）
+    medGun: {
+      id: 'medGun', name: '急救槍',
+      damage: 0,
+      healHp: 20,           // 打中的隊友回多少血（× 射手的武器傷害加成，再 × 對方受到的治療效率）
+      radius: 0,            // 不爆炸、不挖地
+      gravity: 0,           // 無重力 → 直線（同狙擊槍）
+      speed: 2400,
+      hitRadius: 3,
+      knockback: 0,
+      passEnemies: true,    // 穿過敵人：只打得到隊友（打到地形就停）
+      noFire: true,         // 穿過火把也不會著火
+      teamOnly: true,       // 單人冒險不會出這把（沒有隊友可以回）
+      shellRadius: 2.5,
+      color: '#4ade80',
+      desc: '指哪射哪，打到的隊友回血（吃武器傷害加成），會穿過敵人',
+      hud: '打隊友回血',
+    },
     // 裝備「無差別轟炸」落下的飛彈：不能被裝備；傷害跟持有者的其他攻擊一樣吃他的加成。不破壞地形（2026-10-08 使用者改）
     bombard: {
       id: 'bombard', name: '轟炸飛彈', fromEquip: true,
@@ -1528,8 +1547,10 @@ export const CONFIG = {
     shieldEveryTurns: 3,                  // 神佑之石：持有者每過 N 個回合，全隊無敵一次
     extraTurnCooldown: 3,                 // 時間扭曲：拿到額外回合後，要再過 N 個（普通）回合才會再給
     // 攜手之伴：被「連結」的人受到的傷害先 -damageCutPct%，再跟活著的連結對象平分（落水不算）。
-    // 一個人可以被好幾位隊友連結，被打時跟所有活著的連結對象平分
-    link: { damageCutPct: 30 },
+    // 一個人可以被好幾位隊友連結，被打時跟所有活著的連結對象平分。2026-11-10 使用者從 30% 下修成 10%
+    link: { damageCutPct: 10 },
+    // 樂觀：血量在上限的 hpPct% 以上（含）時，武器傷害加成才生效
+    optimist: { hpPct: 50 },
     // 威嚇：離持有者多近的敵人算「在旁邊」（px，從持有者的身體中心量到對方身體最近的邊；看傷害結算那一下的位置）
     intimidate: { range: 250 },
     bombard: {                            // 無差別轟炸

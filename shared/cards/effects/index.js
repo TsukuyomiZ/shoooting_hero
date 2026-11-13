@@ -43,6 +43,10 @@ import { intimidate } from './intimidate.js';
 import { exert } from './exert.js';
 import { immune } from './immune.js';
 import { stoneMask } from './stone-mask.js';
+import { healBoost } from './heal-boost.js';
+import { content } from './content.js';
+import { optimist } from './optimist.js';
+import { heart } from './heart.js';
 
 // 效果（見 GLOSSARY.md）：一種規則連同它的說明與顯示，由 cards.json 裡的一個或幾個 key 帶數值啟用。
 // 這個資料夾每個檔案是一個效果，這裡是登記表：新增「用現有效果的牌」只改 cards.json；改一個效果 = 改它自己的檔案。
@@ -82,7 +86,7 @@ import { stoneMask } from './stone-mask.js';
 //       測試會掃，跟別的東西的屬性撞名就換一個）；after = toState 裡排在哪個欄位後面（同步格式的順序不變；不寫 = 最後）。
 //       after 可以用的（entities.js baseState）：id x y hp mhp stamina alive cause facing weapon burn shield turns sx sy wf ps lk bl vn，
 //       以及只有某些角色才有的 closed（嘴巴會閉的首領）、wt（蜜蜂）（沒有那個欄位的角色排最後）；同一個 after 照 LIST 的順序
-//       （目前 shield 後面是 soul、turns 後面是 xcd、vn 後面是 rd、hu、hs，沒寫 after 的 bcd 在最後）；
+//       （目前 shield 後面是 soul、turns 後面是 xcd、vn 後面是 rd、hu、hs、hl，沒寫 after 的 bcd、ht 在最後）；
 //       carry: true = 整場冒險帶著走（肉鴿流程的玩家 → carry → Match 建角色 → 打完帶回）；shot: true = 開火結果的最上層另外再帶一份 wire 欄位
 //       （results 的 toState 本來就帶，一般不用；噬魂的 soul 用它，是因為客戶端要拿「開火後的值」算飄字）
 //       欄位不能是角色本來就有的（建角色時檢查）、wire 不能跟 toState 本來的欄位撞名、after 要是 toState 本來的欄位
@@ -94,12 +98,13 @@ import { stoneMask } from './stone-mask.js';
 //   stat(stats, P) → [欄位, 值]   這一關的基礎數值（maxHp / maxStamina / moveSpeed / jumpSpeed / size，照 LIST 的順序）；
 //                                 有 stat 的效果，它的 key 不是戰鬥的 mods
 // 選牌（cards.js applyCard → run.js finishPicks，兩輪的順序在 run.js）
-//   applied(now, v, key)       applyCard 把這個 key 加完之後（加上限的牌同時回等量的血：now.heal += v）
+//   applied(now, v, key)       applyCard 把這個 key 加完之後（目前沒有效果用；加上限的牌同時補等量的血由 run.js 照上限多了多少補，不經過這裡）
 //   picked(p, now, pool, target)   第一輪、套完 p 的牌：記到 p 身上（下一關的加成）或這一輪選牌共用的 pool（各效果自己的欄位）；
 //                              target = 這張牌指定的隊友 id（要指定隊友的牌才有、沒有人可選 = null；超時由 run.js 代選）
-//   healNow(now, max) → n      第一輪：p 立刻回多少（max = 套完牌的新上限），依序加在現在的血上
-//   healFromTeammates(pool, p) → n   第二輪（大家的牌都套完）：隊友的牌給 p 回多少
-//   healForTeam(pool, p, max) → n    第二輪：全隊的牌給 p 回多少（max = p 自己的新上限），加在上一個之後
+//   選牌的回血（mult = p 受到的治療效率倍率，見 healMult；回血的量要乘上它）：
+//   healNow(now, max, mult) → n      第一輪：p 立刻回多少（max = 套完牌的新上限），依序加在現在的血上
+//   healFromTeammates(pool, p, mult) → n   第二輪（大家的牌都套完）：隊友的牌給 p 回多少
+//   healForTeam(pool, p, max, mult) → n    第二輪：全隊的牌給 p 回多少（max = p 自己的新上限），加在上一個之後
 // 關卡（run.js）
 //   runInit(p)                 冒險開始：肉鴿流程的玩家身上這個效果自己的欄位
 //   stageStart(p)              一關開始：倒下的人復活之後、算 carry 之前
@@ -130,6 +135,9 @@ import { stoneMask } from './stone-mask.js';
 //   previewFull                瞄準預覽畫完整拋物線（任一個 true 就是）
 //   turnSecs                   每回合秒數 +N（裁判的 turnTimeFor；目前沒有效果用它）
 //   immune(e, c) → boolean     免疫異常狀態（任一個 true 就是，例如金剛不壞）：被打中時不上燃燒、中毒、流血（Match.immuneTo；擋下的那一筆記 immune）
+//   healing                    受到的回血 +%（治療效率，例如生命增幅器、樂觀）：Match.heal（吸血、治療）與選牌的回血照 healMult 乘上去；過關回血不算
+//   revive(e, cause) → 血量 %   e 要倒下了（Entity.die，cause = 死因）：這個效果要救他的話回傳復活的血量（上限的 %），自己記下用掉了；
+//                              不救 = 0（第一個 > 0 的算，例如人工心臟）。套伺服器的狀態不會問（Entity.expire）
 // 戰鬥的時間點
 //   turnBegin(match, e) → (() → shot) | null   輪到 e（beginTurn 之後、開始計時之前，裁判呼叫）：這個效果要出手的話，
 //                              回傳結算那一波攻擊的函式（無差別轟炸；裁判先切換狀態、拍血量快照才呼叫它）。
@@ -141,6 +149,7 @@ import { stoneMask } from './stone-mask.js';
 //   onKill(match, e, killed, fx)     e 打倒了 killed（已經算進 kills）；fx = 燒死時回合結束的 fx 清單（開火結算時是 null）
 //   onHurt(match, e, dmg)      e 受到一次攻擊、真的扣了 dmg 點血（爆炸 / 命中扣完血之後：自己被打到、攜手之伴分到的那份各算一次；
 //                              中毒、流血、燃燒、落水、效果自己扣的血不算），例如被虐體質疊層數
+//   onHealed(match, e, n)      e 受到一次治療、真的回了 n 點血（Match.heal 的 kind 不是 'steal'：急救槍、恩賜之杖、地圖上的回血；吸血不算），例如知足疊層數
 //   share(match, hit, c)       爆炸算好 hit.e 要扣多少之後、還沒扣：分給別人（hit = { e, entry, own, shares, factor }，
 //                              c = { alive0, shielded, block, friendly, damages }）
 //   shotLog: { group, field, value(e), on(e) }   開火紀錄（LOG 的 shot）附的欄位：同一群組任一個 on 就整組記 { group: { field: value } }
@@ -150,7 +159,7 @@ import { stoneMask } from './stone-mask.js';
 //                              狀態（無敵、燃燒、中毒、流血、生命鎖）排在 STATUS_CHIP_ORDER = 150。目前用到的（最準的是 grep chipOrder shared/cards/effects/）：
 //                              ramp 10、soul 20、bossDamage 30、lifesteal 40、armor 50、regen 60、extraJumps 70、extraTurn 80、bombard 90、
 //                              teamShield 100、〔狀態 150〕、fever 200、fullArc 210、ready 220、hunt 230、adrenaline 240、lone 250、unity 260、link 270、
-//                              party 280、masochist 290、intimidate 300、exert 310、immune 320、stoneMask 330
+//                              party 280、masochist 290、intimidate 300、exert 310、immune 320、stoneMask 330、healBoost 340、content 350、optimist 360、heart 370
 //   shotFloat(e, before) → [[文字, 顏色]]   自己開的一槍套上伺服器結果之後的飄字（before = 套之前這些效果狀態的值，見 stateOf）
 //   killFloat(e, shot) → [[文字, 顏色]]     這一發有擊殺時的飄字（shotFloat 之後）
 //   turnFx(fx, e) → 動作 | null  回合開始 / 結束的 fx 是這個效果的：['banner', 文字, 顏色] / ['float', id, 文字, 顏色, 大小?] /
@@ -159,6 +168,8 @@ import { stoneMask } from './stone-mask.js';
 //   feverFx(e) → 動作 | null     狂熱疊上新的一層時（客戶端第一次看到這一層）的畫面動作，格式同 turnFx（例如狂歡派對的 ambient）；
 //                              場上的玩家裡第一個給的算（見 feverOps）
 //   aura(e, c) → { r, color } | null   自己的回合在身上畫一圈淡淡的範圍（半徑 r px，從身體中心；例如威嚇的距離）；第一個給的算（見 auraOf）
+//   watchFx(e, before) → 動作 | null   這個角色效果自己的狀態變了（客戶端每一幀跟上一幀比，不管是本地物理、重播還是套伺服器的狀態改的；
+//                              before = 上一幀的 stateOf）的畫面動作，格式同 turnFx（例如人工心臟用掉了：復活的演出）
 //   volley: { kind, banner(name), color }   這個效果的一波攻擊（shot.kind）開始時的橫幅
 //   pickText: { need, none, title(card), button(name), hint(others) }   target 的效果：選牌畫面要選對象時的文字
 
@@ -166,7 +177,7 @@ const LIST = [
   maxHp, heal, healPct, teamHeal, damage, cannonDamage, sniperDamage, bossDamage, ramp, soul, lifesteal, radius, knockback,
   sniperBounce, sniperPierce, cannonBounce, burnHit, cannonBurn, armor, friendlyArmor, regen, stamina, moveSpeed, jumpSpeed, size,
   bombard, teamShield, extraJumps, extraTurn, allyHeal, adrenaline, lone, unity, fever, fullArc, ready, hunt, link,
-  party, masochist, intimidate, exert, immune, stoneMask,
+  party, masochist, intimidate, exert, immune, stoneMask, healBoost, content, optimist, heart,
 ];
 
 const NOOP = () => {};
@@ -178,9 +189,9 @@ const HOOKS = {
   runInit: NOOP, stageStart: NOOP, carry: NOOP, stageOver: NOOP, feverFrom: ZERO,
   damage: ZERO, damageSituation: ZERO, damageState: ZERO, damageBoss: ZERO, damageTarget: ZERO,
   armor: ZERO, friendlyArmor: ZERO, lifesteal: ZERO, knockback: ZERO, radius: ZERO, burnOnHit: ZERO,
-  bounces: ZERO, pierce: () => false, previewFull: () => false, turnSecs: ZERO, immune: () => false,
-  turnBegin: () => null, turnStart: NOOP, turnEnd: NOOP, again: () => false, afterShot: NOOP, onKill: NOOP, onHurt: NOOP, share: NOOP, shotLog: null,
-  chipOrder: 0, chip: () => null, shotFloat: NONE, killFloat: NONE, turnFx: () => null, feverFx: () => null, aura: () => null,
+  bounces: ZERO, pierce: () => false, previewFull: () => false, turnSecs: ZERO, immune: () => false, healing: ZERO, revive: ZERO,
+  turnBegin: () => null, turnStart: NOOP, turnEnd: NOOP, again: () => false, afterShot: NOOP, onKill: NOOP, onHurt: NOOP, onHealed: NOOP, share: NOOP, shotLog: null,
+  chipOrder: 0, chip: () => null, shotFloat: NONE, killFloat: NONE, turnFx: () => null, feverFx: () => null, aura: () => null, watchFx: () => null,
   volley: null, pickText: null,
 };
 
@@ -287,7 +298,8 @@ export function picked(p, now, pool, target = null) {
   for (const m of IMPL.picked) m.picked(p, now, pool, target);
 }
 
-/** 選牌時的回血槽（healNow / healFromTeammates / healForTeam）：從 start（現在的血）開始依序加上每個效果的量 */
+/** 選牌時的回血槽（healNow / healFromTeammates / healForTeam）：從 start（現在的血）開始依序加上每個效果的量。
+ *  args 最後一個是這個人受到的治療效率倍率（見 healMult） */
 export function pickHeal(slot, start, ...args) {
   let hp = start;
   for (const m of IMPL[slot]) hp += m[slot](...args);
@@ -399,6 +411,10 @@ export function effectSum(slot, e, c = {}, start = 0) {
   for (const m of list) if (counts(m, c)) s += m[slot](e, c);
   return s;
 }
+/** 受到的回血倍率（healing 槽，治療效率；最少 0）：e = 角色，或選牌時只有 mods 的 { mods }（見 run.js） */
+export function healMult(e, c = {}) {
+  return Math.max(0, 1 + effectSum('healing', e, c) / 100);
+}
 /** 一個是非的槽：任一個效果說 true 就是 */
 export function effectAny(slot, e, c = {}) {
   const list = slotList(slot);
@@ -435,6 +451,19 @@ export function onHurt(match, e, dmg) {
 }
 export function share(match, hit, c) {
   for (const m of IMPL.share) m.share(match, hit, c);
+}
+/** e 受到一次治療、真的回了 n 點血（Match.heal；吸血不算） */
+export function onHealed(match, e, n) {
+  for (const m of IMPL.onHealed) m.onHealed(match, e, n);
+}
+/** e 要倒下了（Entity.die）：第一個要救他的效果給的復活血量（上限的 %）；沒有 = 0 */
+export function reviveOf(e, cause) {
+  if (!e || !e.mods) return 0;
+  for (const m of IMPL.revive) {
+    const pct = m.revive(e, cause);
+    if (pct > 0) return pct;
+  }
+  return 0;
 }
 /** 開火紀錄要附的欄位（e 不在了 = 不附） */
 export function shotLogOf(e) {
@@ -504,6 +533,16 @@ export function auraOf(e, c) {
     if (a) return a;
   }
   return null;
+}
+/** e 效果自己的狀態跟 before（上一幀的 stateOf）比變了的畫面動作（見上面 watchFx），照 LIST 的順序接起來；沒有 = [] */
+export function watchFxOps(e, before) {
+  if (!e || !e.mods || !before) return [];
+  const out = [];
+  for (const m of IMPL.watchFx) {
+    const ops = m.watchFx(e, before);
+    if (ops) out.push(...ops);
+  }
+  return out;
 }
 /** shot.kind 是哪個效果的一波攻擊（橫幅）；不是 = null */
 export function volleyLook(kind) {

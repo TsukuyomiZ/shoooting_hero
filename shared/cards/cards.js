@@ -65,7 +65,8 @@ export function validateCards(raw) {
     };
     card.requires = requiredWeapon(card);
     const keys = Object.keys(card.effects);
-    card.teamOnly = keys.length > 0 && keys.every(k => TEAM_ONLY.has(k));
+    // 武器牌：武器本身是 teamOnly（只對隊友有用，例如急救槍）也算
+    card.teamOnly = (keys.length > 0 && keys.every(k => TEAM_ONLY.has(k))) || (!!card.weapon && !!CONFIG.WEAPONS[card.weapon].teamOnly);
     cards.push(card);
   }
   return { cards, warnings };

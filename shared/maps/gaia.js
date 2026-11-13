@@ -469,7 +469,8 @@ function witherStep(match) {
   return done(match, { action: 'wither', left: vanished.length, vanished, cast: CONFIG.GAIA.cast.wither, still: stillResult(match) });
 }
 
-// 誅滅：不在護盾裡的人直接死亡（不吃無敵、減傷、免疫，剩下的血全算承受傷害），在裡面的中毒層數歸零；lightEvery 輪後再放最後之光
+// 誅滅：不在護盾裡的人直接死亡（不吃無敵、減傷、免疫，剩下的血全算承受傷害；當場被效果救回來的（例如人工心臟）不算在 killed 裡），
+// 在裡面的中毒層數歸零；lightEvery 輪後再放最後之光
 function judgementStep(match) {
   const S = gaiaState(match);
   const shield = !!S.light.shield;
@@ -483,7 +484,7 @@ function judgementStep(match) {
     } else {
       p.taken += p.hp;
       p.die('judged');
-      killed.push(p.id);
+      if (!p.alive) killed.push(p.id);
     }
   }
   S.light = null;

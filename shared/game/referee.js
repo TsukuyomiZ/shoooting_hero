@@ -55,15 +55,17 @@ function sceneChanges(shot) {
   if (fairy.length) out.fairy = fairy;
   return out;
 }
-const hpOf = (match) => new Map(match.entities.map(e => [e.id, { hp: e.hp, alive: e.alive }]));
+// rv = 倒下時被效果救回來幾次（Entity.revives，例如人工心臟）：救回來的人記 revived
+const hpOf = (match) => new Map(match.entities.map(e => [e.id, { hp: e.hp, alive: e.alive, rv: e.revives }]));
 function hpChanges(match, before) {
   const out = [];
   for (const e of match.entities) {
     const b = before.get(e.id);
     // 新出現的（召喚的樹妖、飛出來的蜜蜂）；同一個動作裡就被打死的也標 died
     if (!b) { out.push({ id: e.id, name: e.name, hp: [null, r1(e.hp)], spawned: true, ...(e.alive ? {} : { died: e.deathCause || true }) }); continue; }
-    if (b.hp === e.hp && b.alive === e.alive) continue;
-    out.push({ id: e.id, name: e.name, hp: [r1(b.hp), r1(e.hp)], ...(b.alive && !e.alive ? { died: e.deathCause || true } : {}) });
+    const revived = e.revives > b.rv;
+    if (b.hp === e.hp && b.alive === e.alive && !revived) continue;
+    out.push({ id: e.id, name: e.name, hp: [r1(b.hp), r1(e.hp)], ...(b.alive && !e.alive ? { died: e.deathCause || true } : {}), ...(revived ? { revived: true } : {}) });
   }
   return out;
 }
@@ -239,7 +241,15 @@ export class Referee {
         // 位置回報（Match 收下、檢查、結算撿道具與落水；vine = 抓著第幾條藤蔓，超時 / 斷線時伺服器才知道他是掛著；
         // hp = 他畫面上的血量：流血時走路扣的，伺服器照收，見 Match.applyPositionReport）
         const before = hpOf(this.match);   // 流血倒下時 turn.skip 的血量變化從這次回報之前算起
+        const rv = actor.revives;
         const report = this.match.applyPositionReport(actor, msg);
+        // 這次回報倒下、被效果救回來了（例如人工心臟：流血倒下的他的畫面上先救過了，回報的血量是 0，見 GameView；淹死的另外記在 water）
+        const revived = actor.revives > rv ? { revived: true } : {};
+        // 轉給其他人：流血倒下被效果救回來的帶救回來之後的整個狀態（revive：血量、狀態清掉、效果用掉了，別人的畫面照它演復活）
+        const relay = () => this.io.broadcast({
+          t: 'move', id: actor.id, x: actor.x, y: actor.y, facing: actor.facing, stamina: actor.stamina, vine: actor.onVine,
+          ...(actor.bleed > 0 || revived.revived ? { hp: actor.hp } : {}), ...(revived.revived ? { revive: actor.toState() } : {}),
+        }, playerId);
         // 這次回報流血扣了幾點、扣完剩多少（同一次回報又掉進水裡的話，是落水扣血之前的：落水的另外記在 water）
         const bled = report.bled ? { hp: r1(report.bledHp), bled: report.bled } : {};
         const bledOut = !actor.alive && !report.water;   // 流血扣到倒下（淹死的另外走 actorFellInWater）
@@ -247,25 +257,23 @@ export class Referee {
           // 位置不合理（瞬移、出界、卡進地形）被擋下（血量照收：流血扣到倒下一樣結束這回合）
           // fenced = 伺服器剛把他移走（Match.relocate），這是他的畫面還沒收到之前送的舊位置
           this.record('move.reject', {
-            pid: actor.id, name: actor.name, x: logValue(msg.x), y: logValue(msg.y), from: [r1(actor.x), r1(actor.y)], ...bled,
+            pid: actor.id, name: actor.name, x: logValue(msg.x), y: logValue(msg.y), from: [r1(actor.x), r1(actor.y)], ...bled, ...revived,
             ...(report.fenced ? { fenced: true } : {}),
           });
           if (bledOut) this.skipTurn('bleed', [], before, report.kill);
+          else if (revived.revived) relay();   // 位置沒收，但救回來的血量、狀態別人也要知道（位置照伺服器記得的）
           break;
         }
         // 每一次都記（LOG.moves 關掉時由寫檔的地方不寫，見 logWanted）
         this.record('move', {
           pid: actor.id, name: actor.name, x: r1(msg.x), y: r1(msg.y), facing: actor.facing, stamina: r1(actor.stamina),
-          ...(actor.onVine >= 0 ? { vine: actor.onVine } : {}), ...bled,
+          ...(actor.onVine >= 0 ? { vine: actor.onVine } : {}), ...bled, ...revived,
         });
         if (bledOut) { this.skipTurn('bleed', [], before, report.kill); break; }   // 走路流血扣到倒下：這回合結束（跟淹死一樣）
         this.announcePickup(report.pickup);
-        if (report.water) { this.actorFellInWater(actor); break; }   // 自己走 / 跳進水裡
+        if (report.water) { this.actorFellInWater(actor); break; }   // 自己走 / 跳進水裡（water 訊息帶整個狀態，救回來的也在裡面）
         // 轉給其他人；他在流血的話帶 hp（他的血量只有他自己的畫面在扣，別人照這個顯示）
-        this.io.broadcast({
-          t: 'move', id: actor.id, x: actor.x, y: actor.y, facing: actor.facing, stamina: actor.stamina, vine: actor.onVine,
-          ...(actor.bleed > 0 ? { hp: actor.hp } : {}),
-        }, playerId);
+        relay();
         break;
       }
       case 'slow': {
@@ -292,6 +300,7 @@ export class Referee {
         if (this.lockWeapon && msg.weapon !== this.lockWeapon) return this.ignored(playerId, msg, 'weaponLocked');
         // 空中也能開火：就在回報的位置出手，並接著他當下的垂直速度往下飛 / 落地（開火的回報不收 safe：重生點只認走路掉水那次回報的）
         const pre = hpOf(this.match);   // 流血倒下時 turn.skip 的血量變化從這次回報之前算起
+        const rv = actor.revives;
         const report = this.match.applyPositionReport(actor, { ...msg, safe: null });
         this.announcePickup(report.pickup);
         const power = clamp(msg.power, 0, 100);
@@ -304,7 +313,7 @@ export class Referee {
           pid: actor.id, name: actor.name, weapon: msg.weapon, angle: r1(msg.angle), power: r1(power),
           x: logValue(msg.x), y: logValue(msg.y), ...(Number.isFinite(msg.vy) && msg.vy ? { vy: r1(msg.vy) } : {}),
           ...(actor.onVine >= 0 ? { vine: actor.onVine } : {}), ...(report.ok ? {} : { posRejected: true }),
-          ...(report.bled ? { hp: r1(report.bledHp), bled: report.bled } : {}),
+          ...(report.bled ? { hp: r1(report.bledHp), bled: report.bled } : {}), ...(actor.revives > rv ? { revived: true } : {}),
         });
         if (bledOut) return this.skipTurn('bleed', [], pre, report.kill);   // 這一發沒射出去
         // 出手的位置已經在水裡：淹死就結束，撐住了就從重生點出手
@@ -405,6 +414,7 @@ export class Referee {
   actorFellInWater(actor) {
     this.record('water', {
       pid: actor.id, name: actor.name, x: r1(actor.splash.x), dmg: r1(actor.splash.dmg), died: !!actor.splash.died,
+      ...(actor.splash.revived ? { revived: true } : {}),   // 淹死了但被效果救回來（例如人工心臟）
       hp: r1(actor.hp), respawn: actor.alive ? [r1(actor.x), r1(actor.y)] : null,
     });
     if (!actor.alive) { this.skipTurn('water', [splashOf(actor)]); return true; }

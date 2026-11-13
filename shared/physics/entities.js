@@ -1,7 +1,7 @@
 import { CONFIG } from '../core/config.js';
 import { clamp } from '../core/utils.js';
 import { isEquippable } from './weapons.js';
-import { DEFAULT_MODS, initState, writeState, readState, checkState } from '../cards/effects/index.js';
+import { DEFAULT_MODS, initState, writeState, readState, checkState, reviveOf } from '../cards/effects/index.js';
 
 // 戰鬥中用到的牌加成（% 或次數）：從效果的登記表算出來（見 shared/cards/effects/index.js）。玩家的值由牌算出來（見 cards.js），敵人全部是 0
 export { DEFAULT_MODS };
@@ -114,6 +114,10 @@ export class Entity {
     this.alive = true;
     this.deathTimer = 0;
     this.deathCause = null;
+    // 倒下時被效果救回來（例如人工心臟，見 revive）：這一關救回來幾次、最近一次 { n, cause, hp }（不同步：伺服器與客戶端各自的物理裡記；
+    // 客戶端自己操作時流血倒下又被救回來，照這個把「倒下」回報給伺服器，見 GameView）
+    this.revives = 0;
+    this.revival = null;
     this.hurtTimer = 0;
     // 落水重生：最後站穩的地方（腳底），掉進水裡就回到這裡（見 fallInWater）
     this.safeX = o.x;
@@ -515,13 +519,21 @@ export class Entity {
   fallInWater(terrain) {
     const drown = !this.isPlayer && CONFIG.WATER.enemiesDrown;
     const dmg = drown ? this.hp : Math.min(this.hp, Math.round(this.maxHp * CONFIG.WATER.damagePct / 100));
-    const spot = this.hp > dmg ? this.respawnSpot(terrain) : null;
+    let spot = this.hp > dmg ? this.respawnSpot(terrain) : null;
     this.waterFalls++;
     // hp = 落水扣血之前的血量（行動玩家回報落水時帶這個：伺服器先照它對齊流血扣的血，再扣同樣的落水傷害）
     this.splash = { n: this.waterFalls, x: this.x, y: this.y, dmg, died: !spot, sx: this.safeX, sy: this.safeY, hp: this.hp };
     this.taken += spot ? dmg : this.hp;   // 淹死：剩下的血全算
-    if (!spot) { this.die('water'); return; }
-    this.hp -= dmg;
+    if (spot) {
+      this.hp -= dmg;
+    } else {
+      this.die('water');
+      if (!this.alive) return;
+      // 淹死了但被效果救回來（例如人工心臟，血量是救回來的、不再扣落水的血）：跟撐住了一樣回到岸上；整張圖都沒地方站就還是淹死
+      spot = this.respawnSpot(terrain);
+      if (!spot) { this.expire('water'); return; }
+      Object.assign(this.splash, { died: false, revived: true });
+    }
     this.hurtTimer = 0.35;
     this.x = spot.x;
     this.y = spot.y;
@@ -571,7 +583,15 @@ export class Entity {
     return real;
   }
 
+  // 倒下（被打、落水、流血、中毒、燃燒、地圖機制的直接死亡…物理與規則裡的都走這裡）：效果可以當場救回來（見 revive）
   die(cause) {
+    if (!this.alive) return;
+    if (this.revive(cause)) return;
+    this.expire(cause);
+  }
+
+  // 真的倒下（不問效果）：套伺服器的狀態時用（伺服器那邊已經問過了，還是倒下 = 真的倒下）
+  expire(cause) {
     if (!this.alive) return;
     this.alive = false;
     this.hp = 0;
@@ -580,6 +600,24 @@ export class Entity {
     this.moveDir = 0;
     this.aiming = false;
     this.onVine = -1;
+  }
+
+  // 要倒下時問效果要不要救（reviveOf，例如人工心臟）：救的話當場以上限 pct% 的血站起來（至少 1），負面狀態（燃燒、中毒、流血、糾纏）清掉，
+  // 被中毒鎖住的上限不回來。位置不動（淹死的由 fallInWater 放回岸上）。只用加減乘除，伺服器與客戶端照同一個狀態救出一樣的結果。回傳 true = 救回來了
+  revive(cause) {
+    const pct = reviveOf(this, cause);
+    if (!(pct > 0)) return false;
+    this.revives++;
+    this.hp = clamp(Math.round(this.maxHp * pct / 100), 1, Math.max(1, this.maxHp));
+    this.burn = 0;
+    this.burnFrac = 0;
+    this.poison = 0;
+    this.bleed = 0;
+    this.bleedFrac = 0;
+    this.entangle = 0;
+    this.hurtTimer = 0.35;
+    this.revival = { n: this.revives, cause, hp: this.hp };
+    return true;
   }
 
   // ---- 同步用 ----
@@ -601,8 +639,13 @@ export class Entity {
     return s;
   }
 
-  // 飛行途中的事件（爆炸、穿透…）之後這個角色的狀態：客戶端在同一幀套上，跟伺服器對齊
+  // 飛行途中的事件（爆炸、穿透…）之後這個角色的狀態：客戶端在同一幀套上，跟伺服器對齊。效果自己的狀態（例如人工心臟用掉了沒、知足的層數）
+  // 也帶（writeState）：同一波後面的沉降裡客戶端自己跑的物理（例如被打飛掉進水裡）才會照一樣的狀態算
   toEventState() {
+    return writeState(this, this.eventBase());
+  }
+  // toEventState 本來的欄位（效果自己的狀態之外；載入時也拿來檢查效果的同步欄位有沒有撞名）
+  eventBase() {
     const s = {
       id: this.id, x: this.x, y: this.y, vx: this.vx, vy: this.vy, og: this.onGround,
       hp: this.hp, alive: this.alive, cause: this.deathCause, burn: this.burn, shield: this.shield,
@@ -627,7 +670,8 @@ export class Entity {
     if (s.bl !== undefined) this.bleed = s.bl;
     if (s.vn !== undefined) { this.onVine = s.vn; this.vineRegrab = s.rg || 0; }   // 被打下藤蔓
     if (s.closed !== undefined) this.closedTurns = s.closed;
-    if (this.alive && !s.alive) this.die(s.cause || 'hit');
+    readState(this, s);   // 效果自己的狀態（有帶的才套）
+    if (this.alive && !s.alive) this.expire(s.cause || 'hit');
   }
 
   applyState(s) {
@@ -661,7 +705,7 @@ export class Entity {
     this.moveDir = 0;
     this.vineDir = 0;
     if (this.alive && !s.alive) {
-      this.die(s.cause || 'hit');
+      this.expire(s.cause || 'hit');
     } else if (!this.alive && s.alive) {
       this.alive = true;
       this.deathTimer = 0;
@@ -672,7 +716,10 @@ export class Entity {
 
 // 載入時就檢查效果自己的狀態（shared/cards/effects/ 的 state）不會默默蓋掉角色的東西：建一個同步欄位最多的角色（會閉上、蜜蜂）——
 // 欄位跟角色本來的撞名，建的時候 initState 就丟錯；同步欄位跟 toState 本來的撞名、after 寫錯，checkState 丟錯
-checkState(Object.keys(new Entity({ id: '', team: 'enemies', x: 0, y: 0, hp: 1, stamina: 1, closeOnHit: 1, kind: 'bee' }).baseState()));
+{
+  const probe = new Entity({ id: '', team: 'enemies', x: 0, y: 0, hp: 1, stamina: 1, closeOnHit: 1, kind: 'bee' });
+  checkState([...new Set([...Object.keys(probe.baseState()), ...Object.keys(probe.eventBase())])]);
+}
 
 // 中毒（任何角色都可能有：巨蟒、蜜蜂的攻擊會上毒）：自己的回合開始時結算（Match.turnStartEffects 呼叫）。
 // 每層扣最大血量 pctPerStack%（照現在的上限算），活下來的話上限也鎖住一樣多。
@@ -683,9 +730,10 @@ export function poisonTick(e) {
   const stacks = e.poison;
   if (!CONFIG.POISON.persist) e.poison = 0;
   const amount = Math.max(1, Math.round(stacks * CONFIG.POISON.pctPerStack / 100 * e.maxHp));
+  const rv = e.revives;
   const dmg = e.takeDamage(amount);
   let lock = 0;
-  if (e.alive) {
+  if (e.alive && e.revives === rv) {   // 被毒倒、當場被效果救回來的（例如人工心臟）：毒已經清掉，這一下不再鎖上限
     lock = Math.min(amount, e.maxHp - 1);
     e.maxHp -= lock;
     e.poisonLock += lock;

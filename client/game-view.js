@@ -2,7 +2,7 @@ import { CONFIG } from '../shared/core/config.js';
 import { Match } from '../shared/game/match.js';
 import { replayVolley } from '../shared/physics/volley.js';
 import { glideAt, glideDist } from '../shared/ai/ai-move.js';
-import { stateOf, shotFloats, killFloats, turnFxOps, volleyLook, feverOps, readState } from '../shared/cards/effects/index.js';
+import { stateOf, shotFloats, killFloats, turnFxOps, volleyLook, feverOps, readState, watchFxOps } from '../shared/cards/effects/index.js';
 import { clamp, lerpAngle } from '../shared/core/utils.js';
 import { Renderer } from './render.js';
 import { TerrainPainter } from './terrain-painter.js';
@@ -17,7 +17,7 @@ const FPS = 60;
 const inRect = (p, r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 const SLOT_KEYS = { Digit1: 0, Digit2: 1, Digit3: 2 };
 const STEP_STRIDE = 34;   // 走多少 px 踩一步（移動速度 130 px/s ≈ 每秒 4 步）
-const LAUNCH_SOUNDS = { sniper: 'sniper', sonic: 'sonic', darts: 'dart', waterCannon: 'waterJet', rapier: 'stab' };   // 開火的聲音（沒列的都是大砲聲）
+const LAUNCH_SOUNDS = { sniper: 'sniper', sonic: 'sonic', darts: 'dart', waterCannon: 'waterJet', rapier: 'stab', medGun: 'dart' };   // 開火的聲音（沒列的都是大砲聲）
 const EMBER_COLORS = ['#fde047', '#fb923c', '#f97316', '#ef4444'];   // 著火的飛行物噴出來的火星
 
 // 客戶端的遊戲畫面：
@@ -194,8 +194,9 @@ export class GameView {
       case 'move':
         // 他在流血時帶的血量（netHp）也走佇列，位置照舊馬上套：畫面落後時（分頁在背景、很卡）先套上的話，之後才播的舊快照
         // （他的 turn、resume…）會把血量蓋回流血之前，下一筆再把同一段流血飄一次
+        // revive = 他流血倒下、被效果救回來（例如人工心臟）之後的整個狀態：一起套（復活的演出照效果的狀態，見 update 的 watchFx）
         if (Number.isFinite(msg.hp)) {
-          this.queue.push({ t: 'netHp', id: msg.id, hp: msg.hp });
+          this.queue.push({ t: 'netHp', id: msg.id, hp: msg.hp, ...(msg.revive ? { state: msg.revive } : {}) });
           this.pump();
         }
         if (this.holdMoves) this.heldMoves.set(msg.id, msg);   // 重播一波時先收著（重播的物理不受影響），播完再套最新的
@@ -232,6 +233,12 @@ export class GameView {
   onNetHp(msg) {
     const e = this.match.byId(msg.id);
     if (!e || msg.id === this.myId) return;
+    if (msg.state) {   // 流血倒下又被救回來：照伺服器救回來之後的狀態（位置照舊跟著他回報的走）
+      const t = this.look(e).netTarget;
+      e.applyState(msg.state);
+      if (t) { e.x = t.x; e.y = t.y; }
+      return;
+    }
     if (msg.hp < e.hp) this.noteBleed(e, e.hp - msg.hp);
     e.hp = msg.hp;
   }
@@ -771,8 +778,9 @@ export class GameView {
   // 一顆飛行物出發（自己 / 隊友 / AI 開火）：砲聲、砲口的火花、震一下
   showLaunch(weapon, p) {
     sfx.play(LAUNCH_SOUNDS[weapon.id] || 'cannon', { x: p.x });
-    const light = weapon.id === 'darts' || weapon.id === 'rapier';   // 飛鏢一甩、刺劍一刺：沒有砲口的火花，只有一點點
-    const color = weapon.id === 'plasma' ? '#67e8f9' : weapon.id === 'waterCannon' ? '#bae6fd' : weapon.id === 'rapier' ? '#f1f5f9' : '#ffcc66';
+    const light = weapon.id === 'darts' || weapon.id === 'rapier' || weapon.healHp > 0;   // 飛鏢一甩、刺劍一刺、急救槍：沒有砲口的火花，只有一點點
+    const color = weapon.id === 'plasma' ? '#67e8f9' : weapon.id === 'waterCannon' ? '#bae6fd' : weapon.id === 'rapier' ? '#f1f5f9'
+      : weapon.healHp > 0 ? '#86efac' : '#ffcc66';
     this.spawnParticles(p.x, p.y, light ? 3 : 8, { speed: 140, life: 0.25, size: 3, color, gravity: 0 });
     // 飛鏢、刺劍輕輕一下、高壓水炮有後座力（射手被推出去由重播的物理演），其他照拋射 / 直線
     this.shake = Math.max(this.shake, light ? 1 : weapon.recoil ? 6 : weapon.gravity > 0 ? 5 : 2);
@@ -814,6 +822,13 @@ export class GameView {
         if (made.rect) this.painter.repaintRect(made.rect);
         const r = ev.carve ? ev.carve.r : ev.blast || 8;   // 不挖地形的爆炸（無差別轟炸、高壓水炮）照 blast 演
         const big = r >= 25;
+        if (weapon.healHp > 0) {   // 急救槍：打中隊友綠光一閃、「叮」一聲（回了多少血在下面飄）；打在地形上只閃一下，不爆炸
+          const healed = !!(ev.heals && ev.heals.length);
+          if (healed) sfx.play('chime', { x: ev.x });
+          this.spawnParticles(ev.x, ev.y, healed ? 14 : 4, { speed: healed ? 90 : 60, life: 0.55, size: 2.5, color: '#86efac', gravity: -80 });
+          this.flashes.push({ x: ev.x, y: ev.y, r: healed ? 16 : 6, life: 0.22, maxLife: 0.22, tint: '134,239,172' });
+          break;
+        }
         if (weapon.id === 'darts') {   // 飛鏢：插進去「咚」一聲，不爆炸
           sfx.play('thunk', { x: ev.x });
           this.spawnParticles(ev.x, ev.y, 4, { speed: 90, life: 0.3, size: 2, color: '#e7e5e4', gravity: 500 });
@@ -852,6 +867,10 @@ export class GameView {
     this.showDamages(ev.damages);
     const owner = ev.heal ? this.match.byId(shot.actorId) : null;
     if (owner) this.floatText(owner, `+${ev.heal} 吸血`, '#4ade80', 16);
+    for (const h of ev.heals || []) {   // 急救槍打到的隊友回了多少血（滿血的話回 0）
+      const t = this.match.byId(h.id);
+      if (t) this.floatText(t, h.n > 0 ? `+${h.n} 治療` : '治療（血是滿的）', '#4ade80', h.n > 0 ? 18 : 14);
+    }
   }
 
   // 傷害清單（Match.applyExplosion 的 damages：飛行事件的、回合中危險物的）的飄字與特效：無敵擋下、地圖畫面自己演的、分擔、扣血、上燃燒 / 中毒 / 流血、免疫
@@ -905,7 +924,7 @@ export class GameView {
       if (Number.isFinite(s.poison)) e.poison = s.poison;   // 中毒 / 流血層數（例如古樹的藤蔓、尖刺；流血馬上照新的層數算走路扣的血）
       if (Number.isFinite(s.bleed)) e.bleed = s.bleed;
       readState(e, s);   // 效果自己的狀態（例如被虐體質的層數）
-      if (!s.alive && e.alive) e.die(s.cause || 'hit');
+      if (!s.alive && e.alive) e.expire(s.cause || 'hit');   // 伺服器的結果（要救的話伺服器已經救過了）
     }
     // 危險物把人移走了（Match.relocate，例如被抓起來丟到別的地方）：直接放過去、停下來（自己的話下一次位置回報就從那裡送；
     // 伺服器在那之前擋掉舊位置的回報），別人不要再滑回他最後回報的位置
@@ -1167,11 +1186,12 @@ export class GameView {
     if (me.alive && (!s || s.x !== me.x || s.y !== me.y || s.facing !== me.facing || s.vine !== me.onVine)) this.sendMove(me);
   }
 
-  // hp = 自己畫面上的血量（流血：走路時本地已經扣了，伺服器在他流血時照收、只能減不能加，見 Match.applyPositionReport）
-  sendMove(me) {
+  // hp = 自己畫面上的血量（流血：走路時本地已經扣了，伺服器在他流血時照收、只能減不能加，見 Match.applyPositionReport）；
+  // 流血倒下又被效果救回來的那一次照倒下的 0 報（見 update）
+  sendMove(me, hp = me.hp) {
     this.lastMoveSent = this.time;
     this.lastSent = { x: me.x, y: me.y, facing: me.facing, vine: me.onVine };
-    this.transport.send({ t: 'move', x: me.x, y: me.y, vy: me.vy, facing: me.facing, stamina: me.stamina, vine: me.onVine, hp: me.hp });
+    this.transport.send({ t: 'move', x: me.x, y: me.y, vy: me.vy, facing: me.facing, stamina: me.stamina, vine: me.onVine, hp });
   }
 
   fire() {
@@ -1264,6 +1284,7 @@ export class GameView {
     }
     // 飛行物由 shotScript 逐幀推進（在下面的 tickScript 裡）
 
+    const banners = [];
     for (const e of this.match.entities) {
       const v = this.look(e);
       if (e.splash && e.splash !== v.splashShown) {   // 本地物理裡掉進水裡（自己操作、重播開火 / AI 走路）
@@ -1271,6 +1292,13 @@ export class GameView {
         if (e.id === this.myId && this.canAct) this.reportWater(e);
         if (!e.splash.died) this.onSplash(e, e.splash);   // 淹死的由 onDeath 播
       }
+      // 本地物理裡倒下、被效果救回來（例如人工心臟）：自己操作時流血倒下的回報在 stepEntities 已經送了（這裡是保底，重複呼叫不會再送）；
+      // 淹死被救回來的照落水的回報（reportWater）
+      if (e.id === this.myId && this.canAct) this.reportRevival(e);
+      // 效果自己的狀態跟上一幀比變了（不管是本地物理、重播還是套伺服器的狀態改的）：效果給的演出（例如人工心臟的復活、知足的層數）
+      const st = stateOf(e);
+      if (v.effState) this.playEffectOps(watchFxOps(e, v.effState), banners);
+      v.effState = st;
       this.bleedFx(e, dt);
       if (e.alive) {   // 伺服器的狀態把他救回來了（applyState）：下次倒下再播，也不再是「中毒倒下」（除非又被毒倒）
         if (v.deathHandled) v.poisonDeath = false;
@@ -1281,6 +1309,7 @@ export class GameView {
         this.onDeath(e);
       }
     }
+    if (banners.length) this.showBanner(banners.map(b => b[0]).join('　·　'), banners[0][1]);
     this.updateEffects(dt);
     this.tickScript();
     this.mapView.update(this.mapCtx, dt);   // 地圖畫面的動畫 / 特效照遊戲時間推進（不照畫了幾次）
@@ -1307,6 +1336,10 @@ export class GameView {
       } else {
         const falls = e.waterFalls;
         e.update(dt, world);
+        // 自己操作時流血倒下、被效果救回來（例如人工心臟）：先把「倒下」回報給伺服器（hp 0：伺服器照樣扣到倒下、一樣會救回來；
+        // 回報的血量只能減不能加，不這樣伺服器不知道他倒過）。要排在這一幀其他的回報之前（同一幀撿到道具的回報、update 裡的落水回報），
+        // 不然那些回報帶的是救回來之後的血量，伺服器會先照它們算，兩邊的血量就對不上
+        if (e.id === this.myId && this.canAct) this.reportRevival(e);
         // 自己的回合走過道具（例如蛇血），先在本地撿（跟伺服器同一套判斷）——之後在本地掉水才會照撿了之後的狀態算，跟伺服器一樣。
         // 撿到了就馬上回報位置：伺服器檢查的線段就停在道具上，一定也會判到（之後的 pickup 只是確認）
         if (e.id === this.myId && this.canAct && e.alive && e.waterFalls === falls && this.mapView.predictMove(this.mapCtx, e, px, py)) this.sendMove(e);
@@ -1327,6 +1360,15 @@ export class GameView {
       this.deadline = null;
       this.mouse.down = false;
     }
+  }
+
+  // 自己的回合在本地物理裡流血倒下、被效果救回來（e.revival 是新的一次、死因 bleed）：送一次 hp 0 的位置回報（見 stepEntities）。
+  // 每一次救回來只送一次（v.revivalSeen）；淹死被救回來的不在這裡（落水的回報帶落水之前的血量，伺服器照樣淹死、救回來）
+  reportRevival(me) {
+    const v = this.look(me);
+    if (!me.revival || me.revival === v.revivalSeen) return;
+    v.revivalSeen = me.revival;
+    if (me.revival.cause === 'bleed') this.sendMove(me, 0);
   }
 
   // 自己的回合走路流血扣到倒下（本地物理）：馬上回報倒下的位置（hp 0，伺服器照收、結束這回合），之後不能再操作；等伺服器的 skip

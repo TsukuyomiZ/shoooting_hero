@@ -294,13 +294,19 @@ export function restoreSealed(match, list) {
 }
 
 // 超巨石那一招：先壓死碰到那一段的玩家（直接死亡：不吃無敵、減傷，剩下的血全算承受傷害），再封住平台（sealLedge），大家落地。
+// 被壓到、當場被效果救回來的（例如人工心臟）不算壓死：封好之後放到最近站得住的地方（同落水的重生點），不會卡在石頭裡。
 // 回傳 { action: 'seal', ledge, killed（壓死的玩家 id）, rocks, torches, cast, still }；已經封住了回傳 null
 function sealStep(match, cy, i) {
   const S = cyclopsState(match);
   if (!S || S.sealed.includes(i) || !(i >= 0 && i < sealableCount(match))) return null;
-  const killed = crushedPlayers(match, i);
-  for (const e of killed) { e.taken += e.hp; e.die('crushed'); }
+  const crushed = crushedPlayers(match, i);
+  for (const e of crushed) { e.taken += e.hp; e.die('crushed'); }
+  const killed = crushed.filter(e => !e.alive);
   const { rocks, torches } = sealLedge(match, i);
+  for (const e of crushed) {
+    const spot = e.alive ? e.respawnSpot(match.terrain) : null;
+    if (spot) Object.assign(e, { x: spot.x, y: spot.y, vx: 0, vy: 0, onVine: -1 });
+  }
   return { action: 'seal', ledge: i, killed: killed.map(e => e.id), rocks, torches, cast: CONFIG.CYCLOPS.sealCast, still: stillResult(match) };
 }
 

@@ -55,9 +55,11 @@ export function blastRadius(owner, weapon) {
 }
 
 // 這顆飛行物撞不撞得到 e（不看位置）：倒下的、碰不到的（躲起來的，見 Entity.intangible）、已經穿透過 / 不會再撞到的（p.ignore）、
-// 自己人的子彈會穿過去的都不算
+// 自己人的子彈會穿過去的、只打自己人的飛行物（急救槍，passEnemies）碰到的別隊角色都不算——
+// 關著人的東西（heldId：處刑監獄的囚籠、抱著人的熊、黏著人的蜘蛛網）例外：擋得住急救槍（被關的人往哪射都打在它上面，外面的隊友也治不到裡面的人）
 function canHit(p, e) {
   if (!e.alive || e.intangible || p.ignore.has(e) || (p.passAllies && e !== p.owner && e.team === p.owner.team)) return false;
+  if (p.passEnemies && p.owner && e.team !== p.owner.team && !e.heldId) return false;
   if (e.allyPass && p.owner && e !== p.owner && e.team === p.owner.team) return false;   // 蜂巢、蜜蜂：自己人的子彈穿過去
   return true;
 }

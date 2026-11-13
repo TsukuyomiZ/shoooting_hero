@@ -741,7 +741,7 @@ function judgeImpact(c, b) {
     const e = c.match.byId(id);
     if (!e || !e.alive) continue;
     c.fx.particles(e.cx, e.cy, 24, { speed: 180, life: 1, size: 3.5, color: '#fef3c7', gravity: -100 });
-    e.die('judged');
+    e.expire('judged');   // 伺服器說倒下了（被效果救回來的不在 killed 裡）
   }
   for (const id of b.saved || []) {
     const e = c.match.byId(id);

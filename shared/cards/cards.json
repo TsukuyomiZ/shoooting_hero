@@ -32,10 +32,13 @@
     { "id": "party_time",      "name": "狂歡派對",     "rarity": "green",  "desc": "狂熱提早到第 2 輪就觸發（之後照樣每隔幾輪再疊一層；Boss 關沒有狂熱）", "effects": { "feverStartRound": 2 }, "unique": true },
     { "id": "rapier",          "name": "西洋刺劍",     "rarity": "green",  "weapon": "rapier", "desc": "往前方刺出一劍，攻擊距離很短（160），只會刺中敵人。傷害 30，命中的敵人附加 10 層流血" },
     { "id": "masochist",       "name": "被虐體質",     "rarity": "green",  "desc": "每受到一次攻擊傷害，武器傷害 +10%（最多 +40%，每關重算）", "effects": { "hurtDamagePct": 10, "hurtDamageMaxPct": 40 }, "unique": true },
+    { "id": "med_gun",         "name": "急救槍",       "rarity": "green",  "weapon": "medGun", "desc": "射擊方式跟狙擊槍一樣（指哪射哪），打到的隊友回復 20 血；吃武器傷害加成，加成越高回越多。會穿過敵人，只打得到隊友" },
+    { "id": "life_amplifier",  "name": "生命增幅器",   "rarity": "green",  "desc": "受到的治療效率 +10%（吸血、治療都算，過關回血不算）", "effects": { "healRecvPct": 10 } },
+    { "id": "contentment",     "name": "知足",         "rarity": "green",  "desc": "每受到一次治療，武器傷害 +5%（最多 +30%，每關重算；吸血不算）", "effects": { "healedDamagePct": 5, "healedDamageMaxPct": 30 } },
     { "id": "intimidate",      "name": "威嚇",         "rarity": "green",  "desc": "離你 250 以內的敵人：受到你的傷害 +20%、對你造成的傷害 -10%", "effects": { "nearDamagePct": 20, "nearArmorPct": 10 } },
 
     { "id": "war_drum",        "name": "戰鼓",         "rarity": "purple", "desc": "所有武器傷害 +25%",        "effects": { "damagePct": 25 } },
-    { "id": "titan_frame",     "name": "巨人骨架",     "rarity": "purple", "desc": "血量上限 +100、受到的傷害 -5%、體型增大 +10%", "effects": { "maxHp": 100, "armorPct": 5, "sizePct": 10 } },
+    { "id": "titan_frame",     "name": "巨人骨架",     "rarity": "purple", "desc": "血量上限 +100、受到的傷害 -5%、體型增大 +30%", "effects": { "maxHp": 100, "armorPct": 5, "sizePct": 30 } },
     { "id": "shockwave",       "name": "衝擊波彈頭",   "rarity": "purple", "desc": "爆炸半徑 +30%、擊退 +40%",  "effects": { "radiusPct": 30, "knockbackPct": 40 } },
     { "id": "hd_scope",        "name": "高倍率望遠鏡", "rarity": "purple", "desc": "狙擊槍傷害 +25%，子彈可以穿透角色", "effects": { "sniperDamagePct": 25, "sniperPierce": 1 } },
     { "id": "fire_rounds",     "name": "燃燒子彈",     "rarity": "purple", "desc": "武器擊中的敵人附加 30 層燃燒", "effects": { "burnStacks": 30 } },
@@ -47,6 +50,7 @@
     { "id": "whetstone",       "name": "磨刀霍霍",     "rarity": "purple", "desc": "每次射擊沒有命中敵人時，獲得一層「準備」：每層武器傷害 +10%（最多 5 層），擊中敵人後歸零", "effects": { "missDamagePct": 10, "missMaxStacks": 5 }, "unique": true },
     { "id": "battle_hardened", "name": "越戰越強",     "rarity": "purple", "desc": "每次射擊命中敵人時，獲得一層「狂獵」：每層武器傷害 +10%（最多 10 層），沒有命中敵人就歸零", "effects": { "hitDamagePct": 10, "hitMaxStacks": 10 }, "unique": true },
     { "id": "marathon_runner", "name": "長跑選手",     "rarity": "purple", "desc": "體力上限 +100、移動速度 +5%", "effects": { "staminaMax": 100, "moveSpeedPct": 5 } },
+    { "id": "optimism",        "name": "樂觀",         "rarity": "purple", "desc": "受到的治療效率 +30%；血量在一半以上時，武器傷害 +50%", "effects": { "healRecvPct": 30, "healthyDamagePct": 50 } },
     { "id": "all_out",         "name": "全力一擊",     "rarity": "purple", "desc": "體力越低，武器傷害越高：體力全滿 +10%，體力用完 +50%", "effects": { "exertMinPct": 10, "exertMaxPct": 50 }, "unique": true },
 
     { "id": "phoenix_heart",   "name": "鳳凰之心",     "rarity": "gold",   "desc": "血量上限 +100 並全回復",   "effects": { "maxHp": 100, "healPct": 100 }, "unique": true },
@@ -56,9 +60,10 @@
     { "id": "carpet_bomb",     "name": "無差別轟炸",   "rarity": "gold",   "desc": "回合開始時，自己以外的區域都受到飛彈攻擊（每發傷害 50、半徑 30，每個目標最多被炸 3 次（多部位的首領整隻合算），隊友也會被炸到，不會炸壞地形；冷卻 3 回合）", "effects": { "bombard": 1 }, "unique": true },
     { "id": "godslayer",       "name": "弒神者",       "rarity": "gold",   "desc": "對首領傷害 +100%",         "effects": { "bossDamagePct": 100 } },
     { "id": "blessed_stone",   "name": "神佑之石",     "rarity": "gold",   "desc": "每過三回合，全體隊友無敵一次（擋下一次傷害）", "effects": { "teamShield": 1 }, "unique": true },
-    { "id": "bond",            "name": "攜手之伴",     "rarity": "gold",   "desc": "指定一名隊友成為「連結」：你們受到的傷害先減 30%，再跟連結的隊友平分", "effects": { "link": 1 }, "unique": true },
+    { "id": "bond",            "name": "攜手之伴",     "rarity": "gold",   "desc": "指定一名隊友成為「連結」：你們受到的傷害先減 10%，再跟連結的隊友平分", "effects": { "link": 1 }, "unique": true },
     { "id": "all_seeing_eye",  "name": "全知之眼",     "rarity": "gold", "desc": "武器傷害 +20%，瞄準時能看到完整的拋物線與落點，更容易瞄準", "effects": { "damagePct": 20, "fullArc": 1 }, "unique": true },
     { "id": "vajra_body",      "name": "金剛不壞",     "rarity": "gold",   "desc": "體力上限 +30，免疫所有異常狀態（燃燒、中毒、流血）", "effects": { "staminaMax": 30, "statusImmune": 1 }, "unique": true },
-    { "id": "stone_mask",      "name": "石假面",       "rarity": "gold",   "desc": "傷害吸血 +30%，但自己的回合結束時扣目前血量的 5%（不會因此倒下）", "effects": { "lifestealPct": 30, "maskDrainPct": 5 }, "unique": true }
+    { "id": "stone_mask",      "name": "石假面",       "rarity": "gold",   "desc": "傷害吸血 +30%，但自己的回合結束時扣目前血量的 5%（不會因此倒下）", "effects": { "lifestealPct": 30, "maskDrainPct": 5 }, "unique": true },
+    { "id": "artificial_heart", "name": "人工心臟",     "rarity": "gold",   "desc": "倒下時立刻以 50% 的血量復活（整場冒險只有一次）", "effects": { "revivePct": 50 }, "unique": true }
   ]
 }

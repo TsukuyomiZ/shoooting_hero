@@ -384,12 +384,15 @@ export class Match {
 
   // 自己的回合開始時（轟炸之後、開始計時之前）：中毒結算（可能被毒倒）→ 地圖機制（例如站在蛇血上就喝掉）→ 效果（例如恩賜之杖回血）。
   // 回傳 fx 清單給客戶端飄字
+  // 這段時間裡倒下又被效果救回來（例如人工心臟被毒倒）記一筆 revive（紀錄用；畫面照效果的狀態演，見 watchFx）
   turnStartEffects(e) {
     const fx = [];
+    const rv = e.revives;
     const poison = poisonTick(e);
     if (poison) fx.push(poison);
     this.mechanic.turnStart(this, e, fx);
     Effects.turnStart(this, e, fx);
+    if (e.revives > rv) fx.push({ type: 'revive', id: e.id, hp: e.hp, cause: e.revival.cause });
     return fx;
   }
 
@@ -400,18 +403,21 @@ export class Match {
   // - 地圖機制的回合結束效果（例如巨蟒被燒到跨過門檻掉蛇血、古樹的嘴巴張開）
   // - 效果的回合結束（照 shared/cards/effects/ 登記的順序：神佑之石給全隊無敵 → 時間扭曲給額外回合）。
   //   isExtra = 這是時間扭曲給的額外回合
-  // 在自己的回合倒下了（走路流血、淹死、被自己炸死…）：只跑地圖機制的回合結束（例如處刑監獄的罪人倒下 → 馬上換新的罪人）
+  // 在自己的回合倒下了（走路流血、淹死、被自己炸死…）：只跑地圖機制的回合結束（例如處刑監獄的罪人倒下 → 馬上換新的罪人）。
+  // 燃燒燒到倒下又被效果救回來（例如人工心臟）記一筆 revive（同 turnStartEffects）
   endTurn(e, isExtra = false) {
     const fx = [];
     if (!e.alive) {
       this.mechanic.turnEnd(this, e, fx);
       return fx;
     }
+    const rv = e.revives;
     this.burnTick(e, fx);
     this.stopBleeding(e, fx);
     this.untangle(e, fx);
     this.mechanic.turnEnd(this, e, fx);
     Effects.turnEnd(this, e, fx, isExtra);
+    if (e.revives > rv) fx.push({ type: 'revive', id: e.id, hp: e.hp, cause: e.revival.cause });
     return fx;
   }
 
@@ -463,15 +469,23 @@ export class Match {
 
   // ---- 傷害規則 ----
 
-  // 回血（吸血、恩賜之杖）：不足 1 點的小數先存著，長期下來剛好是設定的比例。回傳實際回了幾點
-  heal(e, amount) {
+  // 回血（吸血、恩賜之杖、急救槍、地圖上的回血）：乘上 e 受到的治療效率（效果的 healing 槽，例如生命增幅器），
+  // 不足 1 點的小數先存著，長期下來剛好是設定的比例。kind = 'steal'（吸血）/ 'treat'（治療，預設）：
+  // 治療真的回到血（> 0）才交給效果的 onHealed（例如知足疊層數；吸血不算）。回傳實際回了幾點
+  heal(e, amount, kind = 'treat') {
     if (!e.alive || !(amount > 0)) return 0;
-    e.healFrac += amount;
+    e.healFrac += amount * Effects.healMult(e, { match: this });
     const whole = Math.floor(e.healFrac);
     e.healFrac -= whole;
     const n = Math.max(0, Math.min(whole, e.maxHp - e.hp));
     e.hp += n;
+    if (n > 0 && kind !== 'steal') Effects.onHealed(this, e, n);
     return n;
+  }
+
+  // 受到的回血 +N%（治療效率，效果的 healing 槽；狀態列的「治療效率」照這個）
+  healingOf(e) {
+    return Effects.effectSum('healing', e, { match: this });
   }
 
   // 新的一輪開始（裁判在回合順序繞回前面時呼叫）：輪數 +1（狂熱跟著輪數走），再問地圖機制這一輪的變化（roundStart，
@@ -619,10 +633,23 @@ export class Match {
       Effects.share(this, hit, { alive0, shielded, block, friendly, damages });
       hits.push(hit);
     }
-    // 2. 扣血（每個人最後扣的總數跟順序無關，扣到 0 就倒下）
+    // 2. 扣血：每個人這一下要扣的（自己被打到的、分到別人的份）先加起來、一次扣（扣到 0 就倒下），再照原本的順序把實際扣到的分回各筆
+    // （每一筆最多它自己的量）。所以最後扣的總數、倒下時有沒有被效果救回來（例如人工心臟）、救回來之後的血量都跟角色順序無關。
+    // 救回來的人這一下的每一筆都記 revived：這一下的燃燒、中毒、流血不再上給他（復活時負面狀態已經清掉了），擊退照樣
+    const pieces = new Map();   // 角色 → [{ entry, amount }]（照 hits 的順序：自己被打到的、分到的）
+    const piece = (e, entry, amount) => { if (!pieces.has(e)) pieces.set(e, []); pieces.get(e).push({ entry, amount: Math.round(amount) }); };
     for (const h of hits) {
-      h.entry.dmg = h.e.takeDamage(h.own);
-      for (const s of h.shares) s.entry.dmg = s.q.takeDamage(s.amount);
+      piece(h.e, h.entry, h.own);
+      for (const s of h.shares) piece(s.q, s.entry, s.amount);
+    }
+    for (const [e, list] of pieces) {
+      const rv = e.revives;
+      let real = e.takeDamage(list.reduce((n, x) => n + x.amount, 0));
+      for (const x of list) {
+        x.entry.dmg = Math.min(Math.max(0, x.amount), real);
+        real -= x.entry.dmg;
+      }
+      if (e.revives > rv) for (const x of list) x.entry.revived = true;
     }
     // 真的扣到血的人（自己被打到、分到的那份各算一次）：效果的 onHurt（例如被虐體質疊層數）。大家都扣完才叫，跟角色順序無關。
     // 自己被打到的那份另外告訴地圖機制（hurt，例如流浪劍士的格擋架勢數被打中幾次）
@@ -649,17 +676,19 @@ export class Match {
     const poison = weapon.poison || 0;
     const bleed = weapon.bleed || 0;
     for (const { e, entry, factor } of hits) {
-      const immune = (burn > 0 || poison > 0 || bleed > 0) && !!attacker && !entry.friendly && e.alive && this.immuneTo(e);
+      // 上不上狀態：敵方打的、還活著、不是被這一下打倒又當場救回來的（entry.revived，見上面）
+      const status = !!attacker && !entry.friendly && e.alive && !entry.revived;
+      const immune = (burn > 0 || poison > 0 || bleed > 0) && status && this.immuneTo(e);
       if (immune) entry.immune = true;
-      if (burn > 0 && attacker && !entry.friendly && e.alive && !immune) {
+      if (burn > 0 && status && !immune) {
         const added = this.addBurn(e, burn, attacker);
         if (added > 0) entry.burn = added;
       }
-      if (poison > 0 && attacker && !entry.friendly && e.alive && !immune) {   // 有毒的攻擊（巨蟒、蜜蜂）：傷害 0 也照樣上毒
+      if (poison > 0 && status && !immune) {   // 有毒的攻擊（巨蟒、蜜蜂）：傷害 0 也照樣上毒
         e.poison += poison;
         entry.poison = poison;
       }
-      if (bleed > 0 && attacker && !entry.friendly && e.alive && !immune) {   // 會流血的攻擊（武器的 bleed）：同上，傷害 0 也照樣上；層數一直疊
+      if (bleed > 0 && status && !immune) {   // 會流血的攻擊（武器的 bleed）：同上，傷害 0 也照樣上；層數一直疊
         e.bleed += bleed;
         e.bleedSource = attacker.id;
         entry.bleed = bleed;
@@ -686,7 +715,7 @@ export class Match {
   lifesteal(attacker, damages, pct = attacker ? this.lifestealOf(attacker) : 0) {
     if (!attacker || !(pct > 0)) return 0;
     const dealt = damages.reduce((s, d) => s + (d.friendly || d.noCredit ? 0 : d.dmg), 0);
-    return dealt > 0 ? this.heal(attacker, dealt * pct / 100) : 0;
+    return dealt > 0 ? this.heal(attacker, dealt * pct / 100, 'steal') : 0;
   }
 
   // before 裡現在死掉的敵人算攻擊者的擊殺，再交給效果的 onKill（例如噬魂者每殺一個武器傷害 +N%，整場冒險累積）。
@@ -814,6 +843,12 @@ export class Match {
         if (hit.type !== 'terrain') ev.on = hit.type;   // range / water / out：客戶端照這個演（落水的濺水花）
         break;
       default: {       // explode
+        // 會回血的武器（急救槍）：打到的隊友回 healHp × 射手的武器傷害加成（Match.heal 再乘他受到的治療效率），不爆炸、不挖地、不傷人；
+        // 打到地形就停（它穿過敵人，打得到的角色只有自己人）。heals = [{ id, n: 實際回了幾點 }]
+        if (weapon.healHp > 0) {
+          if (target && target.team === owner.team) ev.heals = [{ id: target.id, n: this.heal(target, weapon.healHp * this.damageMult(owner, weapon)) }];
+          break;
+        }
         const r = this.explosionRadius(owner, weapon);
         blast = r;
         // noCarve（無差別轟炸、高壓水炮）：照樣有範圍傷害與擊退，只是不挖地形；爆炸多大照 blast 給客戶端演
@@ -843,7 +878,8 @@ export class Match {
     // 地圖機制對「這一下打在哪裡」的反應（例如洞穴：打到 / 炸到鐘乳石就掉下來、打在火把旁邊就點燃）：附在事件上，客戶端照著播（replayEvent）。
     // 半路才出現的飛行物（掉下來的鐘乳石，p.added）不算；落水、飛出場外不算（迴力鏢在水面、場外折返也一樣）。
     // 飛到最長路徑停下的那一點（range：高壓水炮散掉、迴力鏢在半空中折返）算：這一幀有事件就不做飛過去的判定（resolvePass），終點要照樣看
-    if ((hit.type === 'terrain' || hit.type === 'entity' || hit.type === 'range') && !p.added) {
+    // 會回血的武器（急救槍）不碰地圖的機關（不打落鐘乳石、不點火把…）
+    if ((hit.type === 'terrain' || hit.type === 'entity' || hit.type === 'range') && !p.added && !(weapon.healHp > 0)) {
       const extra = this.mechanic.struck(this, owner, {
         type: hit.type, x: hit.x, y: hit.y, blast, weapon: weapon.id, ...(from ? { x0: from.x, y0: from.y, r: p.hitRadius } : {}),
       });
@@ -860,6 +896,8 @@ export class Match {
       // 第二個參數 = 這一下是什麼武器（半路掉下來的吊燈是它自己的武器）、打到誰
       Object.assign(ev, this.mechanic.eventExtras(this, { weapon: weapon.id, damages }));
     }
+    // 急救槍回到血的人：事件帶他回完血的狀態（客戶端在同一幀套上；效果的狀態也在裡面，例如知足的層數）
+    if (ev.heals) ev.ents = this.entities.filter(e => ev.heals.some(h => h.id === e.id)).map(e => e.toEventState());
     return ev;
   }
 
@@ -868,6 +906,7 @@ export class Match {
   // 地圖機制把它攔下來（回傳的欄位帶 stop，例如頑皮猴王接住砲彈）：寫成 snatch 事件，飛行物到此為止（不爆炸、不著火）。
   // seg.ahead() 給地圖機制問「照現在的樣子飛下去第一個撞到什麼」（peekHit：拿一份複本試飛，不動這顆）
   resolvePass(owner, p, i, frame, x0, y0) {
+    if (p.weapon.healHp > 0) return null;   // 會回血的武器（急救槍）不碰地圖的機關（不會被接走、不點火把），也不會著火（noFire）
     const world = this.world;
     const seg = { x0, y0, x1: p.x, y1: p.y, r: p.hitRadius, weapon: p.weapon.id, ignore: p.ignore, ahead: () => peekHit(world, p) };
     const extra = this.mechanic.passed(this, owner, seg);

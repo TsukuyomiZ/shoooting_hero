@@ -6,6 +6,7 @@ import { Referee } from './referee.js';
 import { RARITIES, baseStats, drawOffers, applyCard, derivePlayerStats, needsDiscard, equipWeapon } from '../cards/cards.js';
 import * as Effects from '../cards/effects/index.js';
 import { logValue } from '../core/utils.js';
+import { preferredWeapon } from '../ai/ai.js';
 
 // 選牌中斷線又重連回來、還沒選的人，至少還有幾秒可以選（斷線那時候可能只剩不到 1 秒：沒有人在選就 1 秒後結束）
 const RECONNECT_PICK_SECS = 10;
@@ -247,8 +248,11 @@ export class Versus {
 
   // 電腦玩家選牌：能拿的牌裡挑稀有度最高的（一樣高就隨機）；武器欄滿了的武器牌丟最後一把，要指定隊友的隨機挑一位
   botPick(p) {
-    const pool = this.safeOffers(p);
-    if (!pool.length) return;
+    const safe = this.safeOffers(p);
+    if (!safe.length) return;
+    // AI 不會開火的武器（急救槍）不拿（拿了只是佔一格）；只剩這種才照樣拿
+    const usable = safe.filter(c => !c.weapon || preferredWeapon(p, [c.weapon]));
+    const pool = usable.length ? usable : safe;
     const rank = (c) => RARITIES.indexOf(c.rarity);
     const top = Math.max(...pool.map(rank));
     const card = this.rng.pick(pool.filter(c => rank(c) === top));
@@ -321,6 +325,7 @@ export class Versus {
       p.cards.push(card);
       const { weapons, discarded } = equipWeapon(p.weapons, card, this.discards[p.id]);
       p.weapons = weapons;
+      const maxBefore = derivePlayerStats(p.stats, this.base).maxHp;
       const now = applyCard(p.stats, card);
       let target = null;
       if (Effects.needsTeammate(card)) {
@@ -329,8 +334,11 @@ export class Versus {
         if (!free.includes(target)) target = free.length ? this.rng.pick(free) : null;
       }
       Effects.picked(p, now, pools[p.team] ||= {}, target);
-      const maxAfter = derivePlayerStats(p.stats, this.base).maxHp;
-      if (p.hp > 0) p.hp = Math.min(maxAfter, Math.round(Effects.pickHeal('healNow', p.hp, now, maxAfter)));
+      // 上限多了多少就同時補多少（不是治療），再加上自己立刻回的血（回血的牌吃自己的治療效率，同 Run.finishPicks）
+      const d = derivePlayerStats(p.stats, this.base);
+      const maxAfter = d.maxHp;
+      const mult = Effects.healMult({ mods: d.mods });
+      if (p.hp > 0) p.hp = Math.min(maxAfter, Math.round(Effects.pickHeal('healNow', p.hp + (maxAfter - maxBefore), now, maxAfter, mult)));
       const entry = { playerId: p.id, cardId: card.id, weapons: p.weapons.slice(), discarded };
       if (target) entry.link = target;
       summary.push(entry);
@@ -339,8 +347,10 @@ export class Versus {
     for (const p of this.players.values()) {
       const pool = pools[p.team];
       if (!pool || p.hp <= 0) continue;
-      const maxHp = derivePlayerStats(p.stats, this.base).maxHp;
-      const hp = Effects.pickHeal('healForTeam', Effects.pickHeal('healFromTeammates', p.hp, pool, p), pool, p, maxHp);
+      const d = derivePlayerStats(p.stats, this.base);
+      const maxHp = d.maxHp;
+      const mult = Effects.healMult({ mods: d.mods });
+      const hp = Effects.pickHeal('healForTeam', Effects.pickHeal('healFromTeammates', p.hp, pool, p, mult), pool, p, maxHp, mult);
       p.hp = Math.min(maxHp, Math.round(hp));
     }
     // 套到場上活著的角色身上（上限、速度、體型、mods、武器欄、連結、血量），體型變了大家重新站好

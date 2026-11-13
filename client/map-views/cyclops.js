@@ -176,7 +176,7 @@ function sealImpact(c, b) {
   const match = c.match;
   for (const id of b.killed || []) {
     const e = match.byId(id);
-    if (e && e.alive) e.die('crushed');
+    if (e && e.alive) e.expire('crushed');   // 伺服器說壓死了（被效果救回來的不在 killed 裡）
   }
   const r = sealLedge(match, b.ledge);
   if (r) c.fx.repaint(r.rect);

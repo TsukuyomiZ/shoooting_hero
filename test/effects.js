@@ -189,7 +189,8 @@ await test('從登記表算出來的清單以以前寫死的開頭：DEFAULT_MOD
     'derived fields ' + fields);
   assert(J(d.mods) === J(DEFAULT_MODS), 'derived mods');
   const now = applyCard(stats, { effects: { maxHp: 20, heal: 5, link: 1, damagePct: 3 } });
-  assert(J(Object.keys(now)) === J(INSTANT_KEYS) && now.heal === 25 && now.link === 1 && stats.maxHp === 20 && stats.damagePct === 3,
+  // 2026-11-10 起加上限的牌同時補的血不再加進 now.heal（run.js 照上限多了多少補；回血的牌才吃治療效率），now.heal 只有牌上的 heal
+  assert(J(Object.keys(now)) === J(INSTANT_KEYS) && now.heal === 5 && now.link === 1 && stats.maxHp === 20 && stats.damagePct === 3,
     'applyCard ' + J(now));
   return { mods: mods.length };
 });

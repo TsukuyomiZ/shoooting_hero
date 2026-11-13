@@ -263,10 +263,11 @@ await test('牌當場套到角色身上：上限加多少就回多少、體型 /
   const me = v.match.byId('h1');
   me.hp = 200;   // 打過一輪，掉了一點血
   assert(toPick(io, v), 'pick');
-  v.handle('h1', { t: 'pick', cardId: 'titan_frame' });   // 血量上限 +100（同時回 100）、受傷 -5%、體型 +10%
+  v.handle('h1', { t: 'pick', cardId: 'titan_frame' });   // 血量上限 +100（同時回 100）、受傷 -5%、體型照牌上的 sizePct（2026-11-10 起 +30%）
   const done = io.take('roundPicks')[0];
   assert(me.maxHp === V.hp + 100 && me.hp === 300, `maxHp ${me.maxHp} hp ${me.hp}`);
-  assert(Math.abs(me.h - 30 * 1.1) < 1e-9 && Math.abs(me.hw - 9 * 1.1) < 1e-9, 'size');
+  const grow = 1 + card('titan_frame').effects.sizePct / 100;
+  assert(Math.abs(me.h - 30 * grow) < 1e-9 && Math.abs(me.hw - 9 * grow) < 1e-9, 'size ' + J({ h: me.h, hw: me.hw }));
   // 電腦玩家：稀有度最高的（巨人骨架 紫）
   assert(done.summary.filter(s => s.playerId !== 'h1').every(s => s.cardId === 'titan_frame'), 'bots take the rarest');
   for (const [id, c] of Object.entries(done.carry)) cm.refit(cm.byId(id), c);

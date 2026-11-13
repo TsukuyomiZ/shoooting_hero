@@ -1097,9 +1097,11 @@ test('恩賜之杖每回合回血 1%；祈願之杖全隊回血 50%；胖老爹�
   applyCardForTest(st, 'family_bucket');
   applyCardForTest(st, 'titan_frame');
   const d = derivePlayerStats(st);
-  assert(Math.abs(d.size - 1.11) < 1e-12 && Math.abs(d.moveSpeed - CONFIG.PLAYER.moveSpeed * 0.99) < 1e-9, 'size / speed ' + JSON.stringify(d));
+  // 體型照兩張牌現在的 sizePct（使用者會調：2026-11-10 巨人骨架從 +10% 改成 +30%）
+  const size = 1 + (cardById('family_bucket').effects.sizePct + cardById('titan_frame').effects.sizePct) / 100;
+  assert(Math.abs(d.size - size) < 1e-12 && Math.abs(d.moveSpeed - CONFIG.PLAYER.moveSpeed * 0.99) < 1e-9, 'size / speed ' + JSON.stringify(d));
   const big = new Match({ players: mkPlayers(1), seed: 1, carry: { p1: { size: d.size } } }).players[0];
-  assert(Math.abs(big.hw - 9 * 1.11) < 1e-9 && Math.abs(big.h - 30 * 1.11) < 1e-9, 'hitbox scaled');
+  assert(Math.abs(big.hw - 9 * size) < 1e-9 && Math.abs(big.h - 30 * size) < 1e-9, 'hitbox scaled');
 
   const io = new FakeIo();
   const run = new Run({ players: mkPlayers(2), seed: 6, io, cards: CARDS.cards });

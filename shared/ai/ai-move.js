@@ -80,8 +80,9 @@ export function planWalk(match, actor) {
         const d = Math.abs(g.x - actor.x);
         if (d < 1) break;
         // 斷線代打的玩家（玩家角色，含勝者為王的電腦玩家；敵人照舊）：分身走這一段流血扣到倒下（或只剩 TAKEOVER_BLEED_HP 點）就不選，試短一點的；
-        // 每一段都會這樣 → 這回合不走（站著開火）。不替斷線的人把自己走死
-        if (actor.isPlayer && g.hp < actor.hp && g.hp <= TAKEOVER_BLEED_HP) continue;
+        // 每一段都會這樣 → 這回合不走（站著開火）。不替斷線的人把自己走死；分身走到倒下又被效果救回來（例如人工心臟，revives 變多）也一樣不選
+        // （不替他把整場只有一次的復活用掉）
+        if (actor.isPlayer && (g.revives > actor.revives || (g.hp < actor.hp && g.hp <= TAKEOVER_BLEED_HP))) continue;
         // n < f = 半路就被擋下來（走到邊上 / 同伴前面）
         pick = better(pick, { dir, f, gap, d, tier: tierOf(fire(g.x, g.y), d, goal, n < f) });
         if (pick.tier === 1) break;

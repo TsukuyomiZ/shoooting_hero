@@ -295,6 +295,7 @@ export class Run {
       p.cards.push(card);
       const { weapons, discarded } = equipWeapon(p.weapons, card, this.discards[p.id]);
       p.weapons = weapons;
+      const maxBefore = derivePlayerStats(p.stats).maxHp;
       const now = applyCard(p.stats, card);
       // 要指定隊友的牌：照他選的；超時 / 斷線就從還能選的隊友裡隨機挑一位（會避開這一輪已經選了他的人，攜手之伴的那兩人本來就會連上）
       let target = null;
@@ -305,19 +306,23 @@ export class Run {
       }
       // 例如腎上腺素記下一關的加成、全隊 / 隊友回血先記著、攜手之伴把指定的隊友記進 links
       Effects.picked(p, now, pool, target);
-      // 第一輪：自己立刻回的血（對著套完牌的新上限）
-      const maxAfter = derivePlayerStats(p.stats).maxHp;
-      if (p.hp > 0) p.hp = Math.min(maxAfter, Math.round(Effects.pickHeal('healNow', p.hp, now, maxAfter)));
+      // 第一輪：上限多了多少就同時補多少（不是治療），再加上自己立刻回的血（對著套完牌的新上限；回血的牌吃自己的治療效率，見 healMult）
+      const d = derivePlayerStats(p.stats);
+      const maxAfter = d.maxHp;
+      const mult = Effects.healMult({ mods: d.mods });
+      if (p.hp > 0) p.hp = Math.min(maxAfter, Math.round(Effects.pickHeal('healNow', p.hp + (maxAfter - maxBefore), now, maxAfter, mult)));
       const entry = { playerId: p.id, cardId: card.id, weapons: p.weapons.slice(), discarded };
       if (target) entry.link = target;   // 選牌結果的 link = 指定的隊友（同步格式）
       summary.push(entry);
     }
     // 第二輪：隊友的牌給的回血（醫療包）、全隊回血（祈願之杖）等大家的牌都套完再算，用每個人自己新的上限；
-    // 倒下的人下一關本來就會復活
+    // 倒下的人下一關本來就會復活。回多少照被回血的人自己的治療效率
     for (const p of list) {
       if (p.hp <= 0) continue;
-      const maxHp = derivePlayerStats(p.stats).maxHp;
-      const hp = Effects.pickHeal('healForTeam', Effects.pickHeal('healFromTeammates', p.hp, pool, p), pool, p, maxHp);
+      const d = derivePlayerStats(p.stats);
+      const maxHp = d.maxHp;
+      const mult = Effects.healMult({ mods: d.mods });
+      const hp = Effects.pickHeal('healForTeam', Effects.pickHeal('healFromTeammates', p.hp, pool, p, mult), pool, p, maxHp, mult);
       p.hp = Math.min(maxHp, Math.round(hp));
     }
     for (const s of summary) {
